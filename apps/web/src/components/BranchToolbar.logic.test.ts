@@ -11,6 +11,7 @@ import {
   resolveEnvModeLabel,
   resolveBranchToolbarValue,
   resolveLockedWorkspaceLabel,
+  resolveProjectLockedLabel,
   shouldIncludeBranchPickerItem,
 } from "./BranchToolbar.logic";
 
@@ -165,6 +166,16 @@ describe("resolveLockedWorkspaceLabel", () => {
 
   it("uses a shorter label for an attached worktree", () => {
     expect(resolveLockedWorkspaceLabel("/repo/.t3/worktrees/feature-a")).toBe("Worktree");
+  });
+});
+
+describe("resolveProjectLockedLabel", () => {
+  it("returns the project title when one is provided", () => {
+    expect(resolveProjectLockedLabel({ title: "my-app" })).toBe("my-app");
+  });
+
+  it("falls back to a generic label when no project is set", () => {
+    expect(resolveProjectLockedLabel(null)).toBe("Project");
   });
 });
 

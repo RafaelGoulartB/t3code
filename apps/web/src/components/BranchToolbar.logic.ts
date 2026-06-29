@@ -12,6 +12,10 @@ export interface EnvironmentOption {
   isPrimary: boolean;
 }
 
+export function resolveProjectLockedLabel(project: { title: string } | null): string {
+  return project?.title ?? "Project";
+}
+
 export const EnvMode = Schema.Literals(["local", "worktree"]);
 export type EnvMode = typeof EnvMode.Type;
 
