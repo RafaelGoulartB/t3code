@@ -4,6 +4,7 @@ import {
   ChevronRightIcon,
   CloudIcon,
   ContainerIcon,
+  FolderIcon,
   FolderPlusIcon,
   Globe2Icon,
   LoaderIcon,
@@ -43,10 +44,13 @@ import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-
 import { CSS } from "@dnd-kit/utilities";
 import {
   type ContextMenuItem,
+  DEFAULT_SIDEBAR_PROJECT_FOLDER_COLOR,
   DEFAULT_SERVER_SETTINGS,
   ProjectId,
   type ScopedThreadRef,
   type ResolvedKeybindingsConfig,
+  type SidebarProjectFolder,
+  type SidebarProjectFolderColor,
   type SidebarProjectGroupingMode,
   ThreadId,
 } from "@t3tools/contracts";
@@ -95,6 +99,7 @@ import { previewEnvironment } from "../state/preview";
 import {
   legacyProjectCwdPreferenceKey,
   resolveProjectExpanded,
+  resolveSidebarProjectFolderExpanded,
   useUiStateStore,
 } from "../uiStateStore";
 import {
@@ -220,6 +225,14 @@ import {
   type SidebarProjectGroupMember,
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
+import {
+  assignSidebarProjectToFolder,
+  buildSidebarProjectFolderBuckets,
+  createDefaultSidebarProjectFolder,
+  isSidebarProjectFolderColor,
+  resolveSidebarProjectFolderId,
+  type SidebarProjectFolderBucket,
+} from "../sidebarProjectFolders";
 import { SidebarProviderUpdatePill } from "./sidebar/SidebarProviderUpdatePill";
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
@@ -242,6 +255,39 @@ const PROJECT_GROUPING_MODE_LABELS: Record<SidebarProjectGroupingMode, string> =
 };
 const SIDEBAR_ICON_ACTION_BUTTON_CLASS =
   "inline-flex h-6 min-w-6 cursor-pointer items-center justify-center rounded-md px-[calc(--spacing(1)-1px)] text-muted-foreground/60 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring";
+const PROJECT_FOLDER_COLOR_VALUES: Record<string, string> = {
+  gray: "#71717a",
+  red: "#ef4444",
+  orange: "#f97316",
+  amber: "#f59e0b",
+  yellow: "#eab308",
+  green: "#22c55e",
+  teal: "#14b8a6",
+  cyan: "#06b6d4",
+  blue: "#3b82f6",
+  indigo: "#6366f1",
+  violet: "#8b5cf6",
+  pink: "#ec4899",
+  rose: "#f43f5e",
+};
+const PROJECT_FOLDER_COLOR_OPTIONS = Object.keys(
+  PROJECT_FOLDER_COLOR_VALUES,
+) as SidebarProjectFolderColor[];
+
+function resolveProjectFolderColorValue(color: SidebarProjectFolderColor): string {
+  return PROJECT_FOLDER_COLOR_VALUES[color] ?? color;
+}
+
+function createSidebarProjectFolderId(): string {
+  return `folder-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function removeSidebarProjectFolderAssignments(
+  assignments: Readonly<Record<string, string>>,
+  folderId: string,
+): Record<string, string> {
+  return Object.fromEntries(Object.entries(assignments).filter(([, value]) => value !== folderId));
+}
 
 function SidebarThreadDetailPrewarmer({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
   useEnvironmentThread(threadRef.environmentId, threadRef.threadId);
@@ -1063,6 +1109,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
 
 interface SidebarProjectItemProps {
   project: SidebarProjectSnapshot;
+  projectFolderKind: SidebarProjectFolderBucket["kind"];
   isThreadListExpanded: boolean;
   activeRouteThreadKey: string | null;
   newThreadShortcutLabel: string | null;
@@ -1109,6 +1156,13 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     (settings) => settings.confirmThreadArchive,
   );
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
+  const sidebarProjectFolders = useClientSettings((settings) => settings.sidebarProjectFolders);
+  const sidebarProjectFolderAssignments = useClientSettings(
+    (settings) => settings.sidebarProjectFolderAssignments,
+  );
+  const sidebarProjectFolderOrder = useClientSettings(
+    (settings) => settings.sidebarProjectFolderOrder,
+  );
   const serverConfigs = useServerConfigs();
   const deleteProject = useAtomCommand(projectEnvironment.delete, {
     reportFailure: false,
@@ -1216,6 +1270,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const [projectGroupingSelection, setProjectGroupingSelection] = useState<
     SidebarProjectGroupingMode | "inherit"
   >("inherit");
+  const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false);
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
   const confirmArchiveButtonRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -1244,6 +1299,14 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     }
     return counts;
   }, [memberProjectByScopedKey, project.memberProjects, projectThreads]);
+  const sidebarProjectFolderById = useMemo(
+    () => new Map(sidebarProjectFolders.map((folder) => [folder.id, folder] as const)),
+    [sidebarProjectFolders],
+  );
+  const currentProjectFolderId = useMemo(() => {
+    const validFolderIds = new Set(sidebarProjectFolders.map((folder) => folder.id));
+    return resolveSidebarProjectFolderId(project, sidebarProjectFolderAssignments, validFolderIds);
+  }, [project, sidebarProjectFolderAssignments, sidebarProjectFolders]);
 
   const { projectStatus, visibleProjectThreads, orderedProjectThreadKeys } = useMemo(() => {
     const lastVisitedAtByThreadKey = new Map(
@@ -1434,6 +1497,46 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     [projectGroupingSettings.sidebarProjectGroupingOverrides],
   );
 
+  const moveProjectToFolder = useCallback(
+    (folderId: string | null) => {
+      updateSettings({
+        sidebarProjectFolderAssignments: assignSidebarProjectToFolder({
+          assignments: sidebarProjectFolderAssignments,
+          project,
+          folderId,
+        }),
+      });
+    },
+    [project, sidebarProjectFolderAssignments, updateSettings],
+  );
+
+  const createFolderForProject = useCallback(
+    (folder: { name: string; color: SidebarProjectFolderColor }) => {
+      const nextFolder = createDefaultSidebarProjectFolder({
+        id: createSidebarProjectFolderId(),
+        name: folder.name,
+        color: folder.color,
+      });
+      updateSettings({
+        sidebarProjectFolders: [...sidebarProjectFolders, nextFolder],
+        sidebarProjectFolderOrder: [...sidebarProjectFolderOrder, nextFolder.id],
+        sidebarProjectFolderAssignments: assignSidebarProjectToFolder({
+          assignments: sidebarProjectFolderAssignments,
+          project,
+          folderId: nextFolder.id,
+        }),
+      });
+      setCreateFolderDialogOpen(false);
+    },
+    [
+      project,
+      sidebarProjectFolderAssignments,
+      sidebarProjectFolderOrder,
+      sidebarProjectFolders,
+      updateSettings,
+    ],
+  );
+
   const removeProject = useCallback(
     async (member: SidebarProjectGroupMember, options: { force?: boolean } = {}) => {
       const memberProjectRef = scopeProjectRef(member.environmentId, member.id);
@@ -1595,6 +1698,19 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         if (!api) return;
 
         const actionHandlers = new Map<string, () => Promise<void> | void>();
+        const moveFolderItems: ContextMenuItem<string>[] = sidebarProjectFolders.map((folder) => {
+          const id = `move-folder:${folder.id}`;
+          actionHandlers.set(id, () => moveProjectToFolder(folder.id));
+          return {
+            id,
+            label: folder.name,
+            disabled: currentProjectFolderId === folder.id,
+          };
+        });
+        const createFolderId = "move-folder:new";
+        actionHandlers.set(createFolderId, () => setCreateFolderDialogOpen(true));
+        const removeFolderId = "move-folder:remove";
+        actionHandlers.set(removeFolderId, () => moveProjectToFolder(null));
         const makeLeaf = (
           action: "rename" | "grouping" | "copy-path" | "delete",
           member: SidebarProjectGroupMember,
@@ -1665,6 +1781,24 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           [
             buildTargetedItem("rename", "Rename"),
             buildTargetedItem("grouping", "Group into..."),
+            {
+              id: "move-folder:submenu",
+              label: "Move to folder",
+              children: [
+                ...moveFolderItems,
+                { id: createFolderId, label: "New folder..." },
+                ...(currentProjectFolderId
+                  ? [
+                      {
+                        id: removeFolderId,
+                        label: `Remove from ${
+                          sidebarProjectFolderById.get(currentProjectFolderId)?.name ?? "folder"
+                        }`,
+                      },
+                    ]
+                  : []),
+              ],
+            },
             buildTargetedItem("copy-path", "Copy Path"),
             buildTargetedItem("delete", "Remove", {
               destructive: true,
@@ -1685,11 +1819,15 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     },
     [
       copyPathToClipboard,
+      currentProjectFolderId,
       handleRemoveProject,
+      moveProjectToFolder,
       openProjectGroupingDialog,
       openProjectRenameDialog,
       project.groupedProjectCount,
       project.memberProjects,
+      sidebarProjectFolderById,
+      sidebarProjectFolders,
       suppressProjectClickForContextMenuRef,
     ],
   );
@@ -2459,13 +2597,27 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           </DialogFooter>
         </DialogPopup>
       </Dialog>
+      <ProjectFolderDialog
+        open={createFolderDialogOpen}
+        title="New folder"
+        description={`Create a folder and move ${project.displayName} into it.`}
+        initialName="New folder"
+        initialColor={DEFAULT_SIDEBAR_PROJECT_FOLDER_COLOR}
+        submitLabel="Create"
+        onOpenChange={setCreateFolderDialogOpen}
+        onSubmit={createFolderForProject}
+      />
     </>
   );
 });
 
 const SidebarProjectListRow = memo(function SidebarProjectListRow(props: SidebarProjectItemProps) {
   return (
-    <SidebarMenuItem className="rounded-md">
+    <SidebarMenuItem
+      className={`rounded-md ${
+        props.projectFolderKind === "folder" ? "ml-3 border-sidebar-border/70 border-l pl-2" : ""
+      }`}
+    >
       <SidebarProjectItem {...props} />
     </SidebarMenuItem>
   );
@@ -2700,13 +2852,55 @@ function ProjectSortMenu({
   );
 }
 
+function SidebarProjectFolderHeader(props: {
+  readonly bucket: SidebarProjectFolderBucket;
+  readonly expanded: boolean;
+  readonly onToggle: () => void;
+  readonly onContextMenu: (event: React.MouseEvent) => void;
+}) {
+  const { bucket, expanded, onContextMenu, onToggle } = props;
+  const colorValue = bucket.color ? resolveProjectFolderColorValue(bucket.color) : null;
+  return (
+    <SidebarMenuItem className="mt-1 first:mt-0 rounded-md">
+      <button
+        type="button"
+        className="group/folder flex h-7 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-muted-foreground/75 hover:bg-accent hover:text-foreground"
+        onClick={onToggle}
+        onContextMenu={onContextMenu}
+      >
+        <ChevronRightIcon
+          className={`size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-150 ${
+            expanded ? "rotate-90" : ""
+          }`}
+        />
+        {colorValue ? (
+          <span
+            className="size-2.5 shrink-0 rounded-full"
+            style={{ backgroundColor: colorValue }}
+          />
+        ) : (
+          <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
+        )}
+        <span className="min-w-0 flex-1 truncate text-[10px] font-medium uppercase tracking-wider">
+          {bucket.name}
+        </span>
+        <span className="shrink-0 text-[10px] text-muted-foreground/55">
+          {bucket.projects.length}
+        </span>
+      </button>
+    </SidebarMenuItem>
+  );
+}
+
 function SortableProjectItem({
   projectId,
   disabled = false,
+  nested = false,
   children,
 }: {
   projectId: string;
   disabled?: boolean;
+  nested?: boolean;
   children: (handleProps: SortableProjectHandleProps) => React.ReactNode;
 }) {
   const {
@@ -2727,6 +2921,8 @@ function SortableProjectItem({
         transition,
       }}
       className={`group/menu-item relative rounded-md ${
+        nested ? "ml-3 border-sidebar-border/70 border-l pl-2" : ""
+      } ${
         isDragging ? "z-20 opacity-80" : ""
       } ${isOver && !isDragging ? "ring-1 ring-primary/40" : ""}`}
       data-sidebar="menu-item"
@@ -2734,6 +2930,141 @@ function SortableProjectItem({
     >
       {children({ attributes, listeners, setActivatorNodeRef })}
     </li>
+  );
+}
+
+interface ProjectFolderDialogProps {
+  open: boolean;
+  title: string;
+  description: string;
+  initialName: string;
+  initialColor: SidebarProjectFolderColor;
+  submitLabel?: string;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: (folder: { name: string; color: SidebarProjectFolderColor }) => void;
+}
+
+function ProjectFolderDialog(props: ProjectFolderDialogProps) {
+  const {
+    open,
+    title,
+    description,
+    initialName,
+    initialColor,
+    submitLabel = "Save",
+    onOpenChange,
+    onSubmit,
+  } = props;
+  const [name, setName] = useState(initialName);
+  const [color, setColor] = useState<SidebarProjectFolderColor>(initialColor);
+  const [customColor, setCustomColor] = useState(
+    initialColor.startsWith("#") ? initialColor : "#3b82f6",
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    setName(initialName);
+    setColor(initialColor);
+    setCustomColor(initialColor.startsWith("#") ? initialColor : "#3b82f6");
+  }, [initialColor, initialName, open]);
+
+  const submit = useCallback(() => {
+    const trimmedName = name.trim();
+    if (trimmedName.length === 0) {
+      toastManager.add({
+        type: "warning",
+        title: "Folder name cannot be empty",
+      });
+      return;
+    }
+
+    if (!isSidebarProjectFolderColor(color)) {
+      toastManager.add({
+        type: "warning",
+        title: "Use a color like #3b82f6",
+      });
+      return;
+    }
+
+    onSubmit({ name: trimmedName, color });
+  }, [color, name, onSubmit]);
+
+  const commitCustomColor = useCallback(
+    (value: string) => {
+      setCustomColor(value);
+      if (isSidebarProjectFolderColor(value)) {
+        setColor(value);
+      }
+    },
+    [setColor],
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogPopup className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <DialogPanel className="space-y-4">
+          <div className="grid gap-1.5">
+            <span className="text-xs font-medium text-foreground">Folder name</span>
+            <Input
+              aria-label="Folder name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  submit();
+                }
+              }}
+            />
+          </div>
+          <div className="grid gap-2">
+            <span className="text-xs font-medium text-foreground">Color</span>
+            <div className="flex flex-wrap gap-2">
+              {PROJECT_FOLDER_COLOR_OPTIONS.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  aria-label={`${option} folder color`}
+                  aria-pressed={color === option}
+                  className="size-6 rounded-md border border-border/60 outline-hidden ring-ring transition hover:scale-105 focus-visible:ring-2 aria-pressed:ring-2"
+                  style={{ backgroundColor: resolveProjectFolderColorValue(option) }}
+                  onClick={() => setColor(option)}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="grid gap-1.5">
+            <span className="text-xs font-medium text-foreground">Custom color</span>
+            <div className="flex items-center gap-2">
+              <span
+                className="size-6 shrink-0 rounded-md border border-border/60"
+                style={{
+                  backgroundColor: isSidebarProjectFolderColor(customColor)
+                    ? customColor
+                    : "transparent",
+                }}
+              />
+              <Input
+                aria-label="Custom folder color"
+                value={customColor}
+                onChange={(event) => commitCustomColor(event.target.value)}
+                placeholder="#3b82f6"
+              />
+            </div>
+          </div>
+        </DialogPanel>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={submit}>{submitLabel}</Button>
+        </DialogFooter>
+      </DialogPopup>
+    </Dialog>
   );
 }
 
@@ -2852,7 +3183,10 @@ interface SidebarProjectsContentProps {
   handleNewThread: ReturnType<typeof useNewThreadHandler>;
   archiveThread: ReturnType<typeof useThreadActions>["archiveThread"];
   deleteThread: ReturnType<typeof useThreadActions>["deleteThread"];
-  sortedProjects: readonly SidebarProjectSnapshot[];
+  projectFolderBuckets: readonly SidebarProjectFolderBucket[];
+  sidebarProjectFolders: readonly SidebarProjectFolder[];
+  sidebarProjectFolderAssignments: Readonly<Record<string, string>>;
+  sidebarProjectFolderOrder: readonly string[];
   expandedThreadListsByProject: ReadonlySet<string>;
   activeRouteProjectKey: string | null;
   routeThreadKey: string | null;
@@ -2893,7 +3227,10 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     handleNewThread,
     archiveThread,
     deleteThread,
-    sortedProjects,
+    projectFolderBuckets,
+    sidebarProjectFolders,
+    sidebarProjectFolderAssignments,
+    sidebarProjectFolderOrder,
     expandedThreadListsByProject,
     activeRouteProjectKey,
     routeThreadKey,
@@ -2933,6 +3270,102 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
       updateSettings({ sidebarThreadPreviewCount: count });
     },
     [updateSettings],
+  );
+  const setSidebarProjectFolderExpanded = useUiStateStore(
+    (state) => state.setSidebarProjectFolderExpanded,
+  );
+  const sidebarProjectFolderExpandedById = useUiStateStore(
+    (state) => state.sidebarProjectFolderExpandedById,
+  );
+  const [folderDialogState, setFolderDialogState] = useState<
+    { mode: "create" } | { mode: "edit"; folder: SidebarProjectFolder } | null
+  >(null);
+  const closeFolderDialog = useCallback(() => {
+    setFolderDialogState(null);
+  }, []);
+  const saveFolderDialog = useCallback(
+    (folder: { name: string; color: SidebarProjectFolderColor }) => {
+      if (folderDialogState?.mode === "edit") {
+        updateSettings({
+          sidebarProjectFolders: sidebarProjectFolders.map((entry) =>
+            entry.id === folderDialogState.folder.id
+              ? { ...entry, name: folder.name, color: folder.color }
+              : entry,
+          ),
+        });
+        closeFolderDialog();
+        return;
+      }
+
+      const nextFolder = createDefaultSidebarProjectFolder({
+        id: createSidebarProjectFolderId(),
+        name: folder.name,
+        color: folder.color,
+      });
+      updateSettings({
+        sidebarProjectFolders: [...sidebarProjectFolders, nextFolder],
+        sidebarProjectFolderOrder: [...sidebarProjectFolderOrder, nextFolder.id],
+      });
+      closeFolderDialog();
+    },
+    [
+      closeFolderDialog,
+      folderDialogState,
+      sidebarProjectFolderOrder,
+      sidebarProjectFolders,
+      updateSettings,
+    ],
+  );
+  const deleteFolder = useCallback(
+    (folderId: string) => {
+      updateSettings({
+        sidebarProjectFolders: sidebarProjectFolders.filter((folder) => folder.id !== folderId),
+        sidebarProjectFolderOrder: sidebarProjectFolderOrder.filter((id) => id !== folderId),
+        sidebarProjectFolderAssignments: removeSidebarProjectFolderAssignments(
+          sidebarProjectFolderAssignments,
+          folderId,
+        ),
+      });
+    },
+    [
+      sidebarProjectFolderAssignments,
+      sidebarProjectFolderOrder,
+      sidebarProjectFolders,
+      updateSettings,
+    ],
+  );
+  const handleFolderContextMenu = useCallback(
+    (folder: SidebarProjectFolderBucket, event: React.MouseEvent) => {
+      if (folder.kind !== "folder") return;
+      event.preventDefault();
+      void (async () => {
+        const api = readLocalApi();
+        if (!api) return;
+        const clicked = await api.contextMenu.show(
+          [
+            { id: "rename", label: "Rename" },
+            { id: "color", label: "Change color" },
+            { id: "delete", label: "Delete folder", destructive: true },
+          ],
+          { x: event.clientX, y: event.clientY },
+        );
+        if (clicked === "rename" || clicked === "color") {
+          setFolderDialogState({
+            mode: "edit",
+            folder: {
+              id: folder.id,
+              name: folder.name,
+              color: folder.color ?? DEFAULT_SIDEBAR_PROJECT_FOLDER_COLOR,
+            },
+          });
+          return;
+        }
+        if (clicked === "delete") {
+          deleteFolder(folder.id);
+        }
+      })();
+    },
+    [deleteFolder],
   );
 
   return (
@@ -3005,6 +3438,21 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                 render={
                   <button
                     type="button"
+                    aria-label="New folder"
+                    className="inline-flex h-6 min-w-6 cursor-pointer items-center justify-center rounded-md px-[calc(--spacing(1)-1px)] text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+                    onClick={() => setFolderDialogState({ mode: "create" })}
+                  />
+                }
+              >
+                <FolderIcon className="size-3.5" />
+              </TooltipTrigger>
+              <TooltipPopup side="right">New folder</TooltipPopup>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
                     aria-label="Add project"
                     data-testid="sidebar-add-project-trigger"
                     className="inline-flex h-6 min-w-6 cursor-pointer items-center justify-center rounded-md px-[calc(--spacing(1)-1px)] text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
@@ -3029,66 +3477,126 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
             onDragCancel={handleProjectDragCancel}
           >
             <SidebarMenu>
-              <SortableContext
-                items={sortedProjects.map((project) => project.projectKey)}
-                strategy={verticalListSortingStrategy}
-              >
-                {sortedProjects.map((project) => (
-                  <SortableProjectItem key={project.projectKey} projectId={project.projectKey}>
-                    {(dragHandleProps) => (
-                      <SidebarProjectItem
-                        project={project}
-                        isThreadListExpanded={expandedThreadListsByProject.has(project.projectKey)}
-                        activeRouteThreadKey={
-                          activeRouteProjectKey === project.projectKey ? routeThreadKey : null
-                        }
-                        newThreadShortcutLabel={newThreadShortcutLabel}
-                        handleNewThread={handleNewThread}
-                        archiveThread={archiveThread}
-                        deleteThread={deleteThread}
-                        threadJumpLabelByKey={threadJumpLabelByKey}
-                        attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
-                        expandThreadListForProject={expandThreadListForProject}
-                        collapseThreadListForProject={collapseThreadListForProject}
-                        dragInProgressRef={dragInProgressRef}
-                        suppressProjectClickAfterDragRef={suppressProjectClickAfterDragRef}
-                        suppressProjectClickForContextMenuRef={
-                          suppressProjectClickForContextMenuRef
-                        }
-                        isManualProjectSorting={isManualProjectSorting}
-                        dragHandleProps={dragHandleProps}
+              {projectFolderBuckets.map((bucket) => {
+                const folderExpanded =
+                  bucket.kind === "unfiled"
+                    ? true
+                    : resolveSidebarProjectFolderExpanded(
+                        sidebarProjectFolderExpandedById,
+                        bucket.id,
+                      );
+                return (
+                  <React.Fragment key={bucket.id}>
+                    {bucket.kind === "folder" ? (
+                      <SidebarProjectFolderHeader
+                        bucket={bucket}
+                        expanded={folderExpanded}
+                        onToggle={() => setSidebarProjectFolderExpanded(bucket.id, !folderExpanded)}
+                        onContextMenu={(event) => handleFolderContextMenu(bucket, event)}
                       />
-                    )}
-                  </SortableProjectItem>
-                ))}
-              </SortableContext>
+                    ) : null}
+                    {folderExpanded ? (
+                      <SortableContext
+                        items={bucket.projects.map((project) => project.projectKey)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        {bucket.projects.map((project) => (
+                          <SortableProjectItem
+                            key={project.projectKey}
+                            projectId={project.projectKey}
+                            nested={bucket.kind === "folder"}
+                          >
+                            {(dragHandleProps) => (
+                              <SidebarProjectItem
+                                project={project}
+                                projectFolderKind={bucket.kind}
+                                isThreadListExpanded={expandedThreadListsByProject.has(
+                                  project.projectKey,
+                                )}
+                                activeRouteThreadKey={
+                                  activeRouteProjectKey === project.projectKey
+                                    ? routeThreadKey
+                                    : null
+                                }
+                                newThreadShortcutLabel={newThreadShortcutLabel}
+                                handleNewThread={handleNewThread}
+                                archiveThread={archiveThread}
+                                deleteThread={deleteThread}
+                                threadJumpLabelByKey={threadJumpLabelByKey}
+                                attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
+                                expandThreadListForProject={expandThreadListForProject}
+                                collapseThreadListForProject={collapseThreadListForProject}
+                                dragInProgressRef={dragInProgressRef}
+                                suppressProjectClickAfterDragRef={suppressProjectClickAfterDragRef}
+                                suppressProjectClickForContextMenuRef={
+                                  suppressProjectClickForContextMenuRef
+                                }
+                                isManualProjectSorting={isManualProjectSorting}
+                                dragHandleProps={dragHandleProps}
+                              />
+                            )}
+                          </SortableProjectItem>
+                        ))}
+                      </SortableContext>
+                    ) : null}
+                  </React.Fragment>
+                );
+              })}
             </SidebarMenu>
           </DndContext>
         ) : (
           <SidebarMenu ref={attachProjectListAutoAnimateRef}>
-            {sortedProjects.map((project) => (
-              <SidebarProjectListRow
-                key={project.projectKey}
-                project={project}
-                isThreadListExpanded={expandedThreadListsByProject.has(project.projectKey)}
-                activeRouteThreadKey={
-                  activeRouteProjectKey === project.projectKey ? routeThreadKey : null
-                }
-                newThreadShortcutLabel={newThreadShortcutLabel}
-                handleNewThread={handleNewThread}
-                archiveThread={archiveThread}
-                deleteThread={deleteThread}
-                threadJumpLabelByKey={threadJumpLabelByKey}
-                attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
-                expandThreadListForProject={expandThreadListForProject}
-                collapseThreadListForProject={collapseThreadListForProject}
-                dragInProgressRef={dragInProgressRef}
-                suppressProjectClickAfterDragRef={suppressProjectClickAfterDragRef}
-                suppressProjectClickForContextMenuRef={suppressProjectClickForContextMenuRef}
-                isManualProjectSorting={isManualProjectSorting}
-                dragHandleProps={null}
-              />
-            ))}
+            {projectFolderBuckets.map((bucket) => {
+              const folderExpanded =
+                bucket.kind === "unfiled"
+                  ? true
+                  : resolveSidebarProjectFolderExpanded(
+                      sidebarProjectFolderExpandedById,
+                      bucket.id,
+                    );
+              return (
+                <React.Fragment key={bucket.id}>
+                  {bucket.kind === "folder" ? (
+                    <SidebarProjectFolderHeader
+                      bucket={bucket}
+                      expanded={folderExpanded}
+                      onToggle={() => setSidebarProjectFolderExpanded(bucket.id, !folderExpanded)}
+                      onContextMenu={(event) => handleFolderContextMenu(bucket, event)}
+                    />
+                  ) : null}
+                  {folderExpanded
+                    ? bucket.projects.map((project) => (
+                        <SidebarProjectListRow
+                          key={project.projectKey}
+                          project={project}
+                          projectFolderKind={bucket.kind}
+                          isThreadListExpanded={expandedThreadListsByProject.has(
+                            project.projectKey,
+                          )}
+                          activeRouteThreadKey={
+                            activeRouteProjectKey === project.projectKey ? routeThreadKey : null
+                          }
+                          newThreadShortcutLabel={newThreadShortcutLabel}
+                          handleNewThread={handleNewThread}
+                          archiveThread={archiveThread}
+                          deleteThread={deleteThread}
+                          threadJumpLabelByKey={threadJumpLabelByKey}
+                          attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
+                          expandThreadListForProject={expandThreadListForProject}
+                          collapseThreadListForProject={collapseThreadListForProject}
+                          dragInProgressRef={dragInProgressRef}
+                          suppressProjectClickAfterDragRef={suppressProjectClickAfterDragRef}
+                          suppressProjectClickForContextMenuRef={
+                            suppressProjectClickForContextMenuRef
+                          }
+                          isManualProjectSorting={isManualProjectSorting}
+                          dragHandleProps={null}
+                        />
+                      ))
+                    : null}
+                </React.Fragment>
+              );
+            })}
           </SidebarMenu>
         )}
 
@@ -3098,6 +3606,30 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
           </div>
         )}
       </SidebarGroup>
+      <ProjectFolderDialog
+        open={folderDialogState !== null}
+        title={folderDialogState?.mode === "edit" ? "Edit folder" : "New folder"}
+        description={
+          folderDialogState?.mode === "edit"
+            ? "Update this folder's name and color."
+            : "Create a folder for grouping sidebar projects."
+        }
+        initialName={
+          folderDialogState?.mode === "edit" ? folderDialogState.folder.name : "New folder"
+        }
+        initialColor={
+          folderDialogState?.mode === "edit"
+            ? folderDialogState.folder.color
+            : DEFAULT_SIDEBAR_PROJECT_FOLDER_COLOR
+        }
+        submitLabel={folderDialogState?.mode === "edit" ? "Save" : "Create"}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeFolderDialog();
+          }
+        }}
+        onSubmit={saveFolderDialog}
+      />
     </SidebarContent>
   );
 });
@@ -3116,6 +3648,14 @@ export default function Sidebar() {
   const sidebarProjectGroupingMode = useClientSettings((s) => s.sidebarProjectGroupingMode);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const sidebarThreadPreviewCount = useClientSettings((s) => s.sidebarThreadPreviewCount);
+  const sidebarProjectFolders = useClientSettings((s) => s.sidebarProjectFolders);
+  const sidebarProjectFolderAssignments = useClientSettings(
+    (s) => s.sidebarProjectFolderAssignments,
+  );
+  const sidebarProjectFolderOrder = useClientSettings((s) => s.sidebarProjectFolderOrder);
+  const sidebarProjectFolderExpandedById = useUiStateStore(
+    (store) => store.sidebarProjectFolderExpandedById,
+  );
   const updateSettings = useUpdateClientSettings();
   const handleNewThread = useNewThreadHandler();
   const { archiveThread, deleteThread } = useThreadActions();
@@ -3139,6 +3679,7 @@ export default function Sidebar() {
   const dragInProgressRef = useRef(false);
   const suppressProjectClickAfterDragRef = useRef(false);
   const suppressProjectClickForContextMenuRef = useRef(false);
+  const projectFolderIdByProjectKeyRef = useRef(new Map<string, string>());
   const desktopUpdateState = useDesktopUpdateState();
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
@@ -3323,6 +3864,13 @@ export default function Sidebar() {
       const activeProject = sidebarProjects.find((project) => project.projectKey === active.id);
       const overProject = sidebarProjects.find((project) => project.projectKey === over.id);
       if (!activeProject || !overProject) return;
+      const folderByProjectKey = projectFolderIdByProjectKeyRef.current;
+      if (
+        folderByProjectKey.get(activeProject.projectKey) !==
+        folderByProjectKey.get(overProject.projectKey)
+      ) {
+        return;
+      }
       const activeMemberKeys = activeProject.memberProjects.map(
         (member) => member.physicalProjectKey,
       );
@@ -3400,51 +3948,85 @@ export default function Sidebar() {
     sidebarProjects,
     visibleThreads,
   ]);
+  const projectFolderBuckets = useMemo(
+    () =>
+      buildSidebarProjectFolderBuckets({
+        projects: sortedProjects,
+        folders: sidebarProjectFolders,
+        folderOrder: sidebarProjectFolderOrder,
+        assignments: sidebarProjectFolderAssignments,
+      }),
+    [
+      sidebarProjectFolderAssignments,
+      sidebarProjectFolderOrder,
+      sidebarProjectFolders,
+      sortedProjects,
+    ],
+  );
+  projectFolderIdByProjectKeyRef.current = useMemo(() => {
+    const mapping = new Map<string, string>();
+    for (const bucket of projectFolderBuckets) {
+      for (const project of bucket.projects) {
+        mapping.set(project.projectKey, bucket.id);
+      }
+    }
+    return mapping;
+  }, [projectFolderBuckets]);
   const isManualProjectSorting = sidebarProjectSortOrder === "manual";
   const visibleSidebarThreadKeys = useMemo(
     () =>
-      sortedProjects.flatMap((project) => {
-        const projectThreads = sortThreads(
-          (threadsByProjectKey.get(project.projectKey) ?? []).filter(
-            (thread) => thread.archivedAt === null,
-          ),
-          sidebarThreadSortOrder,
-        );
-        const projectExpanded = resolveProjectExpanded(
-          projectExpandedById,
-          projectExpansionPreferenceKeys(project),
-        );
-        const activeThreadKey = routeThreadKey ?? undefined;
-        const pinnedCollapsedThread =
-          !projectExpanded && activeThreadKey
-            ? (projectThreads.find(
-                (thread) =>
-                  scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) ===
-                  activeThreadKey,
-              ) ?? null)
-            : null;
-        const shouldShowThreadPanel = projectExpanded || pinnedCollapsedThread !== null;
-        if (!shouldShowThreadPanel) {
+      projectFolderBuckets.flatMap((bucket) => {
+        const folderExpanded =
+          bucket.kind === "unfiled"
+            ? true
+            : resolveSidebarProjectFolderExpanded(sidebarProjectFolderExpandedById, bucket.id);
+        if (!folderExpanded) {
           return [];
         }
-        const isThreadListExpanded = expandedThreadListsByProject.has(project.projectKey);
-        const hasOverflowingThreads = projectThreads.length > sidebarThreadPreviewCount;
-        const previewThreads =
-          isThreadListExpanded || !hasOverflowingThreads
-            ? projectThreads
-            : projectThreads.slice(0, sidebarThreadPreviewCount);
-        const renderedThreads = pinnedCollapsedThread ? [pinnedCollapsedThread] : previewThreads;
-        return renderedThreads.map((thread) =>
-          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-        );
+        return bucket.projects.flatMap((project) => {
+          const projectThreads = sortThreads(
+            (threadsByProjectKey.get(project.projectKey) ?? []).filter(
+              (thread) => thread.archivedAt === null,
+            ),
+            sidebarThreadSortOrder,
+          );
+          const projectExpanded = resolveProjectExpanded(
+            projectExpandedById,
+            projectExpansionPreferenceKeys(project),
+          );
+          const activeThreadKey = routeThreadKey ?? undefined;
+          const pinnedCollapsedThread =
+            !projectExpanded && activeThreadKey
+              ? (projectThreads.find(
+                  (thread) =>
+                    scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) ===
+                    activeThreadKey,
+                ) ?? null)
+              : null;
+          const shouldShowThreadPanel = projectExpanded || pinnedCollapsedThread !== null;
+          if (!shouldShowThreadPanel) {
+            return [];
+          }
+          const isThreadListExpanded = expandedThreadListsByProject.has(project.projectKey);
+          const hasOverflowingThreads = projectThreads.length > sidebarThreadPreviewCount;
+          const previewThreads =
+            isThreadListExpanded || !hasOverflowingThreads
+              ? projectThreads
+              : projectThreads.slice(0, sidebarThreadPreviewCount);
+          const renderedThreads = pinnedCollapsedThread ? [pinnedCollapsedThread] : previewThreads;
+          return renderedThreads.map((thread) =>
+            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+          );
+        });
       }),
     [
       sidebarThreadSortOrder,
       sidebarThreadPreviewCount,
+      sidebarProjectFolderExpandedById,
       expandedThreadListsByProject,
       projectExpandedById,
       routeThreadKey,
-      sortedProjects,
+      projectFolderBuckets,
       threadsByProjectKey,
     ],
   );
@@ -3725,7 +4307,10 @@ export default function Sidebar() {
             handleNewThread={handleNewThread}
             archiveThread={archiveThread}
             deleteThread={deleteThread}
-            sortedProjects={sortedProjects}
+            projectFolderBuckets={projectFolderBuckets}
+            sidebarProjectFolders={sidebarProjectFolders}
+            sidebarProjectFolderAssignments={sidebarProjectFolderAssignments}
+            sidebarProjectFolderOrder={sidebarProjectFolderOrder}
             expandedThreadListsByProject={expandedThreadListsByProject}
             activeRouteProjectKey={activeRouteProjectKey}
             routeThreadKey={routeThreadKey}
