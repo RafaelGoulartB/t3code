@@ -21,7 +21,8 @@
           "dark": {
             "accent": "#cc7d5e",
             "background": "#2d2d2b",
-            "foreground": "#f9f9f7"
+            "foreground": "#f9f9f7",
+            "sidebar": "#1f1f1d"
           }
         }
       }
@@ -98,11 +99,13 @@
             const accent = parseHex(paletteColors.accent);
             const background = parseHex(paletteColors.background);
             const foreground = parseHex(paletteColors.foreground);
-            if (accent && background && foreground) {
+            const sidebar = parseHex(paletteColors.sidebar);
+            if (accent && background && foreground && sidebar) {
               document.documentElement.style.setProperty("--theme-accent", accent);
               document.documentElement.style.setProperty("--background", background);
               document.documentElement.style.setProperty("--foreground", foreground);
               document.documentElement.style.setProperty("--app-chrome-background", background);
+              document.documentElement.style.setProperty("--sidebar", sidebar);
               const chromeColor = background;
               document.documentElement.style.backgroundColor = chromeColor;
               themeColorMeta?.setAttribute("content", chromeColor);

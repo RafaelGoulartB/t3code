@@ -634,7 +634,9 @@ function ThemePaletteSection() {
           const uniqueId = `${DEFAULT_PALETTE_ID}-imported-${Date.now().toString(36)}`;
           const next = paletteFromImportCandidate(parsed, uniqueId);
           if (!next) {
-            throw new Error("Theme file is missing accent, background, or foreground colors.");
+            throw new Error(
+              "Theme file is missing accent, background, foreground, or sidebar colors.",
+            );
           }
           const finalId = availablePalettes.some((existing) => existing.id === next.id)
             ? `${next.id}-${Date.now().toString(36)}`
@@ -643,6 +645,7 @@ function ThemePaletteSection() {
           setPaletteColor("accent", finalPalette.dark.accent);
           setPaletteColor("background", finalPalette.dark.background);
           setPaletteColor("foreground", finalPalette.dark.foreground);
+          setPaletteColor("sidebar", finalPalette.dark.sidebar);
           setPalette(finalId);
           setPendingImportName(null);
           toastManager.add(
@@ -809,6 +812,11 @@ function ThemePaletteSection() {
             label="Foreground"
             value={paletteColors.foreground}
             onCommit={(value) => setPaletteColor("foreground", value)}
+          />
+          <PaletteColorRow
+            label="Sidebar"
+            value={paletteColors.sidebar}
+            onCommit={(value) => setPaletteColor("sidebar", value)}
           />
         </div>
       </SettingsRow>

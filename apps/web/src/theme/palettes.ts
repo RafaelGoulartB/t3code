@@ -2,6 +2,7 @@ export interface ThemeColors {
   accent: string;
   background: string;
   foreground: string;
+  sidebar: string;
 }
 
 export type ThemeFontStyle = "sans" | "serif" | "mono";
@@ -30,8 +31,9 @@ export function normalizeThemeColors(
   const accent = normalizeThemeHex(value.accent);
   const background = normalizeThemeHex(value.background);
   const foreground = normalizeThemeHex(value.foreground);
-  if (!accent || !background || !foreground) return undefined;
-  return { accent, background, foreground };
+  const sidebar = normalizeThemeHex(value.sidebar);
+  if (!accent || !background || !foreground || !sidebar) return undefined;
+  return { accent, background, foreground, sidebar };
 }
 
 export const DEFAULT_PALETTE_ID = "default";
@@ -46,6 +48,7 @@ export const BUILTIN_PALETTES: Readonly<Record<string, ThemePalette>> = {
       accent: "#cc7d5e",
       background: "#2d2d2b",
       foreground: "#f9f9f7",
+      sidebar: "#1f1f1d",
     },
   },
 };
@@ -69,8 +72,13 @@ export function resolvePaletteColors(
 }
 
 export function isPaletteEqual(a: ThemeColors, b: ThemeColors): boolean {
-  return a.accent === b.accent && a.background === b.background && a.foreground === b.foreground;
+  return (
+    a.accent === b.accent &&
+    a.background === b.background &&
+    a.foreground === b.foreground &&
+    a.sidebar === b.sidebar
+  );
 }
 
-export const THEME_COLOR_FIELDS = ["accent", "background", "foreground"] as const;
+export const THEME_COLOR_FIELDS = ["accent", "background", "foreground", "sidebar"] as const;
 export type ThemeColorField = (typeof THEME_COLOR_FIELDS)[number];

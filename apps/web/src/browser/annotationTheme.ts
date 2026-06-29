@@ -27,5 +27,6 @@ export function readPreviewAnnotationTheme(): DesktopPreviewAnnotationTheme {
     themeAccent: readVariable(styles, "--theme-accent", ""),
     themeBackground: readVariable(styles, "--background", ""),
     themeForeground: readVariable(styles, "--foreground", ""),
+    themeSidebar: readVariable(styles, "--sidebar", ""),
   };
 }

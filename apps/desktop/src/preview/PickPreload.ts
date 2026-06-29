@@ -82,6 +82,9 @@ const applyAnnotationTheme = (
   if (theme.themeForeground) {
     variables["--t3-theme-foreground"] = theme.themeForeground;
   }
+  if (theme.themeSidebar) {
+    variables["--t3-theme-sidebar"] = theme.themeSidebar;
+  }
   for (const [name, value] of Object.entries(variables)) {
     host.style.setProperty(name, value);
   }

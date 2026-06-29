@@ -349,10 +349,12 @@ function applyPaletteToDocument(
     style?.removeProperty("--foreground");
     style?.removeProperty("--app-chrome-background");
     style?.removeProperty("--theme-accent");
+    style?.removeProperty("--sidebar");
     return {
       accent: "",
       background: "",
       foreground: "",
+      sidebar: "",
     };
   }
   const colors = resolvePaletteColors(palette, resolvedTheme);
@@ -360,6 +362,7 @@ function applyPaletteToDocument(
   style?.setProperty("--foreground", colors.foreground);
   style?.setProperty("--app-chrome-background", colors.background);
   style?.setProperty("--theme-accent", colors.accent);
+  style?.setProperty("--sidebar", colors.sidebar);
   return colors;
 }
 
@@ -577,7 +580,7 @@ export function useTheme() {
   }, []);
 
   const setPaletteColor = useCallback(
-    (field: "accent" | "background" | "foreground", value: string) => {
+    (field: "accent" | "background" | "foreground" | "sidebar", value: string) => {
       if (typeof window === "undefined") return;
       const normalized = normalizeThemeHex(value);
       if (!normalized) return;

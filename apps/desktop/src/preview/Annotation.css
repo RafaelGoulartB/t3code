@@ -17,6 +17,7 @@
   --color-input: var(--t3-input);
   --color-ring: var(--t3-ring);
   --color-theme-accent: var(--t3-theme-accent);
+  --color-sidebar: var(--t3-theme-sidebar);
   --radius-sm: calc(var(--t3-radius) - 4px);
   --radius-md: calc(var(--t3-radius) - 2px);
   --radius-lg: var(--t3-radius);
@@ -47,6 +48,7 @@
   --t3-theme-accent: transparent;
   --t3-theme-background: transparent;
   --t3-theme-foreground: transparent;
+  --t3-theme-sidebar: transparent;
   color: var(--t3-foreground);
   font-family: var(--t3-font-sans);
 }

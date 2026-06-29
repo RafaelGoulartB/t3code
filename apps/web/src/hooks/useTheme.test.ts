@@ -334,17 +334,28 @@ describe("theme palette handling", () => {
         accent: "#cc7d5e",
         background: "#2d2d2b",
         foreground: "#f9f9f7",
+        sidebar: "#1f1f1d",
       }),
     ).toEqual({
       accent: "#cc7d5e",
       background: "#2d2d2b",
       foreground: "#f9f9f7",
+      sidebar: "#1f1f1d",
     });
     expect(
       normalizeThemeColors({
         accent: "not-a-color",
         background: "#2d2d2b",
         foreground: "#f9f9f7",
+        sidebar: "#1f1f1d",
+      }),
+    ).toBeUndefined();
+    expect(
+      normalizeThemeColors({
+        accent: "#cc7d5e",
+        background: "#2d2d2b",
+        foreground: "#f9f9f7",
+        sidebar: "not-a-color",
       }),
     ).toBeUndefined();
     expect(normalizeThemeColors(undefined)).toBeUndefined();
@@ -368,6 +379,7 @@ describe("theme palette handling", () => {
         accent: "#cc7d5e",
         background: "#2d2d2b",
         foreground: "#f9f9f7",
+        sidebar: "#1f1f1d",
       });
       expect(snapshot.palette.name).toBe("Dark theme");
 
@@ -378,6 +390,7 @@ describe("theme palette handling", () => {
       expect(setByName("--foreground")).toBe("#f9f9f7");
       expect(setByName("--app-chrome-background")).toBe("#2d2d2b");
       expect(setByName("--theme-accent")).toBe("#cc7d5e");
+      expect(setByName("--sidebar")).toBe("#1f1f1d");
     } finally {
       restore();
     }
@@ -394,6 +407,7 @@ describe("theme palette handling", () => {
       expect(removed.has("--foreground")).toBe(true);
       expect(removed.has("--app-chrome-background")).toBe(true);
       expect(removed.has("--theme-accent")).toBe(true);
+      expect(removed.has("--sidebar")).toBe(true);
     } finally {
       restore();
     }
@@ -411,6 +425,7 @@ describe("theme palette handling", () => {
           accent: "#123456",
           background: "#000000",
           foreground: "#ffffff",
+          sidebar: "#0a0a0a",
         },
       },
     };
@@ -426,6 +441,7 @@ describe("theme palette handling", () => {
       expect(snapshot.paletteColors.accent).toBe("#123456");
       expect(snapshot.paletteColors.background).toBe("#000000");
       expect(snapshot.paletteColors.foreground).toBe("#ffffff");
+      expect(snapshot.paletteColors.sidebar).toBe("#0a0a0a");
     } finally {
       env.restore();
     }
@@ -443,6 +459,7 @@ describe("theme palette handling", () => {
           accent: "not-a-hex",
           background: "#000000",
           foreground: "#ffffff",
+          sidebar: "#0a0a0a",
         },
       },
     };
@@ -456,6 +473,7 @@ describe("theme palette handling", () => {
       const snapshot = useTheme();
       // Malformed custom palette is skipped; the built-in default takes over.
       expect(snapshot.paletteColors.accent).toBe("#cc7d5e");
+      expect(snapshot.paletteColors.sidebar).toBe("#1f1f1d");
     } finally {
       env.restore();
     }
