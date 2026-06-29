@@ -11,10 +11,71 @@
     <meta name="theme-color" content="#161616" />
     <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <script type="application/json" id="t3code-builtin-palettes">
+      {
+        "default": {
+          "id": "default",
+          "name": "Dark theme",
+          "glyph": "Aa",
+          "fontStyle": "serif",
+          "dark": {
+            "accent": "#cc7d5e",
+            "background": "#2d2d2b",
+            "foreground": "#f9f9f7"
+          }
+        }
+      }
+    </script>
     <script>
       (() => {
         const LIGHT_BACKGROUND = "#ffffff";
         const DARK_BACKGROUND = "#161616";
+        const PALETTE_STORAGE_KEY = "t3code:theme-palette";
+        const CUSTOM_PALETTES_STORAGE_KEY = "t3code:theme-palettes-custom";
+        const DEFAULT_PALETTE_ID = "default";
+        const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
+
+        const parseHex = (raw) => {
+          if (typeof raw !== "string") return null;
+          const trimmed = raw.trim();
+          return HEX_COLOR_PATTERN.test(trimmed) ? trimmed.toLowerCase() : null;
+        };
+
+        const readJsonScript = (id) => {
+          const node = document.getElementById(id);
+          if (!node) return null;
+          try {
+            return JSON.parse(node.textContent || "");
+          } catch {
+            return null;
+          }
+        };
+
+        const builtinPalettes = readJsonScript("t3code-builtin-palettes") || {};
+
+        const readCustomPalettes = () => {
+          try {
+            const raw = window.localStorage.getItem(CUSTOM_PALETTES_STORAGE_KEY);
+            if (!raw) return {};
+            const parsed = JSON.parse(raw);
+            return parsed && typeof parsed === "object" ? parsed : {};
+          } catch {
+            return {};
+          }
+        };
+
+        const resolvePaletteColors = (paletteId, resolvedTheme) => {
+          const custom = readCustomPalettes();
+          const palette =
+            (paletteId && builtinPalettes[paletteId]) ||
+            custom[paletteId] ||
+            builtinPalettes[DEFAULT_PALETTE_ID];
+          if (!palette) return null;
+          if (resolvedTheme === "light" && palette.light) return palette.light;
+          return palette.dark;
+        };
+
+        const paletteScript = document.getElementById("t3code-builtin-palettes");
         const themeColorMeta = document.querySelector('meta[name="theme-color"]');
         try {
           const storedTheme = window.localStorage.getItem("t3code:theme");
@@ -22,12 +83,40 @@
             storedTheme === "light" || storedTheme === "dark" || storedTheme === "system"
               ? storedTheme
               : "system";
+          const storedPaletteId = window.localStorage.getItem(PALETTE_STORAGE_KEY);
+          const paletteId =
+            storedPaletteId &&
+            (builtinPalettes[storedPaletteId] || readCustomPalettes()[storedPaletteId])
+              ? storedPaletteId
+              : DEFAULT_PALETTE_ID;
           const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
           const isDark = theme === "dark" || (theme === "system" && prefersDark);
           document.documentElement.classList.toggle("dark", isDark);
-          const chromeColor = isDark ? DARK_BACKGROUND : LIGHT_BACKGROUND;
-          document.documentElement.style.backgroundColor = chromeColor;
-          themeColorMeta?.setAttribute("content", chromeColor);
+
+          const paletteColors = resolvePaletteColors(paletteId, isDark ? "dark" : "light");
+          if (paletteColors) {
+            const accent = parseHex(paletteColors.accent);
+            const background = parseHex(paletteColors.background);
+            const foreground = parseHex(paletteColors.foreground);
+            if (accent && background && foreground) {
+              document.documentElement.style.setProperty("--theme-accent", accent);
+              document.documentElement.style.setProperty("--background", background);
+              document.documentElement.style.setProperty("--foreground", foreground);
+              document.documentElement.style.setProperty("--app-chrome-background", background);
+              const chromeColor = background;
+              document.documentElement.style.backgroundColor = chromeColor;
+              themeColorMeta?.setAttribute("content", chromeColor);
+              paletteScript?.setAttribute("data-applied", "true");
+            } else {
+              const chromeColor = isDark ? DARK_BACKGROUND : LIGHT_BACKGROUND;
+              document.documentElement.style.backgroundColor = chromeColor;
+              themeColorMeta?.setAttribute("content", chromeColor);
+            }
+          } else {
+            const chromeColor = isDark ? DARK_BACKGROUND : LIGHT_BACKGROUND;
+            document.documentElement.style.backgroundColor = chromeColor;
+            themeColorMeta?.setAttribute("content", chromeColor);
+          }
         } catch {
           document.documentElement.classList.add("dark");
           document.documentElement.style.backgroundColor = DARK_BACKGROUND;
