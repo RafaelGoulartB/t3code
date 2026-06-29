@@ -5,6 +5,7 @@ import { ProviderInstanceId } from "./providerInstance.ts";
 import {
   ClientSettingsSchema,
   DEFAULT_SERVER_SETTINGS,
+  DEFAULT_SIDEBAR_PROJECT_FOLDER_COLOR,
   ServerSettings,
   ServerSettingsPatch,
 } from "./settings.ts";
@@ -28,6 +29,46 @@ describe("ClientSettings word wrap", () => {
     expect(decoded.wordWrap).toBe(true);
     expect(decoded).not.toHaveProperty("chatWordWrap");
     expect(decoded).not.toHaveProperty("diffWordWrap");
+  });
+});
+
+describe("ClientSettings sidebar project folders", () => {
+  it("defaults folder settings for legacy client settings", () => {
+    const decoded = decodeClientSettings({});
+
+    expect(decoded.sidebarProjectFolders).toEqual([]);
+    expect(decoded.sidebarProjectFolderAssignments).toEqual({});
+    expect(decoded.sidebarProjectFolderOrder).toEqual([]);
+  });
+
+  it("round-trips sidebar project folder settings", () => {
+    const decoded = decodeClientSettings({
+      sidebarProjectFolders: [
+        { id: "folder-work", name: "Work", color: DEFAULT_SIDEBAR_PROJECT_FOLDER_COLOR },
+        { id: "folder-custom", name: "Custom", color: "#3b82f6" },
+      ],
+      sidebarProjectFolderAssignments: {
+        "environment:/repo": "folder-work",
+      },
+      sidebarProjectFolderOrder: ["folder-custom", "folder-work"],
+    });
+
+    expect(decoded.sidebarProjectFolders).toEqual([
+      { id: "folder-work", name: "Work", color: "blue" },
+      { id: "folder-custom", name: "Custom", color: "#3b82f6" },
+    ]);
+    expect(decoded.sidebarProjectFolderAssignments).toEqual({
+      "environment:/repo": "folder-work",
+    });
+    expect(decoded.sidebarProjectFolderOrder).toEqual(["folder-custom", "folder-work"]);
+  });
+
+  it("rejects invalid custom folder colors", () => {
+    expect(() =>
+      decodeClientSettings({
+        sidebarProjectFolders: [{ id: "folder-work", name: "Work", color: "not-a-color" }],
+      }),
+    ).toThrow();
   });
 });
 

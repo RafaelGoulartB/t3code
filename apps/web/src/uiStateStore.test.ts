@@ -11,8 +11,10 @@ import {
   persistState,
   reorderProjects,
   resolveProjectExpanded,
+  resolveSidebarProjectFolderExpanded,
   setDefaultAdvertisedEndpointKey,
   setProjectExpanded,
+  setSidebarProjectFolderExpanded,
   setThreadChangedFilesExpanded,
   type UiState,
 } from "./uiStateStore";
@@ -20,6 +22,7 @@ import {
 function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
+    sidebarProjectFolderExpandedById: {},
     projectOrder: [],
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
@@ -79,6 +82,20 @@ describe("uiStateStore pure functions", () => {
       "environment-b:/repo": false,
     });
     expect(setProjectExpanded(next, keys, false)).toBe(next);
+  });
+
+  it("stores sidebar project folder expansion by folder id", () => {
+    const initialState = makeUiState();
+    const next = setSidebarProjectFolderExpanded(initialState, "folder-work", false);
+
+    expect(next.sidebarProjectFolderExpandedById).toEqual({ "folder-work": false });
+    expect(setSidebarProjectFolderExpanded(next, "folder-work", false)).toBe(next);
+    expect(
+      resolveSidebarProjectFolderExpanded(next.sidebarProjectFolderExpandedById, "folder-work"),
+    ).toBe(false);
+    expect(
+      resolveSidebarProjectFolderExpanded(next.sidebarProjectFolderExpandedById, "folder-missing"),
+    ).toBe(true);
   });
 
   it("reorders from the current atom-derived project order", () => {
@@ -149,6 +166,10 @@ describe("parsePersistedState", () => {
         logical: false,
         invalid: "no" as unknown as boolean,
       },
+      sidebarProjectFolderExpandedById: {
+        "folder-work": false,
+        invalid: "no" as unknown as boolean,
+      },
       projectOrder: ["physical-b", "", "physical-a", "physical-b"],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
@@ -166,6 +187,9 @@ describe("parsePersistedState", () => {
     expect(parsed).toEqual({
       projectExpandedById: {
         logical: false,
+      },
+      sidebarProjectFolderExpandedById: {
+        "folder-work": false,
       },
       projectOrder: ["physical-b", "physical-a"],
       threadLastVisitedAtById: {
@@ -251,6 +275,9 @@ describe("uiStateStore persistence", () => {
       projectExpandedById: {
         logical: false,
       },
+      sidebarProjectFolderExpandedById: {
+        "folder-work": false,
+      },
       projectOrder: ["physical-b", "physical-a"],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
@@ -272,6 +299,9 @@ describe("uiStateStore persistence", () => {
     expect(persisted).toEqual({
       projectExpandedById: {
         logical: false,
+      },
+      sidebarProjectFolderExpandedById: {
+        "folder-work": false,
       },
       projectOrder: ["physical-b", "physical-a"],
       threadLastVisitedAtById: {
