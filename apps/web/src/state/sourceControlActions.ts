@@ -32,6 +32,7 @@ import { vcsActionManager, vcsEnvironment } from "./vcs";
 export type SourceControlActionKind =
   | "init"
   | "pull"
+  | "fetch"
   | "publishRepository"
   | "runStackedAction"
   | "preparePullRequestThread";
@@ -58,6 +59,7 @@ interface SourceControlActionState<
 const ACTION_OPERATION = {
   init: "init",
   pull: "pull",
+  fetch: "fetch",
   publishRepository: "publish_repository",
   runStackedAction: "run_change_request",
   preparePullRequestThread: "prepare_pull_request_thread",
@@ -192,6 +194,43 @@ export function useVcsPullAction(scope: SourceControlActionScope) {
   return useAction({
     kind: "pull",
     label: "Pulling latest changes",
+    scope,
+    action,
+    onSuccess: status.refresh,
+  });
+}
+
+export function useVcsFetchAction(scope: SourceControlActionScope) {
+  const fetch = useAtomCommand(vcsEnvironment.fetch, { reportFailure: false });
+  const status = useEnvironmentQuery(
+    scope.environmentId !== null && scope.cwd !== null
+      ? vcsEnvironment.status({
+          environmentId: scope.environmentId,
+          input: { cwd: scope.cwd },
+        })
+      : null,
+  );
+  const action = useCallback(async () => {
+    const target = resolveScope(scope);
+    if (target === null) {
+      return AsyncResult.failure<never, VcsActionUnavailableError>(
+        Cause.fail(
+          new VcsActionUnavailableError({
+            operation: "fetch",
+            environmentId: scope.environmentId,
+            cwd: scope.cwd,
+          }),
+        ),
+      );
+    }
+    return fetch({
+      environmentId: target.environmentId,
+      input: { cwd: target.cwd },
+    });
+  }, [fetch, scope]);
+  return useAction({
+    kind: "fetch",
+    label: "Fetching remote refs",
     scope,
     action,
     onSuccess: status.refresh,

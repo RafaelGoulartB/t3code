@@ -50,7 +50,7 @@ A pintura correta acontece **antes** do React montar, evitando FOUC. Desktop (El
 
 ```ts
 export interface ThemeColors {
-  accent: string;      // hex 6 dígitos, minúsculo
+  accent: string; // hex 6 dígitos, minúsculo
   background: string;
   foreground: string;
   sidebar: string;
@@ -59,9 +59,9 @@ export interface ThemeColors {
 export type ThemeFontStyle = "sans" | "serif" | "mono";
 
 export interface ThemePalette {
-  id: string;          // chave em builtin/custom storage
-  name: string;        // rótulo humano
-  glyph: string;       // até 3 chars exibidos no select
+  id: string; // chave em builtin/custom storage
+  name: string; // rótulo humano
+  glyph: string; // até 3 chars exibidos no select
   fontStyle: ThemeFontStyle;
   dark: ThemeColors;
   light?: ThemeColors; // opcional; quando ausente usa dark no light mode
@@ -72,8 +72,12 @@ Normalização (sempre retorna hex minúsculo de 6 dígitos ou `undefined`):
 
 ```ts
 export const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/u;
-export function normalizeThemeHex(v): string | undefined { /* trim + match + toLowerCase */ }
-export function normalizeThemeColors(v): ThemeColors | undefined { /* valida todos os 4 */ }
+export function normalizeThemeHex(v): string | undefined {
+  /* trim + match + toLowerCase */
+}
+export function normalizeThemeColors(v): ThemeColors | undefined {
+  /* valida todos os 4 */
+}
 ```
 
 Constantes importantes:
@@ -90,11 +94,11 @@ Adicionar uma nova paleta built-in significa:
 
 ## 3. Storage local
 
-| Chave                          | Conteúdo                                        | Leitura          | Escrita               |
-| ------------------------------ | ----------------------------------------------- | ---------------- | --------------------- |
-| `t3code:theme`                 | `"light" \| "dark" \| "system"`                 | `readThemePreference` | `writeThemePreference` |
-| `t3code:theme-palette`         | `string` (id da paleta ativa)                   | `readPalettePreference` | `writePalettePreference` |
-| `t3code:theme-palettes-custom` | `Record<id, ThemePalette>` (JSON)               | `readCustomPalettes` | `writeCustomPalettes` |
+| Chave                          | Conteúdo                          | Leitura                 | Escrita                  |
+| ------------------------------ | --------------------------------- | ----------------------- | ------------------------ |
+| `t3code:theme`                 | `"light" \| "dark" \| "system"`   | `readThemePreference`   | `writeThemePreference`   |
+| `t3code:theme-palette`         | `string` (id da paleta ativa)     | `readPalettePreference` | `writePalettePreference` |
+| `t3code:theme-palettes-custom` | `Record<id, ThemePalette>` (JSON) | `readCustomPalettes`    | `writeCustomPalettes`    |
 
 Todas as falhas de storage são normalizadas via `ThemeStorageError` (`Schema.TaggedErrorClass`) com `operation: "read" \| "write"`, `storageKey`, `cause` e, quando aplicável, `theme` ou `paletteId`. O log filtra o `cause` usando `safeErrorLogAttributes` para não vazar mensagens de erro de `localStorage` (ex.: modo privado).
 
@@ -123,10 +127,10 @@ Tudo persiste entre renders e entre hooks — é o que permite o `useSyncExterna
 
 ```ts
 type ThemeSnapshot = {
-  theme: Theme;             // light | dark | system
-  systemDark: boolean;      // estado do media query quando theme === "system"
+  theme: Theme; // light | dark | system
+  systemDark: boolean; // estado do media query quando theme === "system"
   paletteId: string;
-  palette: ThemePalette;    // resolved (builtin + custom)
+  palette: ThemePalette; // resolved (builtin + custom)
   paletteColors: ThemeColors; // cores que estão no DOM
   resolvedTheme: "light" | "dark";
 };
@@ -263,14 +267,26 @@ Já existia (commit anterior). O hook `useTheme` reaproveita:
 ```ts
 return {
   colorScheme: isDark ? "dark" : "light",
-  radius, background, foreground,
-  popover, popoverForeground,
-  primary, primaryForeground,
-  muted, mutedForeground,
-  accent, accentForeground,
-  border, input, ring,
-  fontSans, fontMono,
-  themeAccent, themeBackground, themeForeground, themeSidebar, // ← novos
+  radius,
+  background,
+  foreground,
+  popover,
+  popoverForeground,
+  primary,
+  primaryForeground,
+  muted,
+  mutedForeground,
+  accent,
+  accentForeground,
+  border,
+  input,
+  ring,
+  fontSans,
+  fontMono,
+  themeAccent,
+  themeBackground,
+  themeForeground,
+  themeSidebar, // ← novos
 };
 ```
 
@@ -345,21 +361,21 @@ Os testes usam `vi.doMock("react")` para retornar `useCallback`/`useEffect`/`use
 
 ## 13. Arquivos e linhas-âncora
 
-| Arquivo                                                              | O que tem                                                          |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `apps/web/src/theme/palettes.ts`                                     | Modelo, normalização, built-in                                    |
-| `apps/web/src/hooks/useTheme.ts`                                     | Estado, snapshot, subscribe, aplicação DOM, IPC desktop, erros    |
-| `apps/web/src/hooks/useTheme.test.ts`                                | Cobertura de erros e paleta                                        |
-| `apps/web/index.html`                                                | Anti-FOUC + JSON de paletas built-in                               |
-| `apps/web/src/index.css`                                             | Tokens Tailwind v4, defaults, `.no-transitions`                    |
-| `apps/web/src/components/settings/SettingsPanels.tsx:573-825`        | UI da paleta (select, color rows, import, copy, reset)             |
-| `apps/web/src/components/settings/SettingsPanels.tsx:393-502`        | `useSettingsRestore` (considera paleta dirty)                       |
-| `apps/web/src/components/settings/SettingsPanels.tsx:827-898`        | Linha "Theme" no GeneralSettingsPanel                              |
-| `apps/web/src/components/AppSidebarLayout.tsx:85`                    | Sidebar colorida via tokens de tema                                |
-| `apps/web/src/browser/annotationTheme.ts:6-32`                       | Serializa paleta ativa para o webview de preview                   |
-| `apps/web/src/browser/ElectronBrowserHost.tsx:39-43`                 | Envia annotation theme via IPC                                     |
-| `apps/desktop/src/preview/PickPreload.ts:52-91`                      | Aplica `--t3-theme-*` no webview                                   |
-| `apps/desktop/src/preview/Annotation.css`                            | Mapeia `--t3-theme-*` para os tokens Tailwind do annotation UI     |
-| `apps/desktop/src/ipc/methods/window.ts:221-229`                     | `setTheme` IPC handler (já existia)                                |
-| `apps/desktop/src/electron/ElectronTheme.ts`                         | Service que aplica `nativeTheme` no Chromium                       |
-| `packages/contracts/src/ipc.ts:598-645`                              | `DesktopPreviewAnnotationTheme` / `Schema`                         |
+| Arquivo                                                       | O que tem                                                      |
+| ------------------------------------------------------------- | -------------------------------------------------------------- |
+| `apps/web/src/theme/palettes.ts`                              | Modelo, normalização, built-in                                 |
+| `apps/web/src/hooks/useTheme.ts`                              | Estado, snapshot, subscribe, aplicação DOM, IPC desktop, erros |
+| `apps/web/src/hooks/useTheme.test.ts`                         | Cobertura de erros e paleta                                    |
+| `apps/web/index.html`                                         | Anti-FOUC + JSON de paletas built-in                           |
+| `apps/web/src/index.css`                                      | Tokens Tailwind v4, defaults, `.no-transitions`                |
+| `apps/web/src/components/settings/SettingsPanels.tsx:573-825` | UI da paleta (select, color rows, import, copy, reset)         |
+| `apps/web/src/components/settings/SettingsPanels.tsx:393-502` | `useSettingsRestore` (considera paleta dirty)                  |
+| `apps/web/src/components/settings/SettingsPanels.tsx:827-898` | Linha "Theme" no GeneralSettingsPanel                          |
+| `apps/web/src/components/AppSidebarLayout.tsx:85`             | Sidebar colorida via tokens de tema                            |
+| `apps/web/src/browser/annotationTheme.ts:6-32`                | Serializa paleta ativa para o webview de preview               |
+| `apps/web/src/browser/ElectronBrowserHost.tsx:39-43`          | Envia annotation theme via IPC                                 |
+| `apps/desktop/src/preview/PickPreload.ts:52-91`               | Aplica `--t3-theme-*` no webview                               |
+| `apps/desktop/src/preview/Annotation.css`                     | Mapeia `--t3-theme-*` para os tokens Tailwind do annotation UI |
+| `apps/desktop/src/ipc/methods/window.ts:221-229`              | `setTheme` IPC handler (já existia)                            |
+| `apps/desktop/src/electron/ElectronTheme.ts`                  | Service que aplica `nativeTheme` no Chromium                   |
+| `packages/contracts/src/ipc.ts:598-645`                       | `DesktopPreviewAnnotationTheme` / `Schema`                     |

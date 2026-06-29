@@ -23,6 +23,8 @@ import {
   VcsCreateRefResult,
   VcsCreateWorktreeInput,
   VcsCreateWorktreeResult,
+  VcsFetchInput,
+  VcsFetchResult,
   VcsInitInput,
   VcsListRefsInput,
   VcsListRefsResult,
@@ -163,6 +165,7 @@ export const WS_METHODS = {
 
   // VCS methods
   vcsPull: "vcs.pull",
+  vcsFetch: "vcs.fetch",
   vcsRefreshStatus: "vcs.refreshStatus",
   vcsListRefs: "vcs.listRefs",
   vcsCreateWorktree: "vcs.createWorktree",
@@ -405,6 +408,12 @@ export const WsSubscribeVcsStatusRpc = Rpc.make(WS_METHODS.subscribeVcsStatus, {
 export const WsVcsPullRpc = Rpc.make(WS_METHODS.vcsPull, {
   payload: VcsPullInput,
   success: VcsPullResult,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsFetchRpc = Rpc.make(WS_METHODS.vcsFetch, {
+  payload: VcsFetchInput,
+  success: VcsFetchResult,
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
 });
 
@@ -708,6 +717,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsAssetsCreateUrlRpc,
   WsSubscribeVcsStatusRpc,
   WsVcsPullRpc,
+  WsVcsFetchRpc,
   WsVcsRefreshStatusRpc,
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
