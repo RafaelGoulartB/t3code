@@ -20,14 +20,14 @@ do `Sidebar` ou do `CommandPalette`.
 
 ## Arquivos tocados
 
-| Arquivo | Tipo | Mudança |
-| --- | --- | --- |
-| `apps/web/src/components/BranchToolbarProjectSelector.tsx` | novo | Componente que renderiza o `Select`/lock do projeto. |
-| `apps/web/src/components/BranchToolbarProjectSelector.test.tsx` | novo | Testes do componente. |
-| `apps/web/src/components/BranchToolbar.tsx` | alterado | Recebe props de projeto e decide quando mostrar cada item. |
-| `apps/web/src/components/BranchToolbar.logic.ts` | alterado | Novo helper `resolveProjectLockedLabel`. |
-| `apps/web/src/components/BranchToolbar.logic.test.ts` | alterado | Testes para o helper. |
-| `apps/web/src/components/ChatView.tsx` | alterado | Calcula `availableProjects` / `projectLocked` / `onProjectChange` e passa para o toolbar; troca o gate `isGitRepo` por `activeProject`. |
+| Arquivo                                                         | Tipo     | Mudança                                                                                                                                 |
+| --------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web/src/components/BranchToolbarProjectSelector.tsx`      | novo     | Componente que renderiza o `Select`/lock do projeto.                                                                                    |
+| `apps/web/src/components/BranchToolbarProjectSelector.test.tsx` | novo     | Testes do componente.                                                                                                                   |
+| `apps/web/src/components/BranchToolbar.tsx`                     | alterado | Recebe props de projeto e decide quando mostrar cada item.                                                                              |
+| `apps/web/src/components/BranchToolbar.logic.ts`                | alterado | Novo helper `resolveProjectLockedLabel`.                                                                                                |
+| `apps/web/src/components/BranchToolbar.logic.test.ts`           | alterado | Testes para o helper.                                                                                                                   |
+| `apps/web/src/components/ChatView.tsx`                          | alterado | Calcula `availableProjects` / `projectLocked` / `onProjectChange` e passa para o toolbar; troca o gate `isGitRepo` por `activeProject`. |
 
 ## Como funciona
 
@@ -41,9 +41,7 @@ do `Sidebar` ou do `CommandPalette`.
 const availableProjects = useMemo(() => {
   if (!activeThread) return [];
   const targetEnvironmentId = activeThread.environmentId;
-  return allProjects.filter(
-    (project) => project.environmentId === targetEnvironmentId,
-  );
+  return allProjects.filter((project) => project.environmentId === targetEnvironmentId);
 }, [activeThread, allProjects]);
 
 // Trava o picker assim que a conversa começa de fato, para que a identidade
@@ -141,9 +139,7 @@ Comportamento:
 ### 5. Helper puro — `BranchToolbar.logic.ts`
 
 ```ts
-export function resolveProjectLockedLabel(
-  project: { title: string } | null,
-): string {
+export function resolveProjectLockedLabel(project: { title: string } | null): string {
   return project?.title ?? "Project";
 }
 ```
@@ -160,7 +156,7 @@ Função deliberadamente pura para ser fácil de testar e reusar tanto no
 3. **Lock** — use `threadHasStarted(activeThread)` para decidir se o picker
    está travado.
 4. **Persistência** — para threads draft, chame `setDraftThreadContext(target,
-   { projectRef })` com `scopeProjectRef(envId, projectId)`. Não faça nada
+{ projectRef })` com `scopeProjectRef(envId, projectId)`. Não faça nada
    para threads server-side.
 5. **UI** — use o `BranchToolbarProjectSelector` ou copie a estrutura
    (`<Select modal={false}>` + `<SelectTrigger variant="ghost" size="xs">` +

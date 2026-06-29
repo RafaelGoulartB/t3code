@@ -29,6 +29,7 @@ export const VcsActionOperation = Schema.Literals([
   "refresh_status",
   "run_change_request",
   "pull",
+  "fetch",
   "switch_ref",
   "create_ref",
   "create_worktree",
