@@ -76,6 +76,18 @@ export function createVcsEnvironmentAtoms<R, E>(
       scheduler: vcsCommandScheduler,
       concurrency: vcsCommandConcurrency,
     }),
+    renameBranch: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:rename-branch",
+      tag: WS_METHODS.vcsRenameBranch,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
+    deleteBranch: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:delete-branch",
+      tag: WS_METHODS.vcsDeleteBranch,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
     init: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:init",
       tag: WS_METHODS.vcsInit,

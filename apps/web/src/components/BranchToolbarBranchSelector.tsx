@@ -1,11 +1,19 @@
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
+  settlePromise,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, VcsRef, ThreadId } from "@t3tools/contracts";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
-import { ChevronDownIcon, GitBranchIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  GitBranchIcon,
+  RefreshCwIcon,
+  SearchIcon,
+  SquarePenIcon,
+  Trash2Icon,
+} from "lucide-react";
 import {
   useCallback,
   useDeferredValue,
@@ -28,8 +36,10 @@ import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
 import { vcsEnvironment } from "../state/vcs";
 import { cn } from "../lib/utils";
+import { readLocalApi } from "../localApi";
 import { parsePullRequestReference } from "../pullRequestReference";
 import { getSourceControlPresentation } from "../sourceControlPresentation";
+import { sanitizeFeatureBranchName } from "@t3tools/shared/git";
 import {
   deriveLocalBranchNameFromRemoteRef,
   resolveBranchSelectionTarget,
@@ -44,6 +54,7 @@ import {
   resolveThreadPr,
 } from "./ThreadStatusIndicators";
 import { Button } from "./ui/button";
+import { INLINE_HOVER_ACTION_BUTTON_CLASS } from "./ui/inlineActions";
 import { Switch } from "./ui/switch";
 import {
   Combobox,
@@ -116,6 +127,12 @@ export function BranchToolbarBranchSelector({
     reportFailure: false,
   });
   const createRefMutation = useAtomCommand(vcsEnvironment.createRef, {
+    reportFailure: false,
+  });
+  const renameBranch = useAtomCommand(vcsEnvironment.renameBranch, {
+    reportFailure: false,
+  });
+  const deleteBranch = useAtomCommand(vcsEnvironment.deleteBranch, {
     reportFailure: false,
   });
   // ---------------------------------------------------------------------------
@@ -422,6 +439,184 @@ export function BranchToolbarBranchSelector({
     });
   };
 
+  const [renamingBranch, setRenamingBranch] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+
+  const startRenamingBranch = useCallback((branchName: string) => {
+    setRenamingBranch(branchName);
+    setRenameDraft(branchName);
+  }, []);
+
+  const cancelRenamingBranch = useCallback(() => {
+    setRenamingBranch(null);
+    setRenameDraft("");
+  }, []);
+
+  useEffect(() => {
+    if (renamingBranch === null) return;
+    const input = renameInputRef.current;
+    if (!input) return;
+    input.focus();
+    input.select();
+  }, [renamingBranch]);
+
+  const commitRenameBranch = useCallback(async () => {
+    if (renamingBranch === null || isBranchActionPending) return;
+    const targetName = renameDraft.trim();
+    if (!branchCwd) {
+      cancelRenamingBranch();
+      return;
+    }
+    if (targetName === renamingBranch) {
+      cancelRenamingBranch();
+      return;
+    }
+    if (targetName.length === 0) {
+      cancelRenamingBranch();
+      return;
+    }
+    const sanitizedTarget = sanitizeFeatureBranchName(targetName);
+    if (sanitizedTarget !== targetName) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Invalid branch name.",
+          description: `Use letters, digits, '-', '_', '/', or '.'. Suggested: ${sanitizedTarget}`,
+        }),
+      );
+      return;
+    }
+
+    runBranchAction(async () => {
+      const previousBranch = resolvedActiveBranch;
+      if (targetName === previousBranch) {
+        setOptimisticBranch(targetName);
+      }
+      const result = await renameBranch({
+        environmentId,
+        input: {
+          cwd: branchCwd,
+          oldBranch: renamingBranch,
+          newBranch: targetName,
+        },
+      });
+      if (result._tag === "Success") {
+        const renamedTo = result.value.branch;
+        setOptimisticBranch(renamedTo);
+        if (renamingBranch === previousBranch) {
+          setThreadBranch(renamedTo, activeWorktreePath);
+        }
+        cancelRenamingBranch();
+        toastManager.add(
+          stackedThreadToast({
+            type: "success",
+            title: `Renamed to ${renamedTo}.`,
+          }),
+        );
+        return;
+      }
+      setOptimisticBranch(previousBranch);
+      if (!isAtomCommandInterrupted(result)) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: `Failed to rename ${renamingBranch}.`,
+            description: toBranchActionErrorMessage(squashAtomCommandFailure(result)),
+          }),
+        );
+      }
+      cancelRenamingBranch();
+    });
+  }, [
+    activeWorktreePath,
+    branchCwd,
+    cancelRenamingBranch,
+    environmentId,
+    isBranchActionPending,
+    renameBranch,
+    renameDraft,
+    renamingBranch,
+    resolvedActiveBranch,
+    runBranchAction,
+    setOptimisticBranch,
+    setThreadBranch,
+  ]);
+
+  const confirmAndDeleteBranch = useCallback(
+    async (refName: VcsRef) => {
+      if (!branchCwd || isBranchActionPending) return;
+      if (refName.current || refName.isDefault || refName.isRemote) return;
+
+      const localApi = readLocalApi();
+      const worktreePath =
+        refName.worktreePath && activeProjectCwd && refName.worktreePath !== activeProjectCwd
+          ? refName.worktreePath
+          : null;
+      const lines = [
+        `Delete branch "${refName.name}"?`,
+        worktreePath ? `This also removes the worktree at ${worktreePath}.` : null,
+        "This cannot be undone.",
+      ].filter((line): line is string => line !== null);
+      const message = lines.join("\n");
+
+      let shouldDelete = true;
+      if (localApi) {
+        const confirmationResult = await settlePromise(() => localApi.dialogs.confirm(message));
+        if (confirmationResult._tag === "Failure") return;
+        shouldDelete = confirmationResult.value;
+      }
+      if (!shouldDelete) return;
+
+      runBranchAction(async () => {
+        const previousBranch = resolvedActiveBranch;
+        const result = await deleteBranch({
+          environmentId,
+          input: {
+            cwd: branchCwd,
+            branch: refName.name,
+            ...(worktreePath ? { worktreePath } : {}),
+            force: true,
+          },
+        });
+        if (result._tag === "Success") {
+          if (refName.name === previousBranch) {
+            setOptimisticBranch(null);
+            setThreadBranch(null, activeWorktreePath);
+          }
+          toastManager.add(
+            stackedThreadToast({
+              type: "success",
+              title: `Deleted ${refName.name}.`,
+            }),
+          );
+          return;
+        }
+        if (!isAtomCommandInterrupted(result)) {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: `Failed to delete ${refName.name}.`,
+              description: toBranchActionErrorMessage(squashAtomCommandFailure(result)),
+            }),
+          );
+        }
+      });
+    },
+    [
+      activeProjectCwd,
+      activeWorktreePath,
+      branchCwd,
+      deleteBranch,
+      environmentId,
+      isBranchActionPending,
+      resolvedActiveBranch,
+      runBranchAction,
+      setOptimisticBranch,
+      setThreadBranch,
+    ],
+  );
+
   useEffect(() => {
     if (
       effectiveEnvMode !== "worktree" ||
@@ -442,11 +637,12 @@ export function BranchToolbarBranchSelector({
       setIsBranchMenuOpen(open);
       if (!open) {
         setBranchQuery("");
+        cancelRenamingBranch();
         return;
       }
       branchRefState.refresh();
     },
-    [branchRefState.refresh],
+    [branchRefState.refresh, cancelRenamingBranch],
   );
 
   const branchListScrollElementRef = useRef<HTMLElement | null>(null);
@@ -601,19 +797,107 @@ export function BranchToolbarBranchSelector({
           : refName.isDefault
             ? "default"
             : null;
+    const supportsRowActions = !refName.current && !refName.isDefault && !refName.isRemote;
+    const isRenaming = renamingBranch === refName.name;
     return (
       <ComboboxItem
         hideIndicator
         key={itemValue}
         index={index}
         value={itemValue}
-        className="pe-1.5"
-        onClick={() => selectBranch(refName)}
+        className="group/branch-row relative pe-1.5"
+        onClick={(event) => {
+          if (isRenaming) return;
+          // Suppress the combobox selection when clicking the action area.
+          if ((event.target as HTMLElement).closest("[data-branch-row-action]")) return;
+          selectBranch(refName);
+        }}
       >
-        <div className="flex w-full min-w-0 items-center justify-between gap-2">
-          <span className="min-w-0 flex-1 truncate">{itemValue}</span>
-          {badge && <span className="shrink-0 text-[10px] text-muted-foreground/45">{badge}</span>}
-        </div>
+        {isRenaming ? (
+          <div className="flex w-full min-w-0 items-center gap-2 py-0.5">
+            <span className="shrink-0 font-mono text-[11px] text-muted-foreground/60">›</span>
+            <input
+              ref={renameInputRef}
+              type="text"
+              value={renameDraft}
+              onChange={(event) => setRenameDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void commitRenameBranch();
+                } else if (event.key === "Escape") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  cancelRenamingBranch();
+                }
+              }}
+              onBlur={() => {
+                if (renameDraft.trim() === refName.name) {
+                  cancelRenamingBranch();
+                  return;
+                }
+                void commitRenameBranch();
+              }}
+              onClick={(event) => event.stopPropagation()}
+              aria-label={`Rename branch ${refName.name}`}
+              className="min-w-0 flex-1 rounded border border-border bg-background px-1.5 py-0.5 font-sans text-sm outline-hidden focus:border-ring focus:ring-1 focus:ring-ring"
+            />
+          </div>
+        ) : (
+          <div className="flex w-full min-w-0 items-center justify-between gap-2">
+            <span className="min-w-0 flex-1 truncate">{itemValue}</span>
+            <div className="flex shrink-0 items-center gap-1">
+              {badge && <span className="text-[10px] text-muted-foreground/45">{badge}</span>}
+              {supportsRowActions ? (
+                <div
+                  data-branch-row-action
+                  className="pointer-events-none flex items-center gap-0.5 opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/branch-row:pointer-events-auto group-hover/branch-row:opacity-100 group-focus-within/branch-row:pointer-events-auto group-focus-within/branch-row:opacity-100"
+                >
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="button"
+                          aria-label={`Rename branch ${refName.name}`}
+                          data-testid={`branch-rename-${refName.name}`}
+                          className={INLINE_HOVER_ACTION_BUTTON_CLASS}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            startRenamingBranch(refName.name);
+                          }}
+                        />
+                      }
+                    >
+                      <SquarePenIcon className="size-3.5" />
+                    </TooltipTrigger>
+                    <TooltipPopup side="left">Rename branch</TooltipPopup>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="button"
+                          aria-label={`Delete branch ${refName.name}`}
+                          data-testid={`branch-delete-${refName.name}`}
+                          className={cn(INLINE_HOVER_ACTION_BUTTON_CLASS, "hover:text-destructive")}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            void confirmAndDeleteBranch(refName);
+                          }}
+                        />
+                      }
+                    >
+                      <Trash2Icon className="size-3.5" />
+                    </TooltipTrigger>
+                    <TooltipPopup side="left">Delete branch</TooltipPopup>
+                  </Tooltip>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )}
       </ComboboxItem>
     );
   }
