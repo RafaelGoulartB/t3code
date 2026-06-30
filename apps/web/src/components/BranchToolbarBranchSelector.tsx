@@ -39,7 +39,7 @@ import { cn } from "../lib/utils";
 import { readLocalApi } from "../localApi";
 import { parsePullRequestReference } from "../pullRequestReference";
 import { getSourceControlPresentation } from "../sourceControlPresentation";
-import { sanitizeFeatureBranchName } from "@t3tools/shared/git";
+import { sanitizeBranchFragment } from "@t3tools/shared/git";
 import {
   deriveLocalBranchNameFromRemoteRef,
   resolveBranchSelectionTarget,
@@ -66,6 +66,18 @@ import {
   ComboboxStatus,
   ComboboxTrigger,
 } from "./ui/combobox";
+import {
+  Dialog,
+  DialogClose,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "./ui/dialog";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
@@ -442,8 +454,18 @@ export function BranchToolbarBranchSelector({
   const [renamingBranch, setRenamingBranch] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const renameInputRef = useRef<HTMLInputElement | null>(null);
+  // The pencil button lives inside a `ComboboxItem`, which calls
+  // `event.preventDefault()` on `pointerdown` to keep the search input focused.
+  // Some browsers still emit a `click` for that interaction, and base-ui's
+  // `useDismiss` listens for outside presses in the capture phase on the
+  // document — so the spurious `click` immediately dismisses the rename dialog
+  // we just opened. We track when the dialog opens and ignore the very next
+  // `outside-press` close that happens in the same gesture, while still
+  // allowing legitimate outside clicks to close the dialog afterwards.
+  const renameDialogOpenedAtRef = useRef<number>(0);
 
   const startRenamingBranch = useCallback((branchName: string) => {
+    renameDialogOpenedAtRef.current = Date.now();
     setRenamingBranch(branchName);
     setRenameDraft(branchName);
   }, []);
@@ -476,7 +498,7 @@ export function BranchToolbarBranchSelector({
       cancelRenamingBranch();
       return;
     }
-    const sanitizedTarget = sanitizeFeatureBranchName(targetName);
+    const sanitizedTarget = sanitizeBranchFragment(targetName);
     if (sanitizedTarget !== targetName) {
       toastManager.add(
         stackedThreadToast({
@@ -637,12 +659,11 @@ export function BranchToolbarBranchSelector({
       setIsBranchMenuOpen(open);
       if (!open) {
         setBranchQuery("");
-        cancelRenamingBranch();
         return;
       }
       branchRefState.refresh();
     },
-    [branchRefState.refresh, cancelRenamingBranch],
+    [branchRefState.refresh],
   );
 
   const branchListScrollElementRef = useRef<HTMLElement | null>(null);
@@ -797,8 +818,18 @@ export function BranchToolbarBranchSelector({
           : refName.isDefault
             ? "default"
             : null;
-    const supportsRowActions = !refName.current && !refName.isDefault && !refName.isRemote;
-    const isRenaming = renamingBranch === refName.name;
+    const supportsRowActions = !refName.isDefault && !refName.isRemote;
+    // The base-ui `Combobox.Item` calls `event.preventDefault()` in its
+    // pointerdown capture handler to keep the input focused, which suppresses
+    // the compatibility `click` event on any nested interactive element. We
+    // therefore trigger the row actions on `pointerdown` and only stop
+    // propagation — never `preventDefault` — so we don't compound the
+    // suppression. The rename UI is rendered in a dialog outside the combobox
+    // (see `<RenameBranchDialog>` below) so the combobox can dismiss without
+    // taking the rename input with it.
+    const stopRowPointerEvent = (event: React.SyntheticEvent) => {
+      event.stopPropagation();
+    };
     return (
       <ComboboxItem
         hideIndicator
@@ -807,102 +838,58 @@ export function BranchToolbarBranchSelector({
         value={itemValue}
         className="group/branch-row relative pe-1.5"
         onClick={(event) => {
-          if (isRenaming) return;
           // Suppress the combobox selection when clicking the action area.
           if ((event.target as HTMLElement).closest("[data-branch-row-action]")) return;
           selectBranch(refName);
         }}
       >
-        {isRenaming ? (
-          <div className="flex w-full min-w-0 items-center gap-2 py-0.5">
-            <span className="shrink-0 font-mono text-[11px] text-muted-foreground/60">›</span>
-            <input
-              ref={renameInputRef}
-              type="text"
-              value={renameDraft}
-              onChange={(event) => setRenameDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void commitRenameBranch();
-                } else if (event.key === "Escape") {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  cancelRenamingBranch();
-                }
-              }}
-              onBlur={() => {
-                if (renameDraft.trim() === refName.name) {
-                  cancelRenamingBranch();
-                  return;
-                }
-                void commitRenameBranch();
-              }}
-              onClick={(event) => event.stopPropagation()}
-              aria-label={`Rename branch ${refName.name}`}
-              className="min-w-0 flex-1 rounded border border-border bg-background px-1.5 py-0.5 font-sans text-sm outline-hidden focus:border-ring focus:ring-1 focus:ring-ring"
-            />
-          </div>
-        ) : (
-          <div className="flex w-full min-w-0 items-center justify-between gap-2">
-            <span className="min-w-0 flex-1 truncate">{itemValue}</span>
-            <div className="flex shrink-0 items-center gap-1">
-              {badge && <span className="text-[10px] text-muted-foreground/45">{badge}</span>}
-              {supportsRowActions ? (
-                <div
-                  data-branch-row-action
-                  className="pointer-events-none flex items-center gap-0.5 opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/branch-row:pointer-events-auto group-hover/branch-row:opacity-100 group-focus-within/branch-row:pointer-events-auto group-focus-within/branch-row:opacity-100"
+        <div className="flex w-full min-w-0 items-center justify-between gap-2">
+          <span className="min-w-0 flex-1 truncate">{itemValue}</span>
+          <div className="flex shrink-0 items-center gap-1">
+            {badge && <span className="text-[10px] text-muted-foreground/45">{badge}</span>}
+            {supportsRowActions ? (
+              <div
+                data-branch-row-action
+                className="flex items-center gap-0.5 opacity-0 transition-opacity duration-150 max-sm:opacity-100 group-hover/branch-row:opacity-100 group-focus-within/branch-row:opacity-100"
+              >
+                <button
+                  type="button"
+                  aria-label={`Rename branch ${refName.name}`}
+                  title="Rename branch"
+                  data-testid={`branch-rename-${refName.name}`}
+                  className={INLINE_HOVER_ACTION_BUTTON_CLASS}
+                  onPointerDown={(event) => {
+                    stopRowPointerEvent(event);
+                    startRenamingBranch(refName.name);
+                  }}
+                  onPointerUp={stopRowPointerEvent}
                 >
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <button
-                          type="button"
-                          aria-label={`Rename branch ${refName.name}`}
-                          data-testid={`branch-rename-${refName.name}`}
-                          className={INLINE_HOVER_ACTION_BUTTON_CLASS}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            startRenamingBranch(refName.name);
-                          }}
-                        />
-                      }
-                    >
-                      <SquarePenIcon className="size-3.5" />
-                    </TooltipTrigger>
-                    <TooltipPopup side="left">Rename branch</TooltipPopup>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <button
-                          type="button"
-                          aria-label={`Delete branch ${refName.name}`}
-                          data-testid={`branch-delete-${refName.name}`}
-                          className={cn(INLINE_HOVER_ACTION_BUTTON_CLASS, "hover:text-destructive")}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            void confirmAndDeleteBranch(refName);
-                          }}
-                        />
-                      }
-                    >
-                      <Trash2Icon className="size-3.5" />
-                    </TooltipTrigger>
-                    <TooltipPopup side="left">Delete branch</TooltipPopup>
-                  </Tooltip>
-                </div>
-              ) : null}
-            </div>
+                  <SquarePenIcon className="size-3.5" />
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Delete branch ${refName.name}`}
+                  title="Delete branch"
+                  data-testid={`branch-delete-${refName.name}`}
+                  className={cn(INLINE_HOVER_ACTION_BUTTON_CLASS, "hover:text-destructive")}
+                  onPointerDown={(event) => {
+                    stopRowPointerEvent(event);
+                    void confirmAndDeleteBranch(refName);
+                  }}
+                  onPointerUp={stopRowPointerEvent}
+                >
+                  <Trash2Icon className="size-3.5" />
+                </button>
+              </div>
+            ) : null}
           </div>
-        )}
+        </div>
       </ComboboxItem>
     );
   }
 
   return (
+    <>
     <Combobox
       items={branchPickerItems}
       filteredItems={filteredBranchPickerItems}
@@ -1044,5 +1031,74 @@ export function BranchToolbarBranchSelector({
         </div>
       </ComboboxPopup>
     </Combobox>
+    <Dialog
+      open={renamingBranch !== null}
+      onOpenChange={(open, eventDetails) => {
+        if (open) return;
+        if (
+          eventDetails.reason === "outside-press" &&
+          Date.now() - renameDialogOpenedAtRef.current < 500
+        ) {
+          return;
+        }
+        cancelRenamingBranch();
+      }}
+    >
+      <DialogPopup
+        showCloseButton={false}
+        data-testid="rename-branch-dialog"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <DialogHeader>
+          <DialogTitle>Rename branch</DialogTitle>
+          <DialogDescription>
+            Enter a new name for &ldquo;{renamingBranch}&rdquo;.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          <form
+            id="rename-branch-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void commitRenameBranch();
+            }}
+          >
+            <Label htmlFor="rename-branch-input" className="sr-only">
+              New branch name
+            </Label>
+            <Input
+              id="rename-branch-input"
+              ref={renameInputRef}
+              autoFocus
+              value={renameDraft}
+              onChange={(event) => setRenameDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  cancelRenamingBranch();
+                }
+              }}
+              placeholder="branch-name"
+              disabled={isBranchActionPending}
+            />
+          </form>
+        </DialogPanel>
+        <DialogFooter>
+          <DialogClose render={<Button type="button" variant="ghost" disabled={isBranchActionPending} />}>
+            Cancel
+          </DialogClose>
+          <Button
+            type="submit"
+            form="rename-branch-form"
+            disabled={isBranchActionPending || renameDraft.trim().length === 0}
+          >
+            Rename
+          </Button>
+        </DialogFooter>
+      </DialogPopup>
+    </Dialog>
+    </>
   );
 }
