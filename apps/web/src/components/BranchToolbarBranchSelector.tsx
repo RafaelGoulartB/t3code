@@ -1,11 +1,19 @@
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
+  settlePromise,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, VcsRef, ThreadId } from "@t3tools/contracts";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
-import { ChevronDownIcon, GitBranchIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  GitBranchIcon,
+  RefreshCwIcon,
+  SearchIcon,
+  SquarePenIcon,
+  Trash2Icon,
+} from "lucide-react";
 import {
   useCallback,
   useDeferredValue,
@@ -28,8 +36,10 @@ import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
 import { vcsEnvironment } from "../state/vcs";
 import { cn } from "../lib/utils";
+import { readLocalApi } from "../localApi";
 import { parsePullRequestReference } from "../pullRequestReference";
 import { getSourceControlPresentation } from "../sourceControlPresentation";
+import { sanitizeBranchFragment } from "@t3tools/shared/git";
 import {
   deriveLocalBranchNameFromRemoteRef,
   resolveBranchSelectionTarget,
@@ -44,6 +54,7 @@ import {
   resolveThreadPr,
 } from "./ThreadStatusIndicators";
 import { Button } from "./ui/button";
+import { INLINE_HOVER_ACTION_BUTTON_CLASS } from "./ui/inlineActions";
 import { Switch } from "./ui/switch";
 import {
   Combobox,
@@ -55,6 +66,18 @@ import {
   ComboboxStatus,
   ComboboxTrigger,
 } from "./ui/combobox";
+import {
+  Dialog,
+  DialogClose,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "./ui/dialog";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
@@ -116,6 +139,12 @@ export function BranchToolbarBranchSelector({
     reportFailure: false,
   });
   const createRefMutation = useAtomCommand(vcsEnvironment.createRef, {
+    reportFailure: false,
+  });
+  const renameBranch = useAtomCommand(vcsEnvironment.renameBranch, {
+    reportFailure: false,
+  });
+  const deleteBranch = useAtomCommand(vcsEnvironment.deleteBranch, {
     reportFailure: false,
   });
   // ---------------------------------------------------------------------------
@@ -422,6 +451,194 @@ export function BranchToolbarBranchSelector({
     });
   };
 
+  const [renamingBranch, setRenamingBranch] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+  // The pencil button lives inside a `ComboboxItem`, which calls
+  // `event.preventDefault()` on `pointerdown` to keep the search input focused.
+  // Some browsers still emit a `click` for that interaction, and base-ui's
+  // `useDismiss` listens for outside presses in the capture phase on the
+  // document — so the spurious `click` immediately dismisses the rename dialog
+  // we just opened. We track when the dialog opens and ignore the very next
+  // `outside-press` close that happens in the same gesture, while still
+  // allowing legitimate outside clicks to close the dialog afterwards.
+  const renameDialogOpenedAtRef = useRef<number>(0);
+
+  const startRenamingBranch = useCallback((branchName: string) => {
+    renameDialogOpenedAtRef.current = Date.now();
+    setRenamingBranch(branchName);
+    setRenameDraft(branchName);
+  }, []);
+
+  const cancelRenamingBranch = useCallback(() => {
+    setRenamingBranch(null);
+    setRenameDraft("");
+  }, []);
+
+  useEffect(() => {
+    if (renamingBranch === null) return;
+    const input = renameInputRef.current;
+    if (!input) return;
+    input.focus();
+    input.select();
+  }, [renamingBranch]);
+
+  const commitRenameBranch = useCallback(async () => {
+    if (renamingBranch === null || isBranchActionPending) return;
+    const targetName = renameDraft.trim();
+    if (!branchCwd) {
+      cancelRenamingBranch();
+      return;
+    }
+    if (targetName === renamingBranch) {
+      cancelRenamingBranch();
+      return;
+    }
+    if (targetName.length === 0) {
+      cancelRenamingBranch();
+      return;
+    }
+    const sanitizedTarget = sanitizeBranchFragment(targetName);
+    if (sanitizedTarget !== targetName) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Invalid branch name.",
+          description: `Use letters, digits, '-', '_', '/', or '.'. Suggested: ${sanitizedTarget}`,
+        }),
+      );
+      return;
+    }
+
+    runBranchAction(async () => {
+      const previousBranch = resolvedActiveBranch;
+      if (targetName === previousBranch) {
+        setOptimisticBranch(targetName);
+      }
+      const result = await renameBranch({
+        environmentId,
+        input: {
+          cwd: branchCwd,
+          oldBranch: renamingBranch,
+          newBranch: targetName,
+        },
+      });
+      if (result._tag === "Success") {
+        const renamedTo = result.value.branch;
+        setOptimisticBranch(renamedTo);
+        if (renamingBranch === previousBranch) {
+          setThreadBranch(renamedTo, activeWorktreePath);
+        }
+        cancelRenamingBranch();
+        toastManager.add(
+          stackedThreadToast({
+            type: "success",
+            title: `Renamed to ${renamedTo}.`,
+          }),
+        );
+        return;
+      }
+      setOptimisticBranch(previousBranch);
+      if (!isAtomCommandInterrupted(result)) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: `Failed to rename ${renamingBranch}.`,
+            description: toBranchActionErrorMessage(squashAtomCommandFailure(result)),
+          }),
+        );
+      }
+      cancelRenamingBranch();
+    });
+  }, [
+    activeWorktreePath,
+    branchCwd,
+    cancelRenamingBranch,
+    environmentId,
+    isBranchActionPending,
+    renameBranch,
+    renameDraft,
+    renamingBranch,
+    resolvedActiveBranch,
+    runBranchAction,
+    setOptimisticBranch,
+    setThreadBranch,
+  ]);
+
+  const confirmAndDeleteBranch = useCallback(
+    async (refName: VcsRef) => {
+      if (!branchCwd || isBranchActionPending) return;
+      if (refName.current || refName.isDefault || refName.isRemote) return;
+
+      const localApi = readLocalApi();
+      const worktreePath =
+        refName.worktreePath && activeProjectCwd && refName.worktreePath !== activeProjectCwd
+          ? refName.worktreePath
+          : null;
+      const lines = [
+        `Delete branch "${refName.name}"?`,
+        worktreePath ? `This also removes the worktree at ${worktreePath}.` : null,
+        "This cannot be undone.",
+      ].filter((line): line is string => line !== null);
+      const message = lines.join("\n");
+
+      let shouldDelete = true;
+      if (localApi) {
+        const confirmationResult = await settlePromise(() => localApi.dialogs.confirm(message));
+        if (confirmationResult._tag === "Failure") return;
+        shouldDelete = confirmationResult.value;
+      }
+      if (!shouldDelete) return;
+
+      runBranchAction(async () => {
+        const previousBranch = resolvedActiveBranch;
+        const result = await deleteBranch({
+          environmentId,
+          input: {
+            cwd: branchCwd,
+            branch: refName.name,
+            ...(worktreePath ? { worktreePath } : {}),
+            force: true,
+          },
+        });
+        if (result._tag === "Success") {
+          if (refName.name === previousBranch) {
+            setOptimisticBranch(null);
+            setThreadBranch(null, activeWorktreePath);
+          }
+          toastManager.add(
+            stackedThreadToast({
+              type: "success",
+              title: `Deleted ${refName.name}.`,
+            }),
+          );
+          return;
+        }
+        if (!isAtomCommandInterrupted(result)) {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: `Failed to delete ${refName.name}.`,
+              description: toBranchActionErrorMessage(squashAtomCommandFailure(result)),
+            }),
+          );
+        }
+      });
+    },
+    [
+      activeProjectCwd,
+      activeWorktreePath,
+      branchCwd,
+      deleteBranch,
+      environmentId,
+      isBranchActionPending,
+      resolvedActiveBranch,
+      runBranchAction,
+      setOptimisticBranch,
+      setThreadBranch,
+    ],
+  );
+
   useEffect(() => {
     if (
       effectiveEnvMode !== "worktree" ||
@@ -601,24 +818,78 @@ export function BranchToolbarBranchSelector({
           : refName.isDefault
             ? "default"
             : null;
+    const supportsRowActions = !refName.isDefault && !refName.isRemote;
+    // The base-ui `Combobox.Item` calls `event.preventDefault()` in its
+    // pointerdown capture handler to keep the input focused, which suppresses
+    // the compatibility `click` event on any nested interactive element. We
+    // therefore trigger the row actions on `pointerdown` and only stop
+    // propagation — never `preventDefault` — so we don't compound the
+    // suppression. The rename UI is rendered in a dialog outside the combobox
+    // (see `<RenameBranchDialog>` below) so the combobox can dismiss without
+    // taking the rename input with it.
+    const stopRowPointerEvent = (event: React.SyntheticEvent) => {
+      event.stopPropagation();
+    };
     return (
       <ComboboxItem
         hideIndicator
         key={itemValue}
         index={index}
         value={itemValue}
-        className="pe-1.5"
-        onClick={() => selectBranch(refName)}
+        className="group/branch-row relative pe-1.5"
+        onClick={(event) => {
+          // Suppress the combobox selection when clicking the action area.
+          if ((event.target as HTMLElement).closest("[data-branch-row-action]")) return;
+          selectBranch(refName);
+        }}
       >
         <div className="flex w-full min-w-0 items-center justify-between gap-2">
           <span className="min-w-0 flex-1 truncate">{itemValue}</span>
-          {badge && <span className="shrink-0 text-[10px] text-muted-foreground/45">{badge}</span>}
+          <div className="flex shrink-0 items-center gap-1">
+            {badge && <span className="text-[10px] text-muted-foreground/45">{badge}</span>}
+            {supportsRowActions ? (
+              <div
+                data-branch-row-action
+                className="flex items-center gap-0.5 opacity-0 transition-opacity duration-150 max-sm:opacity-100 group-hover/branch-row:opacity-100 group-focus-within/branch-row:opacity-100"
+              >
+                <button
+                  type="button"
+                  aria-label={`Rename branch ${refName.name}`}
+                  title="Rename branch"
+                  data-testid={`branch-rename-${refName.name}`}
+                  className={INLINE_HOVER_ACTION_BUTTON_CLASS}
+                  onPointerDown={(event) => {
+                    stopRowPointerEvent(event);
+                    startRenamingBranch(refName.name);
+                  }}
+                  onPointerUp={stopRowPointerEvent}
+                >
+                  <SquarePenIcon className="size-3.5" />
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Delete branch ${refName.name}`}
+                  title="Delete branch"
+                  data-testid={`branch-delete-${refName.name}`}
+                  className={cn(INLINE_HOVER_ACTION_BUTTON_CLASS, "hover:text-destructive")}
+                  onPointerDown={(event) => {
+                    stopRowPointerEvent(event);
+                    void confirmAndDeleteBranch(refName);
+                  }}
+                  onPointerUp={stopRowPointerEvent}
+                >
+                  <Trash2Icon className="size-3.5" />
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
       </ComboboxItem>
     );
   }
 
   return (
+    <>
     <Combobox
       items={branchPickerItems}
       filteredItems={filteredBranchPickerItems}
@@ -760,5 +1031,74 @@ export function BranchToolbarBranchSelector({
         </div>
       </ComboboxPopup>
     </Combobox>
+    <Dialog
+      open={renamingBranch !== null}
+      onOpenChange={(open, eventDetails) => {
+        if (open) return;
+        if (
+          eventDetails.reason === "outside-press" &&
+          Date.now() - renameDialogOpenedAtRef.current < 500
+        ) {
+          return;
+        }
+        cancelRenamingBranch();
+      }}
+    >
+      <DialogPopup
+        showCloseButton={false}
+        data-testid="rename-branch-dialog"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <DialogHeader>
+          <DialogTitle>Rename branch</DialogTitle>
+          <DialogDescription>
+            Enter a new name for &ldquo;{renamingBranch}&rdquo;.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          <form
+            id="rename-branch-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void commitRenameBranch();
+            }}
+          >
+            <Label htmlFor="rename-branch-input" className="sr-only">
+              New branch name
+            </Label>
+            <Input
+              id="rename-branch-input"
+              ref={renameInputRef}
+              autoFocus
+              value={renameDraft}
+              onChange={(event) => setRenameDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  cancelRenamingBranch();
+                }
+              }}
+              placeholder="branch-name"
+              disabled={isBranchActionPending}
+            />
+          </form>
+        </DialogPanel>
+        <DialogFooter>
+          <DialogClose render={<Button type="button" variant="ghost" disabled={isBranchActionPending} />}>
+            Cancel
+          </DialogClose>
+          <Button
+            type="submit"
+            form="rename-branch-form"
+            disabled={isBranchActionPending || renameDraft.trim().length === 0}
+          >
+            Rename
+          </Button>
+        </DialogFooter>
+      </DialogPopup>
+    </Dialog>
+    </>
   );
 }

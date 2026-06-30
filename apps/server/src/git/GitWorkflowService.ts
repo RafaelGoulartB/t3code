@@ -5,6 +5,9 @@ import * as Layer from "effect/Layer";
 import {
   GitManagerError,
   GitCommandError,
+  type VcsDeleteBranchInput,
+  type VcsRenameBranchInput,
+  type VcsRenameBranchResult,
   type VcsSwitchRefInput,
   type VcsSwitchRefResult,
   type VcsCreateRefInput,
@@ -88,11 +91,12 @@ export class GitWorkflowService extends Context.Service<
     readonly switchRef: (
       input: VcsSwitchRefInput,
     ) => Effect.Effect<VcsSwitchRefResult, GitCommandError>;
-    readonly renameBranch: (input: {
-      readonly cwd: string;
-      readonly oldBranch: string;
-      readonly newBranch: string;
-    }) => Effect.Effect<{ readonly branch: string }, GitManagerServiceError>;
+    readonly renameBranch: (
+      input: VcsRenameBranchInput,
+    ) => Effect.Effect<VcsRenameBranchResult, GitManagerError | GitCommandError>;
+    readonly deleteBranch: (
+      input: VcsDeleteBranchInput,
+    ) => Effect.Effect<void, GitManagerError | GitCommandError>;
   }
 >()("t3/git/GitWorkflowService") {}
 
@@ -334,6 +338,27 @@ export const make = Effect.gen(function* () {
     renameBranch: (input) =>
       ensureGit("GitWorkflowService.renameBranch", input.cwd).pipe(
         Effect.andThen(git.renameBranch(input)),
+      ),
+    deleteBranch: (input) =>
+      ensureGit("GitWorkflowService.deleteBranch", input.cwd).pipe(
+        Effect.andThen(
+          Effect.gen(function* () {
+            if (input.worktreePath) {
+              yield* git
+                .removeWorktree({
+                  cwd: input.cwd,
+                  path: input.worktreePath,
+                  ...(input.force === true ? { force: true } : {}),
+                })
+                .pipe(Effect.ignore({ log: true }));
+            }
+            yield* git.deleteBranch({
+              cwd: input.cwd,
+              branch: input.branch,
+              ...(input.force === true ? { force: true } : {}),
+            });
+          }),
+        ),
       ),
   });
 });
