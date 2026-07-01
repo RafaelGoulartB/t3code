@@ -30,6 +30,7 @@ import {
   workEntryIndicatesToolNeutralStatus,
   workEntryIndicatesToolSuccess,
   workLogEntryIsToolLike,
+  type WorkLogEntry,
 } from "../../session-logic";
 import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
@@ -156,6 +157,7 @@ interface MessagesTimelineProps {
   isWorking: boolean;
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
+  latestWorkingActivities: ReadonlyArray<WorkLogEntry>;
   listRef: React.RefObject<LegendListRef | null>;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
   latestTurn: TimelineLatestTurn | null;
@@ -189,6 +191,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   isWorking,
   activeTurnInProgress,
   activeTurnStartedAt,
+  latestWorkingActivities,
   listRef,
   timelineEntries,
   latestTurn,
@@ -301,6 +304,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         expandedWorkGroupIds,
         isWorking,
         activeTurnStartedAt,
+        latestWorkingActivities,
         turnDiffSummaryByAssistantMessageId,
         revertTurnCountByUserMessageId,
       }),
@@ -312,6 +316,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       expandedWorkGroupIds,
       isWorking,
       activeTurnStartedAt,
+      latestWorkingActivities,
       turnDiffSummaryByAssistantMessageId,
       revertTurnCountByUserMessageId,
     ],
@@ -1069,6 +1074,29 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
           )}
         </span>
       </div>
+      {row.latestActivities.length > 0 && (
+        <div className="mt-1 flex flex-col gap-0.5">
+          {row.latestActivities.map((activity) => (
+            <WorkingActivityLine key={activity.id} activity={activity} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WorkingActivityLine({ activity }: { activity: WorkLogEntry }) {
+  const toneClass =
+    activity.tone === "error"
+      ? "text-destructive/70"
+      : activity.tone === "thinking"
+        ? "text-muted-foreground/60"
+        : "text-muted-foreground/50";
+
+  return (
+    <div className={cn("flex items-center gap-1.5 pl-1 text-[10px] leading-tight truncate", toneClass)}>
+      <span className="shrink-0 opacity-60">↳</span>
+      <span className="truncate">{activity.label}</span>
     </div>
   );
 }

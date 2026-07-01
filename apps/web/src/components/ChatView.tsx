@@ -1729,6 +1729,14 @@ function ChatViewContent(props: ChatViewProps) {
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
+  const latestWorkingActivities = useMemo(() => {
+    const activeTurnId =
+      activeThread?.session?.status === "running" ? activeThread.session.activeTurnId : null;
+    const entries = activeTurnId
+      ? workLogEntries.filter((e) => e.turnId === activeTurnId)
+      : workLogEntries;
+    return entries.slice(-5);
+  }, [workLogEntries, activeThread?.session]);
   const pendingApprovals = useMemo(
     () => derivePendingApprovals(threadActivities),
     [threadActivities],
@@ -5102,6 +5110,7 @@ function ChatViewContent(props: ChatViewProps) {
                 isWorking={isWorking}
                 activeTurnInProgress={isWorking || !latestTurnSettled}
                 activeTurnStartedAt={activeWorkStartedAt}
+                latestWorkingActivities={latestWorkingActivities}
                 listRef={legendListRef}
                 timelineEntries={timelineEntries}
                 latestTurn={activeLatestTurn}
