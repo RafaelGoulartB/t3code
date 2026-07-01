@@ -6,6 +6,7 @@ import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
 import { DEFAULT_GIT_TEXT_GENERATION_MODEL, ProviderOptionSelections } from "./model.ts";
 import { ModelSelection } from "./orchestration.ts";
 import { ProviderInstanceConfig, ProviderInstanceId } from "./providerInstance.ts";
+import { TextGenerationPolicy } from "./textGenerationPolicy.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -426,6 +427,14 @@ export const ServerSettings = Schema.Struct({
       }),
     ),
   ),
+  textGenerationPolicy: TextGenerationPolicy.pipe(
+    Schema.withDecodingDefault(
+      Effect.succeed({
+        kind: "default",
+        inferRepositoryConventions: false,
+      } as const satisfies typeof TextGenerationPolicy.Type),
+    ),
+  ),
 
   // Legacy single-instance-per-driver settings. Continues to be the source
   // of truth until `providerInstances` (below) lands per-driver migration
@@ -504,6 +513,17 @@ const ModelSelectionPatch = Schema.Struct({
   options: Schema.optionalKey(ProviderOptionSelections),
 });
 
+const TextGenerationPolicyPatch = Schema.Struct({
+  kind: Schema.optionalKey(
+    Schema.Literals(["default", "conventional_commits", "repo_conventions", "custom"]),
+  ),
+  commitInstructions: Schema.optional(Schema.String),
+  changeRequestInstructions: Schema.optional(Schema.String),
+  branchInstructions: Schema.optional(Schema.String),
+  threadTitleInstructions: Schema.optional(Schema.String),
+  inferRepositoryConventions: Schema.optional(Schema.Boolean),
+});
+
 const CodexSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
@@ -550,6 +570,7 @@ export const ServerSettingsPatch = Schema.Struct({
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
+  textGenerationPolicy: Schema.optionalKey(TextGenerationPolicyPatch),
   observability: Schema.optionalKey(
     Schema.Struct({
       otlpTracesUrl: Schema.optionalKey(TrimmedString),

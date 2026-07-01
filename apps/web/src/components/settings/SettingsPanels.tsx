@@ -20,6 +20,9 @@ import {
   type ProviderInstanceConfig,
   type ProviderInstanceId,
   type ScopedThreadRef,
+  textGenerationPresets,
+  type TextGenerationPolicy,
+  type TextGenerationPolicyKind,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
@@ -127,6 +130,27 @@ const TIMESTAMP_FORMAT_LABELS = {
   "12-hour": "12-hour",
   "24-hour": "24-hour",
 } as const;
+
+const TEXT_GENERATION_CONVENTION_LABELS: Record<
+  Exclude<TextGenerationPolicyKind, "custom">,
+  string
+> = {
+  default: "Default",
+  conventional_commits: "Conventional Commits",
+  repo_conventions: "Repository conventions",
+};
+
+function isDefaultTextGenerationPolicy(policy: TextGenerationPolicy | undefined): boolean {
+  if (!policy) return true;
+  return (
+    policy.kind === "default" &&
+    policy.commitInstructions === undefined &&
+    policy.changeRequestInstructions === undefined &&
+    policy.branchInstructions === undefined &&
+    policy.threadTitleInstructions === undefined &&
+    policy.inferRepositoryConventions === false
+  );
+}
 
 const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
 
@@ -400,6 +424,8 @@ export function useSettingsRestore(onRestored?: () => void) {
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
 
+  const isTextGenerationPolicyDirty = !isDefaultTextGenerationPolicy(settings.textGenerationPolicy);
+
   const isPaletteDirty = paletteId !== DEFAULT_PALETTE_ID;
 
   const changedSettingLabels = useMemo(
@@ -443,9 +469,11 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Delete confirmation"]
         : []),
       ...(isGitWritingModelDirty ? ["Git writing model"] : []),
+      ...(isTextGenerationPolicyDirty ? ["Text generation convention"] : []),
     ],
     [
       isGitWritingModelDirty,
+      isTextGenerationPolicyDirty,
       isPaletteDirty,
       settings.autoOpenPlanSidebar,
       settings.confirmThreadArchive,
@@ -491,6 +519,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
       confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
       textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
+      textGenerationPolicy: DEFAULT_UNIFIED_SETTINGS.textGenerationPolicy,
     });
     onRestored?.();
   }, [changedSettingLabels, isPaletteDirty, onRestored, resetPalette, setTheme, updateSettings]);
@@ -860,6 +889,7 @@ export function GeneralSettingsPanel() {
     settings.textGenerationModelSelection ?? null,
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
+  const isTextGenerationPolicyDirty = !isDefaultTextGenerationPolicy(settings.textGenerationPolicy);
 
   return (
     <SettingsPageContainer>
@@ -1296,6 +1326,59 @@ export function GeneralSettingsPanel() {
                 }}
               />
             </div>
+          }
+        />
+
+        <SettingsRow
+          title="Text generation convention"
+          description="Choose the style used for generated commit messages and PR content."
+          resetAction={
+            isTextGenerationPolicyDirty ? (
+              <SettingResetButton
+                label="text generation convention"
+                onClick={() =>
+                  updateSettings({
+                    textGenerationPolicy: textGenerationPresets.default,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.textGenerationPolicy.kind}
+              onValueChange={(value) => {
+                if (
+                  value === "default" ||
+                  value === "conventional_commits" ||
+                  value === "repo_conventions"
+                ) {
+                  const next = textGenerationPresets[value];
+                  updateSettings({ textGenerationPolicy: next });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-56" aria-label="Text generation convention">
+                <SelectValue>
+                  {(() => {
+                    const kind = settings.textGenerationPolicy.kind;
+                    if (kind === "custom") return "Custom";
+                    return TEXT_GENERATION_CONVENTION_LABELS[kind];
+                  })()}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                <SelectItem hideIndicator value="default">
+                  {TEXT_GENERATION_CONVENTION_LABELS.default}
+                </SelectItem>
+                <SelectItem hideIndicator value="conventional_commits">
+                  {TEXT_GENERATION_CONVENTION_LABELS["conventional_commits"]}
+                </SelectItem>
+                <SelectItem hideIndicator value="repo_conventions">
+                  {TEXT_GENERATION_CONVENTION_LABELS.repo_conventions}
+                </SelectItem>
+              </SelectPopup>
+            </Select>
           }
         />
       </SettingsSection>

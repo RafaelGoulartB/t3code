@@ -890,215 +890,217 @@ export function BranchToolbarBranchSelector({
 
   return (
     <>
-    <Combobox
-      items={branchPickerItems}
-      filteredItems={filteredBranchPickerItems}
-      autoHighlight
-      virtualized
-      onItemHighlighted={(_value, eventDetails) => {
-        if (!isBranchMenuOpen || eventDetails.index < 0 || eventDetails.reason !== "keyboard") {
-          return;
-        }
-        void branchListRef.current?.scrollIndexIntoView?.({
-          index: eventDetails.index,
-          animated: false,
-        });
-      }}
-      onOpenChange={handleOpenChange}
-      open={isBranchMenuOpen}
-      value={resolvedActiveBranch}
-    >
-      <div className={cn("flex min-w-0 items-center gap-1", className)}>
-        {branchPr && branchPrStatus ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label={branchPrTooltip}
-                  onClick={(event) => openPrLink(event, branchPrStatus.url)}
-                  className={cn(
-                    "inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[11px] font-medium tabular-nums transition-colors hover:bg-muted/60",
-                    branchPrStatus.colorClass,
-                  )}
-                />
-              }
-            >
-              <ChangeRequestStatusIcon className="size-3" />
-              <span>#{branchPr.number}</span>
-            </TooltipTrigger>
-            <TooltipPopup side="top">{branchPrTooltip}</TooltipPopup>
-          </Tooltip>
-        ) : null}
-        <ComboboxTrigger
-          render={<Button variant="ghost" size="xs" />}
-          className="min-w-0 text-muted-foreground/70 hover:text-foreground/80"
-          disabled={isInitialBranchesLoadPending || isBranchActionPending}
-        >
-          <GitBranchIcon className="size-3 shrink-0 opacity-70" />
-          <span className="min-w-0 max-w-[240px] truncate">{triggerLabel}</span>
-          <ChevronDownIcon className="size-3 shrink-0 opacity-50" />
-        </ComboboxTrigger>
-      </div>
-      <ComboboxPopup align="end" side="top" className="flex w-80 flex-col">
-        <div className="shrink-0 px-3 pt-2.5">
-          <div className="relative -translate-y-px border-b border-border/70 pb-1.5 transition-colors focus-within:border-ring">
-            <SearchIcon
-              aria-hidden="true"
-              className="pointer-events-none absolute top-1.5 left-0 size-4 shrink-0 text-muted-foreground/55"
-            />
-            <ComboboxInput
-              className="[&_input]:h-6.5 [&_input]:ps-5 [&_input]:font-sans [&_input]:leading-6.5"
-              inputClassName="rounded-none bg-transparent text-sm"
-              placeholder="Search refs..."
-              showTrigger={false}
-              size="sm"
-              unstyled
-              value={branchQuery}
-              onChange={(event) => setBranchQuery(event.target.value)}
-            />
-          </div>
-        </div>
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <ComboboxEmpty>No refs found.</ComboboxEmpty>
-          <div className="relative min-h-0 w-full max-h-56 flex-1 overflow-hidden">
-            <ComboboxListVirtualized className="size-full min-w-0 p-0">
-              <LegendList<string>
-                ref={branchListRef}
-                data={filteredBranchPickerItems}
-                keyExtractor={(item) => item}
-                getItemType={(item) =>
-                  item === checkoutPullRequestItemValue
-                    ? "checkout-pull-request"
-                    : item === createBranchItemValue
-                      ? "create-branch"
-                      : "branch"
-                }
-                renderItem={({ item, index }) => renderPickerItem(item, index)}
-                estimatedItemSize={28}
-                drawDistance={336}
-                onEndReached={() => {
-                  if (hasNextPage && !isFetchingNextPage) {
-                    fetchNextBranchPage();
-                  }
-                }}
-                onLayout={() => {
-                  updateBranchListScrollFades();
-                  maybeFetchNextBranchPage();
-                }}
-                onScroll={() => {
-                  updateBranchListScrollFades();
-                  maybeFetchNextBranchPage();
-                }}
-                className={cn(
-                  "scrollbar-gutter-stable overflow-x-hidden overscroll-y-contain ps-1 pe-0 pt-2 pb-1 [--fade-size:1.5rem]",
-                  showTopBranchScrollFade && "mask-t-from-[calc(100%-var(--fade-size))]",
-                  showBottomBranchScrollFade && "mask-b-from-[calc(100%-var(--fade-size))]",
-                )}
-                style={{ maxHeight: "14rem" }}
-              />
-            </ComboboxListVirtualized>
-          </div>
-          {isSelectingWorktreeBase ? (
+      <Combobox
+        items={branchPickerItems}
+        filteredItems={filteredBranchPickerItems}
+        autoHighlight
+        virtualized
+        onItemHighlighted={(_value, eventDetails) => {
+          if (!isBranchMenuOpen || eventDetails.index < 0 || eventDetails.reason !== "keyboard") {
+            return;
+          }
+          void branchListRef.current?.scrollIndexIntoView?.({
+            index: eventDetails.index,
+            animated: false,
+          });
+        }}
+        onOpenChange={handleOpenChange}
+        open={isBranchMenuOpen}
+        value={resolvedActiveBranch}
+      >
+        <div className={cn("flex min-w-0 items-center gap-1", className)}>
+          {branchPr && branchPrStatus ? (
             <Tooltip>
               <TooltipTrigger
                 render={
-                  <label
-                    htmlFor={startFromOriginSwitchId}
-                    className="flex cursor-pointer items-center justify-between gap-3 border-t border-border/60 px-3 py-2 text-xs"
-                  >
-                    <span className="flex min-w-0 items-center gap-1.5 font-medium text-muted-foreground">
-                      <RefreshCwIcon aria-hidden="true" className="size-3 shrink-0 opacity-70" />
-                      <span className="truncate">Start from origin</span>
-                    </span>
-                    <Switch
-                      id={startFromOriginSwitchId}
-                      checked={startFromOrigin}
-                      className="[--thumb-size:--spacing(3.5)]"
-                      aria-label="Start worktree from origin"
-                      onCheckedChange={(checked) => onStartFromOriginChange(Boolean(checked))}
-                    />
-                  </label>
+                  <button
+                    type="button"
+                    aria-label={branchPrTooltip}
+                    onClick={(event) => openPrLink(event, branchPrStatus.url)}
+                    className={cn(
+                      "inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[11px] font-medium tabular-nums transition-colors hover:bg-muted/60",
+                      branchPrStatus.colorClass,
+                    )}
+                  />
                 }
-              />
-              <TooltipPopup side="top" className="max-w-72 whitespace-normal leading-tight">
-                Creates the worktree from the latest matching branch on origin instead of your local
-                branch.
-              </TooltipPopup>
+              >
+                <ChangeRequestStatusIcon className="size-3" />
+                <span>#{branchPr.number}</span>
+              </TooltipTrigger>
+              <TooltipPopup side="top">{branchPrTooltip}</TooltipPopup>
             </Tooltip>
           ) : null}
-          {branchStatusText ? <ComboboxStatus>{branchStatusText}</ComboboxStatus> : null}
+          <ComboboxTrigger
+            render={<Button variant="ghost" size="xs" />}
+            className="min-w-0 text-muted-foreground/70 hover:text-foreground/80"
+            disabled={isInitialBranchesLoadPending || isBranchActionPending}
+          >
+            <GitBranchIcon className="size-3 shrink-0 opacity-70" />
+            <span className="min-w-0 max-w-[240px] truncate">{triggerLabel}</span>
+            <ChevronDownIcon className="size-3 shrink-0 opacity-50" />
+          </ComboboxTrigger>
         </div>
-      </ComboboxPopup>
-    </Combobox>
-    <Dialog
-      open={renamingBranch !== null}
-      onOpenChange={(open, eventDetails) => {
-        if (open) return;
-        if (
-          eventDetails.reason === "outside-press" &&
-          Date.now() - renameDialogOpenedAtRef.current < 500
-        ) {
-          return;
-        }
-        cancelRenamingBranch();
-      }}
-    >
-      <DialogPopup
-        showCloseButton={false}
-        data-testid="rename-branch-dialog"
-        onPointerDown={(event) => event.stopPropagation()}
-        onClick={(event) => event.stopPropagation()}
+        <ComboboxPopup align="end" side="top" className="flex w-80 flex-col">
+          <div className="shrink-0 px-3 pt-2.5">
+            <div className="relative -translate-y-px border-b border-border/70 pb-1.5 transition-colors focus-within:border-ring">
+              <SearchIcon
+                aria-hidden="true"
+                className="pointer-events-none absolute top-1.5 left-0 size-4 shrink-0 text-muted-foreground/55"
+              />
+              <ComboboxInput
+                className="[&_input]:h-6.5 [&_input]:ps-5 [&_input]:font-sans [&_input]:leading-6.5"
+                inputClassName="rounded-none bg-transparent text-sm"
+                placeholder="Search refs..."
+                showTrigger={false}
+                size="sm"
+                unstyled
+                value={branchQuery}
+                onChange={(event) => setBranchQuery(event.target.value)}
+              />
+            </div>
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <ComboboxEmpty>No refs found.</ComboboxEmpty>
+            <div className="relative min-h-0 w-full max-h-56 flex-1 overflow-hidden">
+              <ComboboxListVirtualized className="size-full min-w-0 p-0">
+                <LegendList<string>
+                  ref={branchListRef}
+                  data={filteredBranchPickerItems}
+                  keyExtractor={(item) => item}
+                  getItemType={(item) =>
+                    item === checkoutPullRequestItemValue
+                      ? "checkout-pull-request"
+                      : item === createBranchItemValue
+                        ? "create-branch"
+                        : "branch"
+                  }
+                  renderItem={({ item, index }) => renderPickerItem(item, index)}
+                  estimatedItemSize={28}
+                  drawDistance={336}
+                  onEndReached={() => {
+                    if (hasNextPage && !isFetchingNextPage) {
+                      fetchNextBranchPage();
+                    }
+                  }}
+                  onLayout={() => {
+                    updateBranchListScrollFades();
+                    maybeFetchNextBranchPage();
+                  }}
+                  onScroll={() => {
+                    updateBranchListScrollFades();
+                    maybeFetchNextBranchPage();
+                  }}
+                  className={cn(
+                    "scrollbar-gutter-stable overflow-x-hidden overscroll-y-contain ps-1 pe-0 pt-2 pb-1 [--fade-size:1.5rem]",
+                    showTopBranchScrollFade && "mask-t-from-[calc(100%-var(--fade-size))]",
+                    showBottomBranchScrollFade && "mask-b-from-[calc(100%-var(--fade-size))]",
+                  )}
+                  style={{ maxHeight: "14rem" }}
+                />
+              </ComboboxListVirtualized>
+            </div>
+            {isSelectingWorktreeBase ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <label
+                      htmlFor={startFromOriginSwitchId}
+                      className="flex cursor-pointer items-center justify-between gap-3 border-t border-border/60 px-3 py-2 text-xs"
+                    >
+                      <span className="flex min-w-0 items-center gap-1.5 font-medium text-muted-foreground">
+                        <RefreshCwIcon aria-hidden="true" className="size-3 shrink-0 opacity-70" />
+                        <span className="truncate">Start from origin</span>
+                      </span>
+                      <Switch
+                        id={startFromOriginSwitchId}
+                        checked={startFromOrigin}
+                        className="[--thumb-size:--spacing(3.5)]"
+                        aria-label="Start worktree from origin"
+                        onCheckedChange={(checked) => onStartFromOriginChange(Boolean(checked))}
+                      />
+                    </label>
+                  }
+                />
+                <TooltipPopup side="top" className="max-w-72 whitespace-normal leading-tight">
+                  Creates the worktree from the latest matching branch on origin instead of your
+                  local branch.
+                </TooltipPopup>
+              </Tooltip>
+            ) : null}
+            {branchStatusText ? <ComboboxStatus>{branchStatusText}</ComboboxStatus> : null}
+          </div>
+        </ComboboxPopup>
+      </Combobox>
+      <Dialog
+        open={renamingBranch !== null}
+        onOpenChange={(open, eventDetails) => {
+          if (open) return;
+          if (
+            eventDetails.reason === "outside-press" &&
+            Date.now() - renameDialogOpenedAtRef.current < 500
+          ) {
+            return;
+          }
+          cancelRenamingBranch();
+        }}
       >
-        <DialogHeader>
-          <DialogTitle>Rename branch</DialogTitle>
-          <DialogDescription>
-            Enter a new name for &ldquo;{renamingBranch}&rdquo;.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogPanel>
-          <form
-            id="rename-branch-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void commitRenameBranch();
-            }}
-          >
-            <Label htmlFor="rename-branch-input" className="sr-only">
-              New branch name
-            </Label>
-            <Input
-              id="rename-branch-input"
-              ref={renameInputRef}
-              autoFocus
-              value={renameDraft}
-              onChange={(event) => setRenameDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  cancelRenamingBranch();
-                }
+        <DialogPopup
+          showCloseButton={false}
+          data-testid="rename-branch-dialog"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <DialogHeader>
+            <DialogTitle>Rename branch</DialogTitle>
+            <DialogDescription>
+              Enter a new name for &ldquo;{renamingBranch}&rdquo;.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel>
+            <form
+              id="rename-branch-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void commitRenameBranch();
               }}
-              placeholder="branch-name"
-              disabled={isBranchActionPending}
-            />
-          </form>
-        </DialogPanel>
-        <DialogFooter>
-          <DialogClose render={<Button type="button" variant="ghost" disabled={isBranchActionPending} />}>
-            Cancel
-          </DialogClose>
-          <Button
-            type="submit"
-            form="rename-branch-form"
-            disabled={isBranchActionPending || renameDraft.trim().length === 0}
-          >
-            Rename
-          </Button>
-        </DialogFooter>
-      </DialogPopup>
-    </Dialog>
+            >
+              <Label htmlFor="rename-branch-input" className="sr-only">
+                New branch name
+              </Label>
+              <Input
+                id="rename-branch-input"
+                ref={renameInputRef}
+                autoFocus
+                value={renameDraft}
+                onChange={(event) => setRenameDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    cancelRenamingBranch();
+                  }
+                }}
+                placeholder="branch-name"
+                disabled={isBranchActionPending}
+              />
+            </form>
+          </DialogPanel>
+          <DialogFooter>
+            <DialogClose
+              render={<Button type="button" variant="ghost" disabled={isBranchActionPending} />}
+            >
+              Cancel
+            </DialogClose>
+            <Button
+              type="submit"
+              form="rename-branch-form"
+              disabled={isBranchActionPending || renameDraft.trim().length === 0}
+            >
+              Rename
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
     </>
   );
 }

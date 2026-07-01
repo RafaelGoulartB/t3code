@@ -136,7 +136,12 @@ export type MessagesTimelineRow =
       createdAt: string;
       proposedPlan: ProposedPlan;
     }
-  | { kind: "working"; id: string; createdAt: string | null; latestActivities: ReadonlyArray<WorkLogEntry> };
+  | {
+      kind: "working";
+      id: string;
+      createdAt: string | null;
+      latestActivities: ReadonlyArray<WorkLogEntry>;
+    };
 
 export interface StableMessagesTimelineRowsState {
   byId: Map<string, MessagesTimelineRow>;

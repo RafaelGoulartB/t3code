@@ -1094,7 +1094,9 @@ function WorkingActivityLine({ activity }: { activity: WorkLogEntry }) {
         : "text-muted-foreground/50";
 
   return (
-    <div className={cn("flex items-center gap-1.5 pl-1 text-[10px] leading-tight truncate", toneClass)}>
+    <div
+      className={cn("flex items-center gap-1.5 pl-1 text-[10px] leading-tight truncate", toneClass)}
+    >
       <span className="shrink-0 opacity-60">↳</span>
       <span className="truncate">{activity.label}</span>
     </div>
