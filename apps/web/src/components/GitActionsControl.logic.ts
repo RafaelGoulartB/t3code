@@ -342,6 +342,19 @@ export function requiresDefaultBranchConfirmation(
   );
 }
 
+export function shouldOpenCommitSelectionForQuickAction(input: {
+  quickAction: GitQuickAction;
+  gitStatus: VcsStatusResult | null;
+}): boolean {
+  if (input.quickAction.kind !== "run_action") return false;
+  if (!input.gitStatus?.hasWorkingTreeChanges) return false;
+  return (
+    input.quickAction.action === "commit" ||
+    input.quickAction.action === "commit_push" ||
+    input.quickAction.action === "commit_push_pr"
+  );
+}
+
 export function resolveDefaultBranchActionDialogCopy(input: {
   action: DefaultBranchConfirmableAction;
   branchName: string;

@@ -13,6 +13,7 @@ import {
   GitCommandError,
   VcsProcessExitError,
   type VcsDeleteBranchInput,
+  type VcsDiscardChangesInput,
   type VcsSwitchRefInput,
   type VcsSwitchRefResult,
   type VcsCreateRefInput,
@@ -28,6 +29,12 @@ import {
   type VcsRemoveWorktreeInput,
   type VcsStatusInput,
   type VcsStatusResult,
+  type VcsStashApplyInput,
+  type VcsStashListInput,
+  type VcsStashListResult,
+  type VcsStashPushInput,
+  type VcsStashPushResult,
+  type VcsStashRefInput,
 } from "@t3tools/contracts";
 import { makeGitVcsDriverCore } from "./GitVcsDriverCore.ts";
 import * as VcsDriver from "./VcsDriver.ts";
@@ -258,6 +265,17 @@ export class GitVcsDriver extends Context.Service<
       input: GitRenameBranchInput,
     ) => Effect.Effect<GitRenameBranchResult, GitCommandError>;
     readonly deleteBranch: (input: VcsDeleteBranchInput) => Effect.Effect<void, GitCommandError>;
+    readonly discardChanges: (
+      input: VcsDiscardChangesInput,
+    ) => Effect.Effect<void, GitCommandError>;
+    readonly stashPush: (
+      input: VcsStashPushInput,
+    ) => Effect.Effect<VcsStashPushResult, GitCommandError>;
+    readonly stashList: (
+      input: VcsStashListInput,
+    ) => Effect.Effect<VcsStashListResult, GitCommandError>;
+    readonly stashApply: (input: VcsStashApplyInput) => Effect.Effect<void, GitCommandError>;
+    readonly stashDrop: (input: VcsStashRefInput) => Effect.Effect<void, GitCommandError>;
     readonly createRef: (
       input: VcsCreateRefInput,
     ) => Effect.Effect<VcsCreateRefResult, GitCommandError>;

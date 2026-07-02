@@ -25,6 +25,7 @@ import {
   VcsCreateWorktreeInput,
   VcsCreateWorktreeResult,
   VcsDeleteBranchInput,
+  VcsDiscardChangesInput,
   VcsFetchInput,
   VcsFetchResult,
   VcsInitInput,
@@ -44,6 +45,12 @@ import {
   VcsStatusInput,
   VcsStatusResult,
   VcsStatusStreamEvent,
+  VcsStashApplyInput,
+  VcsStashListInput,
+  VcsStashListResult,
+  VcsStashPushInput,
+  VcsStashPushResult,
+  VcsStashRefInput,
 } from "./git.ts";
 import {
   ReviewDiffPreviewError,
@@ -178,6 +185,11 @@ export const WS_METHODS = {
   vcsSwitchRef: "vcs.switchRef",
   vcsRenameBranch: "vcs.renameBranch",
   vcsDeleteBranch: "vcs.deleteBranch",
+  vcsDiscardChanges: "vcs.discardChanges",
+  vcsStashPush: "vcs.stashPush",
+  vcsStashList: "vcs.stashList",
+  vcsStashApply: "vcs.stashApply",
+  vcsStashDrop: "vcs.stashDrop",
   vcsInit: "vcs.init",
 
   // Git workflow methods
@@ -488,6 +500,33 @@ export const WsVcsDeleteBranchRpc = Rpc.make(WS_METHODS.vcsDeleteBranch, {
   error: Schema.Union([GitManagerError, GitCommandError, EnvironmentAuthorizationError]),
 });
 
+export const WsVcsDiscardChangesRpc = Rpc.make(WS_METHODS.vcsDiscardChanges, {
+  payload: VcsDiscardChangesInput,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsStashPushRpc = Rpc.make(WS_METHODS.vcsStashPush, {
+  payload: VcsStashPushInput,
+  success: VcsStashPushResult,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsStashListRpc = Rpc.make(WS_METHODS.vcsStashList, {
+  payload: VcsStashListInput,
+  success: VcsStashListResult,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsStashApplyRpc = Rpc.make(WS_METHODS.vcsStashApply, {
+  payload: VcsStashApplyInput,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsStashDropRpc = Rpc.make(WS_METHODS.vcsStashDrop, {
+  payload: VcsStashRefInput,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
 export const WsVcsInitRpc = Rpc.make(WS_METHODS.vcsInit, {
   payload: VcsInitInput,
   error: Schema.Union([VcsError, EnvironmentAuthorizationError]),
@@ -746,6 +785,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsVcsSwitchRefRpc,
   WsVcsRenameBranchRpc,
   WsVcsDeleteBranchRpc,
+  WsVcsDiscardChangesRpc,
+  WsVcsStashPushRpc,
+  WsVcsStashListRpc,
+  WsVcsStashApplyRpc,
+  WsVcsStashDropRpc,
   WsVcsInitRpc,
   WsReviewGetDiffPreviewRpc,
   WsTerminalOpenRpc,

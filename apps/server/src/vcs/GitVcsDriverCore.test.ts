@@ -807,4 +807,58 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
       }),
     );
   });
+
+  describe("worktree management actions", () => {
+    it.effect("discards only selected changed files", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        yield* writeTextFile(cwd, "README.md", "# changed\n");
+        yield* writeTextFile(cwd, "scratch.txt", "scratch\n");
+
+        yield* driver.discardChanges({ cwd, filePaths: ["README.md"] });
+
+        const readme = yield* fileSystem.readFileString(pathService.join(cwd, "README.md"));
+        const scratch = yield* fileSystem.readFileString(pathService.join(cwd, "scratch.txt"));
+        const status = yield* git(cwd, ["status", "--porcelain"]);
+
+        assert.equal(readme, "# test\n");
+        assert.equal(scratch, "scratch\n");
+        assert.include(status, "scratch.txt");
+        assert.notInclude(status, "README.md");
+      }),
+    );
+
+    it.effect("stashes only selected files", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        yield* writeTextFile(cwd, "README.md", "# stashed\n");
+        yield* writeTextFile(cwd, "keep.txt", "keep\n");
+
+        const result = yield* driver.stashPush({
+          cwd,
+          message: "selected stash",
+          filePaths: ["README.md"],
+        });
+        const readme = yield* fileSystem.readFileString(pathService.join(cwd, "README.md"));
+        const keep = yield* fileSystem.readFileString(pathService.join(cwd, "keep.txt"));
+        const stashes = yield* driver.stashList({ cwd });
+
+        assert.equal(result.status, "stashed");
+        assert.equal(readme, "# test\n");
+        assert.equal(keep, "keep\n");
+        assert.isAtLeast(stashes.stashes.length, 1);
+        assert.include(stashes.stashes[0]?.subject ?? "", "selected stash");
+      }),
+    );
+  });
 });

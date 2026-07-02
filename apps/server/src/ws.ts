@@ -320,6 +320,11 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.vcsSwitchRef, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsRenameBranch, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsDeleteBranch, AuthOrchestrationOperateScope],
+  [WS_METHODS.vcsDiscardChanges, AuthOrchestrationOperateScope],
+  [WS_METHODS.vcsStashPush, AuthOrchestrationOperateScope],
+  [WS_METHODS.vcsStashList, AuthOrchestrationReadScope],
+  [WS_METHODS.vcsStashApply, AuthOrchestrationOperateScope],
+  [WS_METHODS.vcsStashDrop, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsInit, AuthOrchestrationOperateScope],
   [WS_METHODS.reviewGetDiffPreview, AuthReviewWriteScope],
   [WS_METHODS.terminalOpen, AuthTerminalOperateScope],
@@ -1572,6 +1577,34 @@ const makeWsRpcLayer = (
           observeRpcEffect(
             WS_METHODS.vcsDeleteBranch,
             gitWorkflow.deleteBranch(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsDiscardChanges]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsDiscardChanges,
+            gitWorkflow.discardChanges(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsStashPush]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsStashPush,
+            gitWorkflow.stashPush(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsStashList]: (input) =>
+          observeRpcEffect(WS_METHODS.vcsStashList, gitWorkflow.stashList(input), {
+            "rpc.aggregate": "vcs",
+          }),
+        [WS_METHODS.vcsStashApply]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsStashApply,
+            gitWorkflow.stashApply(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsStashDrop]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsStashDrop,
+            gitWorkflow.stashDrop(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsInit]: (input) =>

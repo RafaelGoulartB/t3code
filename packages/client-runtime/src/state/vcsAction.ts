@@ -34,6 +34,10 @@ export const VcsActionOperation = Schema.Literals([
   "create_ref",
   "create_worktree",
   "init",
+  "discard_changes",
+  "stash_push",
+  "stash_apply",
+  "stash_drop",
   "publish_repository",
   "prepare_pull_request_thread",
 ]);

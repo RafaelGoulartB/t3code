@@ -88,6 +88,35 @@ export function createVcsEnvironmentAtoms<R, E>(
       scheduler: vcsCommandScheduler,
       concurrency: vcsCommandConcurrency,
     }),
+    discardChanges: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:discard-changes",
+      tag: WS_METHODS.vcsDiscardChanges,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
+    stashPush: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:stash-push",
+      tag: WS_METHODS.vcsStashPush,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
+    stashList: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:vcs:stash-list",
+      tag: WS_METHODS.vcsStashList,
+      staleTimeMs: 5_000,
+    }),
+    stashApply: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:stash-apply",
+      tag: WS_METHODS.vcsStashApply,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
+    stashDrop: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:stash-drop",
+      tag: WS_METHODS.vcsStashDrop,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
     init: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:init",
       tag: WS_METHODS.vcsInit,

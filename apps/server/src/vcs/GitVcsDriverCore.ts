@@ -24,6 +24,8 @@ import {
   type ReviewDiffPreviewInput,
   type ReviewDiffPreviewSource,
   type VcsRef,
+  type VcsStashEntry,
+  type VcsStashListResult,
 } from "@t3tools/contracts";
 import { dedupeRemoteBranchesWithLocalMatches } from "@t3tools/shared/git";
 import { compactTraceAttributes } from "@t3tools/shared/observability";
@@ -2432,6 +2434,129 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     );
   });
 
+  const discardChanges: GitVcsDriver.GitVcsDriver["Service"]["discardChanges"] = Effect.fn(
+    "discardChanges",
+  )(function* (input) {
+    const trackedPaths: Array<string> = [];
+    const untrackedPaths: Array<string> = [];
+
+    for (const filePath of input.filePaths) {
+      const result = yield* executeGit(
+        "GitVcsDriver.discardChanges.checkTracked",
+        input.cwd,
+        ["ls-files", "--error-unmatch", "--", filePath],
+        { allowNonZeroExit: true, timeoutMs: 10_000 },
+      );
+      if (result.exitCode === 0) {
+        trackedPaths.push(filePath);
+      } else {
+        untrackedPaths.push(filePath);
+      }
+    }
+
+    if (trackedPaths.length > 0) {
+      yield* executeGit(
+        "GitVcsDriver.discardChanges.restore",
+        input.cwd,
+        ["restore", "--staged", "--worktree", "--", ...trackedPaths],
+        {
+          timeoutMs: 10_000,
+          fallbackErrorDetail: "git restore selected changes failed",
+        },
+      );
+    }
+
+    if (untrackedPaths.length > 0) {
+      yield* executeGit(
+        "GitVcsDriver.discardChanges.clean",
+        input.cwd,
+        ["clean", "-f", "--", ...untrackedPaths],
+        {
+          timeoutMs: 10_000,
+          fallbackErrorDetail: "git clean selected changes failed",
+        },
+      );
+    }
+  });
+
+  const parseStashList = (stdout: string): VcsStashListResult["stashes"] => {
+    const fields = stdout.split("\0").filter((field) => field.length > 0);
+    const stashes: Array<VcsStashEntry> = [];
+    for (let index = 0; index + 1 < fields.length; index += 2) {
+      const ref = fields[index];
+      const subject = fields[index + 1];
+      if (!ref || !subject) continue;
+      const branchMatch = /^WIP on ([^:]+):/.exec(subject);
+      stashes.push({
+        ref,
+        branch: branchMatch?.[1] ?? null,
+        subject,
+      });
+    }
+    return stashes;
+  };
+
+  const stashList: GitVcsDriver.GitVcsDriver["Service"]["stashList"] = Effect.fn("stashList")(
+    function* (input) {
+      const stdout = yield* runGitStdout("GitVcsDriver.stashList", input.cwd, [
+        "stash",
+        "list",
+        "--format=%gd%x00%gs%x00",
+      ]);
+      return { stashes: parseStashList(stdout) };
+    },
+  );
+
+  const stashPush: GitVcsDriver.GitVcsDriver["Service"]["stashPush"] = Effect.fn("stashPush")(
+    function* (input) {
+      const args = ["stash", "push", "-u"];
+      if (input.message) {
+        args.push("-m", input.message);
+      }
+      if (input.filePaths && input.filePaths.length > 0) {
+        args.push("--", ...input.filePaths);
+      }
+
+      const result = yield* executeGit("GitVcsDriver.stashPush", input.cwd, args, {
+        timeoutMs: 15_000,
+        fallbackErrorDetail: "git stash push failed",
+      });
+      const output = `${result.stdout}\n${result.stderr}`;
+      if (/No local changes to save/i.test(output)) {
+        return { status: "skipped_no_changes" as const };
+      }
+
+      const after = yield* stashList({ cwd: input.cwd });
+      const stashRef = after.stashes[0]?.ref;
+      return stashRef
+        ? { status: "stashed" as const, stashRef }
+        : { status: "skipped_no_changes" as const };
+    },
+  );
+
+  const stashApply: GitVcsDriver.GitVcsDriver["Service"]["stashApply"] = Effect.fn("stashApply")(
+    function* (input) {
+      yield* executeGit(
+        "GitVcsDriver.stashApply",
+        input.cwd,
+        ["stash", input.drop === true ? "pop" : "apply", input.stashRef],
+        {
+          timeoutMs: 15_000,
+          fallbackErrorDetail: "git stash apply failed",
+        },
+      );
+    },
+  );
+
+  const stashDrop: GitVcsDriver.GitVcsDriver["Service"]["stashDrop"] = Effect.fn("stashDrop")(
+    function* (input) {
+      yield* executeGit("GitVcsDriver.stashDrop", input.cwd, ["stash", "drop", input.stashRef], {
+        timeoutMs: 10_000,
+        fallbackErrorDetail: "git stash drop failed",
+      });
+    },
+  );
+
   const switchRef: GitVcsDriver.GitVcsDriver["Service"]["switchRef"] = Effect.fn("switchRef")(
     function* (input) {
       const [localInputExists, remoteExists] = yield* Effect.all(
@@ -2581,6 +2706,11 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     removeWorktree,
     renameBranch,
     deleteBranch,
+    discardChanges,
+    stashPush,
+    stashList,
+    stashApply,
+    stashDrop,
     createRef,
     switchRef,
     initRepo,

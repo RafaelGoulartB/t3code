@@ -200,6 +200,39 @@ export const VcsDeleteBranchInput = Schema.Struct({
 });
 export type VcsDeleteBranchInput = typeof VcsDeleteBranchInput.Type;
 
+export const VcsDiscardChangesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  filePaths: Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
+});
+export type VcsDiscardChangesInput = typeof VcsDiscardChangesInput.Type;
+
+export const VcsStashPushInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  message: Schema.optional(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(512))),
+  filePaths: Schema.optional(
+    Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
+  ),
+});
+export type VcsStashPushInput = typeof VcsStashPushInput.Type;
+
+export const VcsStashListInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+});
+export type VcsStashListInput = typeof VcsStashListInput.Type;
+
+export const VcsStashRefInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  stashRef: TrimmedNonEmptyStringSchema,
+});
+export type VcsStashRefInput = typeof VcsStashRefInput.Type;
+
+export const VcsStashApplyInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  stashRef: TrimmedNonEmptyStringSchema,
+  drop: Schema.optional(Schema.Boolean),
+});
+export type VcsStashApplyInput = typeof VcsStashApplyInput.Type;
+
 export const VcsSwitchRefInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   refName: TrimmedNonEmptyStringSchema,
@@ -348,6 +381,24 @@ export const VcsFetchResult = Schema.Struct({
   remoteName: TrimmedNonEmptyStringSchema,
 });
 export type VcsFetchResult = typeof VcsFetchResult.Type;
+
+const VcsStashEntry = Schema.Struct({
+  ref: TrimmedNonEmptyStringSchema,
+  branch: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  subject: TrimmedNonEmptyStringSchema,
+});
+export type VcsStashEntry = typeof VcsStashEntry.Type;
+
+export const VcsStashListResult = Schema.Struct({
+  stashes: Schema.Array(VcsStashEntry),
+});
+export type VcsStashListResult = typeof VcsStashListResult.Type;
+
+export const VcsStashPushResult = Schema.Struct({
+  status: Schema.Literals(["stashed", "skipped_no_changes"]),
+  stashRef: Schema.optional(TrimmedNonEmptyStringSchema),
+});
+export type VcsStashPushResult = typeof VcsStashPushResult.Type;
 
 // RPC / domain errors
 export class GitCommandError extends Schema.TaggedErrorClass<GitCommandError>()("GitCommandError", {

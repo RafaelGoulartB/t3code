@@ -9,6 +9,7 @@ import {
   resolveLiveThreadBranchUpdate,
   resolveQuickAction,
   resolveThreadBranchUpdate,
+  shouldOpenCommitSelectionForQuickAction,
 } from "./GitActionsControl.logic";
 
 function status(overrides: Partial<VcsStatusResult> = {}): VcsStatusResult {
@@ -347,6 +348,19 @@ describe("when: working tree has local changes", () => {
       action: "commit_push_pr",
       label: "Commit, push & PR",
     });
+  });
+
+  it("opens commit selection for quick actions that include a commit", () => {
+    const gitStatus = status({ hasWorkingTreeChanges: true });
+    const quick = resolveQuickAction(gitStatus, false);
+
+    assert.isTrue(shouldOpenCommitSelectionForQuickAction({ quickAction: quick, gitStatus }));
+    assert.isFalse(
+      shouldOpenCommitSelectionForQuickAction({
+        quickAction: { kind: "run_action", action: "push", label: "Push", disabled: false },
+        gitStatus,
+      }),
+    );
   });
 
   it("resolveQuickAction falls back to commit when no origin remote exists", () => {

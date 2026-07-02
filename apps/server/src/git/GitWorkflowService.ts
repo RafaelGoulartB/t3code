@@ -6,6 +6,7 @@ import {
   GitManagerError,
   GitCommandError,
   type VcsDeleteBranchInput,
+  type VcsDiscardChangesInput,
   type VcsRenameBranchInput,
   type VcsRenameBranchResult,
   type VcsSwitchRefInput,
@@ -30,6 +31,12 @@ import {
   type VcsStatusLocalResult,
   type VcsStatusRemoteResult,
   type VcsStatusResult,
+  type VcsStashApplyInput,
+  type VcsStashListInput,
+  type VcsStashListResult,
+  type VcsStashPushInput,
+  type VcsStashPushResult,
+  type VcsStashRefInput,
 } from "@t3tools/contracts";
 
 import * as GitManager from "./GitManager.ts";
@@ -97,6 +104,17 @@ export class GitWorkflowService extends Context.Service<
     readonly deleteBranch: (
       input: VcsDeleteBranchInput,
     ) => Effect.Effect<void, GitManagerError | GitCommandError>;
+    readonly discardChanges: (
+      input: VcsDiscardChangesInput,
+    ) => Effect.Effect<void, GitCommandError>;
+    readonly stashPush: (
+      input: VcsStashPushInput,
+    ) => Effect.Effect<VcsStashPushResult, GitCommandError>;
+    readonly stashList: (
+      input: VcsStashListInput,
+    ) => Effect.Effect<VcsStashListResult, GitCommandError>;
+    readonly stashApply: (input: VcsStashApplyInput) => Effect.Effect<void, GitCommandError>;
+    readonly stashDrop: (input: VcsStashRefInput) => Effect.Effect<void, GitCommandError>;
   }
 >()("t3/git/GitWorkflowService") {}
 
@@ -359,6 +377,28 @@ export const make = Effect.gen(function* () {
             });
           }),
         ),
+      ),
+    discardChanges: (input) =>
+      ensureGitCommand("GitWorkflowService.discardChanges", input.cwd).pipe(
+        Effect.andThen(git.discardChanges(input)),
+      ),
+    stashPush: (input) =>
+      ensureGitCommand("GitWorkflowService.stashPush", input.cwd).pipe(
+        Effect.andThen(git.stashPush(input)),
+      ),
+    stashList: (input) =>
+      detectGitRepositoryForCommand("GitWorkflowService.stashList", input.cwd).pipe(
+        Effect.flatMap((isGitRepository) =>
+          isGitRepository ? git.stashList(input) : Effect.succeed({ stashes: [] }),
+        ),
+      ),
+    stashApply: (input) =>
+      ensureGitCommand("GitWorkflowService.stashApply", input.cwd).pipe(
+        Effect.andThen(git.stashApply(input)),
+      ),
+    stashDrop: (input) =>
+      ensureGitCommand("GitWorkflowService.stashDrop", input.cwd).pipe(
+        Effect.andThen(git.stashDrop(input)),
       ),
   });
 });

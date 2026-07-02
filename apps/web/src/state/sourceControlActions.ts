@@ -33,6 +33,10 @@ export type SourceControlActionKind =
   | "init"
   | "pull"
   | "fetch"
+  | "discardChanges"
+  | "stashPush"
+  | "stashApply"
+  | "stashDrop"
   | "publishRepository"
   | "runStackedAction"
   | "preparePullRequestThread";
@@ -60,6 +64,10 @@ const ACTION_OPERATION = {
   init: "init",
   pull: "pull",
   fetch: "fetch",
+  discardChanges: "discard_changes",
+  stashPush: "stash_push",
+  stashApply: "stash_apply",
+  stashDrop: "stash_drop",
   publishRepository: "publish_repository",
   runStackedAction: "run_change_request",
   preparePullRequestThread: "prepare_pull_request_thread",
@@ -234,6 +242,165 @@ export function useVcsFetchAction(scope: SourceControlActionScope) {
     scope,
     action,
     onSuccess: status.refresh,
+  });
+}
+
+export function useVcsDiscardChangesAction(scope: SourceControlActionScope) {
+  const discardChanges = useAtomCommand(vcsEnvironment.discardChanges, { reportFailure: false });
+  const status = useEnvironmentQuery(
+    scope.environmentId !== null && scope.cwd !== null
+      ? vcsEnvironment.status({
+          environmentId: scope.environmentId,
+          input: { cwd: scope.cwd },
+        })
+      : null,
+  );
+  const action = useCallback(
+    async (input: { filePaths: string[] }) => {
+      const target = resolveScope(scope);
+      if (target === null) {
+        return AsyncResult.failure<never, VcsActionUnavailableError>(
+          Cause.fail(
+            new VcsActionUnavailableError({
+              operation: "discard_changes",
+              environmentId: scope.environmentId,
+              cwd: scope.cwd,
+            }),
+          ),
+        );
+      }
+      return discardChanges({
+        environmentId: target.environmentId,
+        input: { cwd: target.cwd, filePaths: input.filePaths },
+      });
+    },
+    [discardChanges, scope],
+  );
+  return useAction({
+    kind: "discardChanges",
+    label: "Discarding selected changes",
+    scope,
+    action,
+    onSuccess: status.refresh,
+  });
+}
+
+export function useVcsStashPushAction(scope: SourceControlActionScope) {
+  const stashPush = useAtomCommand(vcsEnvironment.stashPush, { reportFailure: false });
+  const status = useEnvironmentQuery(
+    scope.environmentId !== null && scope.cwd !== null
+      ? vcsEnvironment.status({
+          environmentId: scope.environmentId,
+          input: { cwd: scope.cwd },
+        })
+      : null,
+  );
+  const action = useCallback(
+    async (input: { message?: string; filePaths?: string[] } = {}) => {
+      const target = resolveScope(scope);
+      if (target === null) {
+        return AsyncResult.failure<never, VcsActionUnavailableError>(
+          Cause.fail(
+            new VcsActionUnavailableError({
+              operation: "stash_push",
+              environmentId: scope.environmentId,
+              cwd: scope.cwd,
+            }),
+          ),
+        );
+      }
+      return stashPush({
+        environmentId: target.environmentId,
+        input: {
+          cwd: target.cwd,
+          ...(input.message ? { message: input.message } : {}),
+          ...(input.filePaths?.length ? { filePaths: input.filePaths } : {}),
+        },
+      });
+    },
+    [scope, stashPush],
+  );
+  return useAction({
+    kind: "stashPush",
+    label: "Stashing changes",
+    scope,
+    action,
+    onSuccess: status.refresh,
+  });
+}
+
+export function useVcsStashApplyAction(scope: SourceControlActionScope) {
+  const stashApply = useAtomCommand(vcsEnvironment.stashApply, { reportFailure: false });
+  const status = useEnvironmentQuery(
+    scope.environmentId !== null && scope.cwd !== null
+      ? vcsEnvironment.status({
+          environmentId: scope.environmentId,
+          input: { cwd: scope.cwd },
+        })
+      : null,
+  );
+  const action = useCallback(
+    async (input: { stashRef: string; drop?: boolean }) => {
+      const target = resolveScope(scope);
+      if (target === null) {
+        return AsyncResult.failure<never, VcsActionUnavailableError>(
+          Cause.fail(
+            new VcsActionUnavailableError({
+              operation: "stash_apply",
+              environmentId: scope.environmentId,
+              cwd: scope.cwd,
+            }),
+          ),
+        );
+      }
+      return stashApply({
+        environmentId: target.environmentId,
+        input: {
+          cwd: target.cwd,
+          stashRef: input.stashRef,
+          ...(input.drop === true ? { drop: true } : {}),
+        },
+      });
+    },
+    [scope, stashApply],
+  );
+  return useAction({
+    kind: "stashApply",
+    label: "Applying stash",
+    scope,
+    action,
+    onSuccess: status.refresh,
+  });
+}
+
+export function useVcsStashDropAction(scope: SourceControlActionScope) {
+  const stashDrop = useAtomCommand(vcsEnvironment.stashDrop, { reportFailure: false });
+  const action = useCallback(
+    async (input: { stashRef: string }) => {
+      const target = resolveScope(scope);
+      if (target === null) {
+        return AsyncResult.failure<never, VcsActionUnavailableError>(
+          Cause.fail(
+            new VcsActionUnavailableError({
+              operation: "stash_drop",
+              environmentId: scope.environmentId,
+              cwd: scope.cwd,
+            }),
+          ),
+        );
+      }
+      return stashDrop({
+        environmentId: target.environmentId,
+        input: { cwd: target.cwd, stashRef: input.stashRef },
+      });
+    },
+    [scope, stashDrop],
+  );
+  return useAction({
+    kind: "stashDrop",
+    label: "Dropping stash",
+    scope,
+    action,
   });
 }
 
