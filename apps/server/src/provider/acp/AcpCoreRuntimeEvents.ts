@@ -213,9 +213,7 @@ export function makeAcpAssistantItemEvent(input: {
   };
 }
 
-export function tryExtractTodoPlanFromToolCall(
-  toolCall: AcpToolCallState,
-): AcpPlanUpdate | null {
+export function tryExtractTodoPlanFromToolCall(toolCall: AcpToolCallState): AcpPlanUpdate | null {
   if (!toolCall.title?.toLowerCase().includes("todowrite")) {
     return null;
   }
@@ -234,13 +232,11 @@ export function tryExtractTodoPlanFromToolCall(
         typeof todo.content === "string" && todo.content.trim().length > 0
           ? todo.content.trim()
           : "Task",
-      status: (
-        todo.status === "completed"
-          ? "completed"
-          : todo.status === "in_progress"
-            ? "inProgress"
-            : "pending"
-      ) as "pending" | "inProgress" | "completed",
+      status: (todo.status === "completed"
+        ? "completed"
+        : todo.status === "in_progress"
+          ? "inProgress"
+          : "pending") as "pending" | "inProgress" | "completed",
     }));
   if (plan.length === 0) {
     return null;

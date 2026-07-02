@@ -1132,16 +1132,14 @@ function WorkingActivityLine({ activity }: { activity: WorkLogEntry }) {
       aria-label={canExpand ? heading : undefined}
     >
       <div className={cn("flex items-center gap-1.5 text-[10px] leading-tight", toneClass)}>
-        <span className={cn("flex size-3.5 shrink-0 items-center justify-center", iconConfig.className)}>
+        <span
+          className={cn("flex size-3.5 shrink-0 items-center justify-center", iconConfig.className)}
+        >
           <WorkEntryIconSvg name={entryIconName} className="size-3 shrink-0 opacity-70" />
         </span>
         <div className="flex min-w-0 flex-1 items-center gap-1">
-          <span className="min-w-0 shrink truncate font-medium">
-            {heading}
-          </span>
-          {preview && (
-            <span className="min-w-0 flex-1 truncate opacity-60">{preview}</span>
-          )}
+          <span className="min-w-0 shrink truncate font-medium">{heading}</span>
+          {preview && <span className="min-w-0 flex-1 truncate opacity-60">{preview}</span>}
         </div>
         {canExpand && (
           <ChevronDownIcon

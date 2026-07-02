@@ -13,6 +13,7 @@ import {
   ChevronRightIcon,
   Columns2Icon,
   PilcrowIcon,
+  RefreshCwIcon,
   Rows3Icon,
   SearchIcon,
   TextWrapIcon,
@@ -39,6 +40,7 @@ import { useClientSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/AnnotatableCodeView";
+import { Button } from "./ui/button";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
 import { Switch } from "./ui/switch";
 import {
@@ -485,6 +487,14 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
     },
     [collapseScopeKey],
   );
+  const refreshSelectedDiff = useCallback(() => {
+    gitStatusQuery.refresh();
+    if (selectedTurn) {
+      activeCheckpointDiff.refresh();
+    } else {
+      branchDiffPreview.refresh();
+    }
+  }, [activeCheckpointDiff, branchDiffPreview, gitStatusQuery, selectedTurn]);
 
   const selectTurn = (turnId: TurnId) => {
     if (!routeThreadRef) return;
@@ -673,6 +683,22 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
         )}
       </div>
       <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="outline"
+                size="icon-xs"
+                disabled={!activeThread || !isGitRepo}
+                aria-label={`Refresh ${reviewSectionTitle.toLowerCase()} diff`}
+                onClick={refreshSelectedDiff}
+              >
+                <RefreshCwIcon className={cn("size-3", isLoadingSelectedPatch && "animate-spin")} />
+              </Button>
+            }
+          />
+          <TooltipPopup side="top">Refresh diff</TooltipPopup>
+        </Tooltip>
         <ToggleGroup
           className="shrink-0"
           variant="outline"

@@ -786,13 +786,11 @@ export function makeOpenCodeAdapter(
           }
           const plan = todos.map((todo) => ({
             step: todo.content.trim().length > 0 ? todo.content.trim() : "Task",
-            status: (
-              todo.status === "completed"
-                ? "completed"
-                : todo.status === "in_progress"
-                  ? "inProgress"
-                  : "pending"
-            ) as "pending" | "inProgress" | "completed",
+            status: (todo.status === "completed"
+              ? "completed"
+              : todo.status === "in_progress"
+                ? "inProgress"
+                : "pending") as "pending" | "inProgress" | "completed",
           }));
           yield* emit({
             ...(yield* buildEventBase({

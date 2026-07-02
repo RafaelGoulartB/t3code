@@ -455,13 +455,11 @@ function tryExtractCodexTodoWritePlan(
         typeof todo.content === "string" && todo.content.trim().length > 0
           ? todo.content.trim()
           : "Task",
-      status: (
-        todo.status === "completed"
-          ? "completed"
-          : todo.status === "in_progress"
-            ? "inProgress"
-            : "pending"
-      ) as "pending" | "inProgress" | "completed",
+      status: (todo.status === "completed"
+        ? "completed"
+        : todo.status === "in_progress"
+          ? "inProgress"
+          : "pending") as "pending" | "inProgress" | "completed",
     }));
 }
 
