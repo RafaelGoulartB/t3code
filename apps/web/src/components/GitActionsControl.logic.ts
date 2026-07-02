@@ -10,16 +10,16 @@ import {
   type ChangeRequestTerminology,
 } from "../sourceControlPresentation";
 
-export type GitActionIconName = "commit" | "push" | "pr";
+export type GitActionIconName = "commit" | "pull" | "fetch" | "push" | "pr";
 
 export type GitDialogAction = "commit" | "push" | "create_pr";
 
 export interface GitActionMenuItem {
-  id: "commit" | "push" | "pr";
+  id: "commit" | "pull" | "fetch" | "push" | "pr";
   label: string;
   disabled: boolean;
   icon: GitActionIconName;
-  kind: "open_dialog" | "open_pr";
+  kind: "open_dialog" | "open_pr" | "run_pull" | "run_fetch";
   dialogAction?: GitDialogAction;
 }
 
@@ -102,10 +102,14 @@ export function buildMenuItems(
   const hasBranch = gitStatus.refName !== null;
   const hasChanges = gitStatus.hasWorkingTreeChanges;
   const hasOpenPr = gitStatus.pr?.state === "open";
+  const isAhead = gitStatus.aheadCount > 0;
   const isBehind = gitStatus.behindCount > 0;
+  const isDiverged = isAhead && isBehind;
   const hasDefaultBranchDelta = (gitStatus.aheadOfDefaultCount ?? gitStatus.aheadCount) > 0;
   const canPushWithoutUpstream = hasPrimaryRemote && !gitStatus.hasUpstream;
   const canCommit = !isBusy && hasChanges;
+  const canPull = !isBusy && hasBranch && gitStatus.hasUpstream && isBehind && !isDiverged;
+  const canFetch = !isBusy && hasPrimaryRemote;
   const canPush =
     !isBusy &&
     hasBranch &&
@@ -130,13 +134,29 @@ export function buildMenuItems(
     kind: "open_dialog",
     dialogAction: "commit",
   };
+  const pullItem: GitActionMenuItem = {
+    id: "pull",
+    label: "Pull",
+    disabled: !canPull,
+    icon: "pull",
+    kind: "run_pull",
+  };
+  const fetchItem: GitActionMenuItem = {
+    id: "fetch",
+    label: "Fetch",
+    disabled: !canFetch,
+    icon: "fetch",
+    kind: "run_fetch",
+  };
 
   if (!hasPrimaryRemote) {
-    return [commitItem];
+    return [commitItem, pullItem, fetchItem];
   }
 
   return [
     commitItem,
+    pullItem,
+    fetchItem,
     {
       id: "push",
       label: "Push",

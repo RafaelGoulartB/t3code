@@ -4915,6 +4915,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 refName: "main",
                 upstreamRef: "origin/main",
               }),
+            resolvePrimaryRemoteName: () => Effect.succeed("origin"),
+            fetchRemote: () => Effect.void,
             listRefs: () =>
               Effect.succeed({
                 refs: [
@@ -4991,6 +4993,11 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         withWsRpcClient(wsUrl, (client) => client[WS_METHODS.vcsPull]({ cwd: "/tmp/repo" })),
       );
       assert.equal(pull.status, "pulled");
+
+      const fetch = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.vcsFetch]({ cwd: "/tmp/repo" })),
+      );
+      assert.equal(fetch.remoteName, "origin");
 
       const refreshedStatus = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
@@ -5178,6 +5185,99 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("routes websocket rpc git.fetch through the primary remote and refreshes status", () =>
+    Effect.gen(function* () {
+      const fetchCalls: Array<{ cwd: string; remoteName: string }> = [];
+      let refreshCalls = 0;
+      yield* buildAppUnderTest({
+        layers: {
+          gitVcsDriver: {
+            resolvePrimaryRemoteName: () => Effect.succeed("origin"),
+            fetchRemote: (input) =>
+              Effect.sync(() => {
+                fetchCalls.push(input);
+              }),
+          },
+          vcsStatusBroadcaster: {
+            refreshStatus: () =>
+              Effect.sync(() => {
+                refreshCalls += 1;
+                return {
+                  isRepo: true,
+                  hasPrimaryRemote: true,
+                  isDefaultRef: true,
+                  refName: "main",
+                  hasWorkingTreeChanges: false,
+                  workingTree: { files: [], insertions: 0, deletions: 0 },
+                  hasUpstream: true,
+                  aheadCount: 0,
+                  behindCount: 0,
+                  pr: null,
+                };
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.vcsFetch]({ cwd: "/tmp/repo" })),
+      );
+
+      assert.deepEqual(result, { remoteName: "origin" });
+      assert.deepEqual(fetchCalls, [{ cwd: "/tmp/repo", remoteName: "origin" }]);
+      assert.equal(refreshCalls, 1);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc git.fetch errors without refreshing status", () =>
+    Effect.gen(function* () {
+      const gitError = new GitCommandError({
+        operation: "fetch",
+        command: "git fetch origin",
+        cwd: "/tmp/repo",
+        detail: "authentication failed",
+      });
+      let refreshCalls = 0;
+      yield* buildAppUnderTest({
+        layers: {
+          gitVcsDriver: {
+            resolvePrimaryRemoteName: () => Effect.succeed("origin"),
+            fetchRemote: () => Effect.fail(gitError),
+          },
+          vcsStatusBroadcaster: {
+            refreshStatus: () =>
+              Effect.sync(() => {
+                refreshCalls += 1;
+                return {
+                  isRepo: true,
+                  hasPrimaryRemote: true,
+                  isDefaultRef: true,
+                  refName: "main",
+                  hasWorkingTreeChanges: false,
+                  workingTree: { files: [], insertions: 0, deletions: 0 },
+                  hasUpstream: true,
+                  aheadCount: 0,
+                  behindCount: 0,
+                  pr: null,
+                };
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.vcsFetch]({ cwd: "/tmp/repo" })).pipe(
+          Effect.result,
+        ),
+      );
+
+      assertFailure(result, gitError);
+      assert.equal(refreshCalls, 0);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("routes websocket rpc git.runStackedAction errors after refreshing git status", () =>
     Effect.gen(function* () {
       const gitError = new GitCommandError({
@@ -5305,6 +5405,46 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const elapsedMs = (yield* Clock.currentTimeMillis) - startedAt;
 
       assert.equal(result.status, "pulled");
+      assertTrue(elapsedMs < 1_000);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("completes websocket rpc git.fetch before background git status refresh finishes", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: {
+          gitVcsDriver: {
+            resolvePrimaryRemoteName: () => Effect.succeed("origin"),
+            fetchRemote: () => Effect.void,
+          },
+          vcsStatusBroadcaster: {
+            refreshStatus: () =>
+              Effect.sleep(Duration.seconds(2)).pipe(
+                Effect.as({
+                  isRepo: true,
+                  hasPrimaryRemote: true,
+                  isDefaultRef: true,
+                  refName: "main",
+                  hasWorkingTreeChanges: false,
+                  workingTree: { files: [], insertions: 0, deletions: 0 },
+                  hasUpstream: true,
+                  aheadCount: 0,
+                  behindCount: 0,
+                  pr: null,
+                }),
+              ),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const startedAt = yield* Clock.currentTimeMillis;
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.vcsFetch]({ cwd: "/tmp/repo" })),
+      );
+      const elapsedMs = (yield* Clock.currentTimeMillis) - startedAt;
+
+      assert.equal(result.remoteName, "origin");
       assertTrue(elapsedMs < 1_000);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );

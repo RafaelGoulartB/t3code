@@ -109,6 +109,11 @@ export const VcsPullInput = Schema.Struct({
 });
 export type VcsPullInput = typeof VcsPullInput.Type;
 
+export const VcsFetchInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+});
+export type VcsFetchInput = typeof VcsFetchInput.Type;
+
 export const GitRunStackedActionInput = Schema.Struct({
   actionId: TrimmedNonEmptyStringSchema,
   cwd: TrimmedNonEmptyStringSchema,
@@ -174,6 +179,26 @@ export const VcsCreateRefResult = Schema.Struct({
   refName: TrimmedNonEmptyStringSchema,
 });
 export type VcsCreateRefResult = typeof VcsCreateRefResult.Type;
+
+export const VcsRenameBranchInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  oldBranch: TrimmedNonEmptyStringSchema,
+  newBranch: TrimmedNonEmptyStringSchema,
+});
+export type VcsRenameBranchInput = typeof VcsRenameBranchInput.Type;
+
+export const VcsRenameBranchResult = Schema.Struct({
+  branch: TrimmedNonEmptyStringSchema,
+});
+export type VcsRenameBranchResult = typeof VcsRenameBranchResult.Type;
+
+export const VcsDeleteBranchInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  branch: TrimmedNonEmptyStringSchema,
+  worktreePath: Schema.optional(TrimmedNonEmptyStringSchema),
+  force: Schema.optional(Schema.Boolean),
+});
+export type VcsDeleteBranchInput = typeof VcsDeleteBranchInput.Type;
 
 export const VcsSwitchRefInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
@@ -318,6 +343,11 @@ export const VcsPullResult = Schema.Struct({
   upstreamRef: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
 });
 export type VcsPullResult = typeof VcsPullResult.Type;
+
+export const VcsFetchResult = Schema.Struct({
+  remoteName: TrimmedNonEmptyStringSchema,
+});
+export type VcsFetchResult = typeof VcsFetchResult.Type;
 
 // RPC / domain errors
 export class GitCommandError extends Schema.TaggedErrorClass<GitCommandError>()("GitCommandError", {

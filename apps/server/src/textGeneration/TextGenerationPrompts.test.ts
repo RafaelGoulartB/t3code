@@ -7,7 +7,11 @@ import {
   buildThreadTitlePrompt,
 } from "./TextGenerationPrompts.ts";
 import { normalizeCliError, sanitizeThreadTitle } from "./TextGenerationUtils.ts";
-import { TextGenerationError } from "@t3tools/contracts";
+import {
+  conventionalCommitsTextGenerationPolicy,
+  repositoryConventionsTextGenerationPolicy,
+  TextGenerationError,
+} from "@t3tools/contracts";
 
 describe("buildCommitMessagePrompt", () => {
   it("includes staged patch and summary in the prompt", () => {
@@ -49,6 +53,46 @@ describe("buildCommitMessagePrompt", () => {
 
     expect(result.prompt).toContain("Branch: (detached)");
   });
+
+  it("injects policy commit instructions when a policy is provided", () => {
+    const result = buildCommitMessagePrompt({
+      branch: "main",
+      stagedSummary: "M README.md",
+      stagedPatch: "diff",
+      includeBranch: false,
+      policy: conventionalCommitsTextGenerationPolicy,
+    });
+
+    expect(result.prompt).toContain("Additional instructions:");
+    expect(result.prompt).toContain("Use Conventional Commits when generating commit subjects.");
+  });
+
+  it("appends recent commits as a style reference when provided", () => {
+    const result = buildCommitMessagePrompt({
+      branch: "main",
+      stagedSummary: "M a.ts",
+      stagedPatch: "diff",
+      includeBranch: false,
+      policy: repositoryConventionsTextGenerationPolicy,
+      recentCommits: ["feat: add settings panel", "fix: handle empty input"],
+    });
+
+    expect(result.prompt).toContain("Recent commits (style reference):");
+    expect(result.prompt).toContain("- feat: add settings panel");
+    expect(result.prompt).toContain("- fix: handle empty input");
+  });
+
+  it("omits the recent-commits section when no commits are provided", () => {
+    const result = buildCommitMessagePrompt({
+      branch: "main",
+      stagedSummary: "M a.ts",
+      stagedPatch: "diff",
+      includeBranch: false,
+      policy: repositoryConventionsTextGenerationPolicy,
+    });
+
+    expect(result.prompt).not.toContain("Recent commits (style reference):");
+  });
 });
 
 describe("buildPrContentPrompt", () => {
@@ -69,6 +113,36 @@ describe("buildPrContentPrompt", () => {
     expect(result.prompt).toContain("3 files changed");
     expect(result.prompt).toContain("Diff patch:");
     expect(result.prompt).toContain("export function login()");
+  });
+
+  it("injects policy change-request instructions when a policy is provided", () => {
+    const result = buildPrContentPrompt({
+      baseBranch: "main",
+      headBranch: "feature/auth",
+      commitSummary: "feat: add login page",
+      diffSummary: "3 files changed",
+      diffPatch: "diff",
+      policy: conventionalCommitsTextGenerationPolicy,
+    });
+
+    expect(result.prompt).toContain("Additional instructions:");
+    expect(result.prompt).toContain("Keep the change request title concise.");
+  });
+
+  it("appends recent commits as a style reference when provided", () => {
+    const result = buildPrContentPrompt({
+      baseBranch: "main",
+      headBranch: "feature/auth",
+      commitSummary: "feat: add login page",
+      diffSummary: "3 files changed",
+      diffPatch: "diff",
+      policy: repositoryConventionsTextGenerationPolicy,
+      recentCommits: ["refactor: extract auth helper", "chore: bump deps"],
+    });
+
+    expect(result.prompt).toContain("Recent commits (style reference):");
+    expect(result.prompt).toContain("- refactor: extract auth helper");
+    expect(result.prompt).toContain("- chore: bump deps");
   });
 });
 

@@ -11,6 +11,7 @@ import {
   ProviderInstanceId,
   type ServerProvider,
   type ResolvedKeybindingsConfig,
+  type ScopedProjectRef,
   type ScopedThreadRef,
   type ThreadId,
   type TurnId,
@@ -233,6 +234,7 @@ import {
   resolveSendEnvMode,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
+  threadHasStarted,
   waitForStartedServerThread,
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
@@ -1727,6 +1729,14 @@ function ChatViewContent(props: ChatViewProps) {
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
+  const latestWorkingActivities = useMemo(() => {
+    const activeTurnId =
+      activeThread?.session?.status === "running" ? activeThread.session.activeTurnId : null;
+    const entries = activeTurnId
+      ? workLogEntries.filter((e) => e.turnId === activeTurnId)
+      : workLogEntries;
+    return entries.slice(-5);
+  }, [workLogEntries, activeThread?.session]);
   const pendingApprovals = useMemo(
     () => derivePendingApprovals(threadActivities),
     [threadActivities],
@@ -2210,6 +2220,32 @@ function ChatViewContent(props: ChatViewProps) {
       });
     },
     [draftId, envLocked, logicalProjectEnvironments, setDraftThreadContext],
+  );
+
+  // Projects that can be picked as the active project for this draft thread.
+  // We scope to the active environment so the picker matches the workspace the
+  // user is currently targeting; switching environments is handled separately
+  // by the environment picker.
+  const availableProjects = useMemo(() => {
+    if (!activeThread) return [];
+    const targetEnvironmentId = activeThread.environmentId;
+    return allProjects.filter((project) => project.environmentId === targetEnvironmentId);
+  }, [activeThread, allProjects]);
+
+  // Lock the project picker once the conversation has actually started so the
+  // project's server-side identity cannot drift under in-flight messages.
+  const projectLocked = threadHasStarted(activeThread);
+
+  // Switching projects is only supported before the thread starts. For server
+  // threads this is a no-op (the project is server-authoritative).
+  const onProjectChange = useCallback(
+    (projectRef: ScopedProjectRef) => {
+      if (isServerThread) return;
+      const composerTarget = composerDraftTarget ?? draftId;
+      if (!composerTarget) return;
+      setDraftThreadContext(composerTarget, { projectRef });
+    },
+    [composerDraftTarget, draftId, isServerThread, setDraftThreadContext],
   );
 
   const activeTerminalGroup =
@@ -5074,6 +5110,7 @@ function ChatViewContent(props: ChatViewProps) {
                 isWorking={isWorking}
                 activeTurnInProgress={isWorking || !latestTurnSettled}
                 activeTurnStartedAt={activeWorkStartedAt}
+                latestWorkingActivities={latestWorkingActivities}
                 listRef={legendListRef}
                 timelineEntries={timelineEntries}
                 latestTurn={activeLatestTurn}
@@ -5223,7 +5260,7 @@ function ChatViewContent(props: ChatViewProps) {
                     : "pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:pb-[calc(env(safe-area-inset-bottom)+1rem)]",
                 )}
               >
-                {isGitRepo && (
+                {activeProject ? (
                   <div className="pointer-events-auto">
                     <BranchToolbar
                       environmentId={activeThread.environmentId}
@@ -5242,15 +5279,19 @@ function ChatViewContent(props: ChatViewProps) {
                           }
                         : {})}
                       envLocked={envLocked}
+                      isGitRepo={isGitRepo}
                       onComposerFocusRequest={scheduleComposerFocus}
                       {...(canCheckoutPullRequestIntoThread
                         ? { onCheckoutPullRequestRequest: openPullRequestDialog }
                         : {})}
                       {...(hasMultipleEnvironments ? { onEnvironmentChange } : {})}
                       availableEnvironments={logicalProjectEnvironments}
+                      availableProjects={availableProjects}
+                      projectLocked={projectLocked}
+                      onProjectChange={onProjectChange}
                     />
                   </div>
-                )}
+                ) : null}
               </div>
             </div>
 

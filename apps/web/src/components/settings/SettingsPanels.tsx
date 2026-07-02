@@ -1,5 +1,15 @@
-import { ArchiveIcon, ArchiveX, LoaderIcon, PlusIcon, RefreshCwIcon } from "lucide-react";
+import {
+  ArchiveIcon,
+  ArchiveX,
+  CheckIcon,
+  CopyIcon,
+  DownloadIcon,
+  LoaderIcon,
+  PlusIcon,
+  RefreshCwIcon,
+} from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import * as React from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -10,6 +20,9 @@ import {
   type ProviderInstanceConfig,
   type ProviderInstanceId,
   type ScopedThreadRef,
+  textGenerationPresets,
+  type TextGenerationPolicy,
+  type TextGenerationPolicyKind,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
@@ -37,6 +50,7 @@ import { TraitsPicker } from "../chat/TraitsPicker";
 import { isElectron } from "../../env";
 import { buildHostedChannelSelectionUrl, type HostedAppChannel } from "../../hostedPairing";
 import { useTheme } from "../../hooks/useTheme";
+import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
@@ -59,6 +73,13 @@ import { usePrimaryEnvironment } from "../../state/environments";
 import { useProjects } from "../../state/entities";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { formatRelativeTime, formatRelativeTimeLabel } from "../../timestampFormat";
+import { cn } from "../../lib/utils";
+import {
+  DEFAULT_PALETTE_ID,
+  normalizeThemeColors,
+  normalizeThemeHex,
+  type ThemePalette,
+} from "../../theme/palettes";
 import { Button } from "../ui/button";
 import { DraftInput } from "../ui/draft-input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
@@ -109,6 +130,27 @@ const TIMESTAMP_FORMAT_LABELS = {
   "12-hour": "12-hour",
   "24-hour": "24-hour",
 } as const;
+
+const TEXT_GENERATION_CONVENTION_LABELS: Record<
+  Exclude<TextGenerationPolicyKind, "custom">,
+  string
+> = {
+  default: "Default",
+  conventional_commits: "Conventional Commits",
+  repo_conventions: "Repository conventions",
+};
+
+function isDefaultTextGenerationPolicy(policy: TextGenerationPolicy | undefined): boolean {
+  if (!policy) return true;
+  return (
+    policy.kind === "default" &&
+    policy.commitInstructions === undefined &&
+    policy.changeRequestInstructions === undefined &&
+    policy.branchInstructions === undefined &&
+    policy.threadTitleInstructions === undefined &&
+    policy.inferRepositoryConventions === false
+  );
+}
 
 const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
 
@@ -373,7 +415,7 @@ function AboutVersionSection() {
 }
 
 export function useSettingsRestore(onRestored?: () => void) {
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, paletteId, resetPalette } = useTheme();
   const settings = usePrimarySettings();
   const updateSettings = useUpdatePrimarySettings();
 
@@ -382,9 +424,14 @@ export function useSettingsRestore(onRestored?: () => void) {
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
 
+  const isTextGenerationPolicyDirty = !isDefaultTextGenerationPolicy(settings.textGenerationPolicy);
+
+  const isPaletteDirty = paletteId !== DEFAULT_PALETTE_ID;
+
   const changedSettingLabels = useMemo(
     () => [
       ...(theme !== "system" ? ["Theme"] : []),
+      ...(isPaletteDirty ? ["Theme palette"] : []),
       ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
         ? ["Time format"]
         : []),
@@ -422,9 +469,12 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Delete confirmation"]
         : []),
       ...(isGitWritingModelDirty ? ["Git writing model"] : []),
+      ...(isTextGenerationPolicyDirty ? ["Text generation convention"] : []),
     ],
     [
       isGitWritingModelDirty,
+      isTextGenerationPolicyDirty,
+      isPaletteDirty,
       settings.autoOpenPlanSidebar,
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
@@ -452,6 +502,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     if (!confirmed) return;
 
     setTheme("system");
+    if (isPaletteDirty) {
+      resetPalette();
+    }
     updateSettings({
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
@@ -466,14 +519,338 @@ export function useSettingsRestore(onRestored?: () => void) {
       confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
       confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
       textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
+      textGenerationPolicy: DEFAULT_UNIFIED_SETTINGS.textGenerationPolicy,
     });
     onRestored?.();
-  }, [changedSettingLabels, onRestored, setTheme, updateSettings]);
+  }, [changedSettingLabels, isPaletteDirty, onRestored, resetPalette, setTheme, updateSettings]);
 
   return {
     changedSettingLabels,
     restoreDefaults,
   };
+}
+
+function isFontStyle(value: unknown): value is ThemePalette["fontStyle"] {
+  return value === "sans" || value === "serif" || value === "mono";
+}
+
+function paletteFromImportCandidate(candidate: unknown, fallbackId: string): ThemePalette | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const palette = candidate as Partial<ThemePalette>;
+  const dark = normalizeThemeColors(palette.dark);
+  if (!dark) return null;
+  const light = palette.light ? normalizeThemeColors(palette.light) : undefined;
+  const name =
+    typeof palette.name === "string" && palette.name.trim().length > 0
+      ? palette.name.trim()
+      : "Imported theme";
+  const glyph =
+    typeof palette.glyph === "string" && palette.glyph.length > 0
+      ? palette.glyph.slice(0, 3)
+      : "Aa";
+  const fontStyle = isFontStyle(palette.fontStyle) ? palette.fontStyle : "sans";
+  const id =
+    typeof palette.id === "string" && palette.id.trim().length > 0 ? palette.id.trim() : fallbackId;
+  return {
+    id,
+    name,
+    glyph,
+    fontStyle,
+    dark,
+    ...(light ? { light } : {}),
+  };
+}
+
+function PaletteColorRow({
+  label,
+  value,
+  onCommit,
+}: {
+  label: string;
+  value: string;
+  onCommit: (next: string) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-t border-border/40 px-1 py-2.5">
+      <span className="text-[13px] text-foreground/90">{label}</span>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={normalizeThemeHex(value) ?? "#000000"}
+          onChange={(event) => onCommit(event.target.value)}
+          aria-label={`${label} color`}
+          className="h-6 w-7 cursor-pointer rounded-md border border-input bg-background p-0.5"
+        />
+        <DraftInput
+          className="w-28"
+          size="sm"
+          value={value}
+          spellCheck={false}
+          aria-label={`${label} hex value`}
+          onCommit={(next) => {
+            const normalized = normalizeThemeHex(next);
+            if (normalized && normalized !== value) {
+              onCommit(normalized);
+            }
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ThemePaletteSection() {
+  const {
+    palette,
+    paletteId,
+    paletteColors,
+    availablePalettes,
+    setPalette,
+    setPaletteColor,
+    resetPalette,
+  } = useTheme();
+  const { copyToClipboard: copyToClipboardText, isCopied: isThemeCopied } = useCopyToClipboard({
+    target: "theme",
+  });
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [pendingImportName, setPendingImportName] = useState<string | null>(null);
+
+  const isCustomized = paletteId !== DEFAULT_PALETTE_ID;
+
+  const serializedTheme = useMemo(() => {
+    return JSON.stringify(
+      {
+        id: palette.id,
+        name: palette.name,
+        glyph: palette.glyph,
+        fontStyle: palette.fontStyle,
+        dark: palette.dark,
+        ...(palette.light ? { light: palette.light } : {}),
+      },
+      null,
+      2,
+    );
+  }, [palette]);
+
+  const handleCopyTheme = useCallback(() => {
+    copyToClipboardText(serializedTheme);
+  }, [copyToClipboardText, serializedTheme]);
+
+  const handleImportClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+  const handleFileChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+      setPendingImportName(file.name);
+      const reader = new FileReader();
+      reader.addEventListener("error", () => {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not read theme file",
+            description: reader.error?.message ?? "File could not be read.",
+          }),
+        );
+        setPendingImportName(null);
+      });
+      reader.addEventListener("load", () => {
+        try {
+          const text = typeof reader.result === "string" ? reader.result : "";
+          const parsed = JSON.parse(text);
+          const uniqueId = `${DEFAULT_PALETTE_ID}-imported-${Date.now().toString(36)}`;
+          const next = paletteFromImportCandidate(parsed, uniqueId);
+          if (!next) {
+            throw new Error(
+              "Theme file is missing accent, background, foreground, or sidebar colors.",
+            );
+          }
+          const finalId = availablePalettes.some((existing) => existing.id === next.id)
+            ? `${next.id}-${Date.now().toString(36)}`
+            : next.id;
+          const finalPalette: ThemePalette = { ...next, id: finalId };
+          setPaletteColor("accent", finalPalette.dark.accent);
+          setPaletteColor("background", finalPalette.dark.background);
+          setPaletteColor("foreground", finalPalette.dark.foreground);
+          setPaletteColor("sidebar", finalPalette.dark.sidebar);
+          setPalette(finalId);
+          setPendingImportName(null);
+          toastManager.add(
+            stackedThreadToast({
+              type: "info",
+              title: `Imported ${finalPalette.name}`,
+              description: `Saved as ${finalId}.`,
+            }),
+          );
+        } catch (error) {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not import theme",
+              description: error instanceof Error ? error.message : "Theme file is not valid JSON.",
+            }),
+          );
+          setPendingImportName(null);
+        }
+      });
+      reader.readAsText(file);
+    },
+    [availablePalettes, setPalette, setPaletteColor],
+  );
+
+  const fontClass = useMemo(() => {
+    switch (palette.fontStyle) {
+      case "serif":
+        return "font-serif";
+      case "mono":
+        return "font-mono";
+      case "sans":
+      default:
+        return "font-sans";
+    }
+  }, [palette.fontStyle]);
+
+  return (
+    <SettingsSection title="Theme palette">
+      <SettingsRow
+        title="Dark theme"
+        description="Pick a theme and tune the accent, background, and foreground colors."
+        resetAction={
+          isCustomized ? (
+            <SettingResetButton
+              label="theme palette"
+              onClick={() => {
+                resetPalette();
+                setPendingImportName(null);
+              }}
+            />
+          ) : null
+        }
+        control={
+          <div className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              onClick={handleImportClick}
+              aria-label="Import theme"
+            >
+              <DownloadIcon className="size-3.5" />
+              Import
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={handleFileChange}
+              aria-hidden
+            />
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    onClick={handleCopyTheme}
+                    aria-label="Copy theme"
+                  >
+                    {isThemeCopied ? (
+                      <CheckIcon className="size-3.5" />
+                    ) : (
+                      <CopyIcon className="size-3.5" />
+                    )}
+                    Copy theme
+                  </Button>
+                }
+              />
+              <TooltipPopup side="top">
+                {isThemeCopied ? "Copied to clipboard" : "Copy JSON to clipboard"}
+              </TooltipPopup>
+            </Tooltip>
+            <Select value={paletteId} onValueChange={(value) => setPalette(value)}>
+              <SelectTrigger className="w-full min-w-44 sm:w-56" aria-label="Theme palette">
+                <SelectValue>
+                  <span className="inline-flex items-center gap-2 truncate">
+                    <span
+                      className={cn(
+                        "inline-flex h-5 w-5 items-center justify-center rounded-md text-[11px] font-semibold tracking-tight",
+                        fontClass,
+                      )}
+                      style={{ color: "var(--theme-accent)" }}
+                      aria-hidden
+                    >
+                      {palette.glyph}
+                    </span>
+                    <span className="truncate">{palette.name}</span>
+                  </span>
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {availablePalettes.map((option) => {
+                  const optionFontClass =
+                    option.fontStyle === "serif"
+                      ? "font-serif"
+                      : option.fontStyle === "mono"
+                        ? "font-mono"
+                        : "font-sans";
+                  return (
+                    <SelectItem hideIndicator key={option.id} value={option.id}>
+                      <span className="inline-flex items-center gap-2">
+                        <span
+                          className={cn(
+                            "inline-flex h-5 w-5 items-center justify-center rounded-md text-[11px] font-semibold tracking-tight",
+                            optionFontClass,
+                          )}
+                          style={{ color: "var(--theme-accent)" }}
+                          aria-hidden
+                        >
+                          {option.glyph}
+                        </span>
+                        <span className="truncate">{option.name}</span>
+                      </span>
+                    </SelectItem>
+                  );
+                })}
+              </SelectPopup>
+            </Select>
+          </div>
+        }
+      >
+        <div className="border-t border-border/40 px-1 pb-1 pt-1">
+          {pendingImportName ? (
+            <div className="flex items-center gap-2 px-1 pb-2 pt-1 text-[11px] text-muted-foreground">
+              <LoaderIcon className="size-3 animate-spin" />
+              <span className="truncate">Reading {pendingImportName}…</span>
+            </div>
+          ) : null}
+          <PaletteColorRow
+            label="Accent"
+            value={paletteColors.accent}
+            onCommit={(value) => setPaletteColor("accent", value)}
+          />
+          <PaletteColorRow
+            label="Background"
+            value={paletteColors.background}
+            onCommit={(value) => setPaletteColor("background", value)}
+          />
+          <PaletteColorRow
+            label="Foreground"
+            value={paletteColors.foreground}
+            onCommit={(value) => setPaletteColor("foreground", value)}
+          />
+          <PaletteColorRow
+            label="Sidebar"
+            value={paletteColors.sidebar}
+            onCommit={(value) => setPaletteColor("sidebar", value)}
+          />
+        </div>
+      </SettingsRow>
+    </SettingsSection>
+  );
 }
 
 export function GeneralSettingsPanel() {
@@ -512,6 +889,7 @@ export function GeneralSettingsPanel() {
     settings.textGenerationModelSelection ?? null,
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
+  const isTextGenerationPolicyDirty = !isDefaultTextGenerationPolicy(settings.textGenerationPolicy);
 
   return (
     <SettingsPageContainer>
@@ -950,7 +1328,62 @@ export function GeneralSettingsPanel() {
             </div>
           }
         />
+
+        <SettingsRow
+          title="Text generation convention"
+          description="Choose the style used for generated commit messages and PR content."
+          resetAction={
+            isTextGenerationPolicyDirty ? (
+              <SettingResetButton
+                label="text generation convention"
+                onClick={() =>
+                  updateSettings({
+                    textGenerationPolicy: textGenerationPresets.default,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.textGenerationPolicy.kind}
+              onValueChange={(value) => {
+                if (
+                  value === "default" ||
+                  value === "conventional_commits" ||
+                  value === "repo_conventions"
+                ) {
+                  const next = textGenerationPresets[value];
+                  updateSettings({ textGenerationPolicy: next });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-56" aria-label="Text generation convention">
+                <SelectValue>
+                  {(() => {
+                    const kind = settings.textGenerationPolicy.kind;
+                    if (kind === "custom") return "Custom";
+                    return TEXT_GENERATION_CONVENTION_LABELS[kind];
+                  })()}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                <SelectItem hideIndicator value="default">
+                  {TEXT_GENERATION_CONVENTION_LABELS.default}
+                </SelectItem>
+                <SelectItem hideIndicator value="conventional_commits">
+                  {TEXT_GENERATION_CONVENTION_LABELS["conventional_commits"]}
+                </SelectItem>
+                <SelectItem hideIndicator value="repo_conventions">
+                  {TEXT_GENERATION_CONVENTION_LABELS.repo_conventions}
+                </SelectItem>
+              </SelectPopup>
+            </Select>
+          }
+        />
       </SettingsSection>
+
+      <ThemePaletteSection />
 
       <SettingsSection title="About">
         {isElectron || HOSTED_APP_CHANNEL ? (

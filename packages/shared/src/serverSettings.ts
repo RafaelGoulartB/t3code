@@ -76,7 +76,12 @@ export function applyServerSettingsPatch(
   patch: ServerSettingsPatch,
 ): ServerSettings {
   const selectionPatch = patch.textGenerationModelSelection;
-  const { automaticGitFetchInterval, ...patchForMerge } = patch;
+  const policyPatch = patch.textGenerationPolicy;
+  const {
+    automaticGitFetchInterval,
+    textGenerationPolicy: _policyPatchOmitted,
+    ...patchForMerge
+  } = patch;
   const next = deepMerge(current, patchForMerge);
   const nextWithReplacements = {
     ...next,
@@ -85,21 +90,67 @@ export function applyServerSettingsPatch(
       : {}),
     ...(automaticGitFetchInterval !== undefined ? { automaticGitFetchInterval } : {}),
   };
-  if (!selectionPatch) {
-    return nextWithReplacements;
+  let result: ServerSettings = nextWithReplacements;
+
+  if (selectionPatch) {
+    const instanceId = selectionPatch.instanceId ?? current.textGenerationModelSelection.instanceId;
+    const model = selectionPatch.model ?? current.textGenerationModelSelection.model;
+    const options = shouldReplaceTextGenerationModelSelection(selectionPatch)
+      ? selectionPatch.options
+      : mergeModelSelectionOptionsById({
+          current: current.textGenerationModelSelection.options,
+          patch: selectionPatch.options,
+        });
+
+    result = {
+      ...result,
+      textGenerationModelSelection: createModelSelection(instanceId, model, options),
+    };
   }
 
-  const instanceId = selectionPatch.instanceId ?? current.textGenerationModelSelection.instanceId;
-  const model = selectionPatch.model ?? current.textGenerationModelSelection.model;
-  const options = shouldReplaceTextGenerationModelSelection(selectionPatch)
-    ? selectionPatch.options
-    : mergeModelSelectionOptionsById({
-        current: current.textGenerationModelSelection.options,
-        patch: selectionPatch.options,
-      });
+  if (policyPatch) {
+    const currentPolicy = current.textGenerationPolicy;
+    const mergeInstructions = (
+      explicit: string | undefined,
+      inherited: string | undefined,
+    ): string | undefined => (explicit !== undefined ? explicit : inherited);
+    const nextKind = policyPatch.kind ?? currentPolicy.kind;
+    const kindChanged = nextKind !== currentPolicy.kind;
+    const pickInstructions = (
+      explicit: string | undefined,
+      inherited: string | undefined,
+    ): string | undefined => {
+      if (policyPatch.kind !== undefined && kindChanged && explicit === undefined) {
+        return undefined;
+      }
+      return mergeInstructions(explicit, inherited);
+    };
 
-  return {
-    ...nextWithReplacements,
-    textGenerationModelSelection: createModelSelection(instanceId, model, options),
-  };
+    result = {
+      ...result,
+      textGenerationPolicy: {
+        kind: nextKind,
+        commitInstructions: pickInstructions(
+          policyPatch.commitInstructions,
+          currentPolicy.commitInstructions,
+        ),
+        changeRequestInstructions: pickInstructions(
+          policyPatch.changeRequestInstructions,
+          currentPolicy.changeRequestInstructions,
+        ),
+        branchInstructions: pickInstructions(
+          policyPatch.branchInstructions,
+          currentPolicy.branchInstructions,
+        ),
+        threadTitleInstructions: pickInstructions(
+          policyPatch.threadTitleInstructions,
+          currentPolicy.threadTitleInstructions,
+        ),
+        inferRepositoryConventions:
+          policyPatch.inferRepositoryConventions ?? currentPolicy.inferRepositoryConventions,
+      },
+    };
+  }
+
+  return result;
 }

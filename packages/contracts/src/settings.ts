@@ -6,6 +6,7 @@ import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
 import { DEFAULT_GIT_TEXT_GENERATION_MODEL, ProviderOptionSelections } from "./model.ts";
 import { ModelSelection } from "./orchestration.ts";
 import { ProviderInstanceConfig, ProviderInstanceId } from "./providerInstance.ts";
+import { TextGenerationPolicy } from "./textGenerationPolicy.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -28,6 +29,37 @@ export const SidebarProjectGroupingMode = Schema.Literals([
 ]);
 export type SidebarProjectGroupingMode = typeof SidebarProjectGroupingMode.Type;
 export const DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE: SidebarProjectGroupingMode = "repository";
+export const SIDEBAR_PROJECT_FOLDER_COLOR_PRESETS = [
+  "gray",
+  "red",
+  "orange",
+  "amber",
+  "yellow",
+  "green",
+  "teal",
+  "cyan",
+  "blue",
+  "indigo",
+  "violet",
+  "pink",
+  "rose",
+] as const;
+const SidebarProjectFolderPresetColor = Schema.Literals(SIDEBAR_PROJECT_FOLDER_COLOR_PRESETS);
+const SidebarProjectFolderHexColor = TrimmedNonEmptyString.check(
+  Schema.isPattern(/^#[0-9a-fA-F]{6}$/),
+);
+export const SidebarProjectFolderColor = Schema.Union([
+  SidebarProjectFolderPresetColor,
+  SidebarProjectFolderHexColor,
+]);
+export type SidebarProjectFolderColor = typeof SidebarProjectFolderColor.Type;
+export const DEFAULT_SIDEBAR_PROJECT_FOLDER_COLOR: SidebarProjectFolderColor = "blue";
+export const SidebarProjectFolder = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  color: SidebarProjectFolderColor,
+});
+export type SidebarProjectFolder = typeof SidebarProjectFolder.Type;
 export const MIN_SIDEBAR_THREAD_PREVIEW_COUNT = 1;
 export const MAX_SIDEBAR_THREAD_PREVIEW_COUNT = 15;
 export const SidebarThreadPreviewCount = Schema.Int.check(
@@ -79,6 +111,15 @@ export const ClientSettingsSchema = Schema.Struct({
     TrimmedNonEmptyString,
     SidebarProjectGroupingMode,
   ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  sidebarProjectFolders: Schema.Array(SidebarProjectFolder).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  sidebarProjectFolderAssignments: Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+  sidebarProjectFolderOrder: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   sidebarProjectSortOrder: SidebarProjectSortOrder.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_SORT_ORDER)),
   ),
@@ -386,6 +427,14 @@ export const ServerSettings = Schema.Struct({
       }),
     ),
   ),
+  textGenerationPolicy: TextGenerationPolicy.pipe(
+    Schema.withDecodingDefault(
+      Effect.succeed({
+        kind: "default",
+        inferRepositoryConventions: false,
+      } as const satisfies typeof TextGenerationPolicy.Type),
+    ),
+  ),
 
   // Legacy single-instance-per-driver settings. Continues to be the source
   // of truth until `providerInstances` (below) lands per-driver migration
@@ -464,6 +513,17 @@ const ModelSelectionPatch = Schema.Struct({
   options: Schema.optionalKey(ProviderOptionSelections),
 });
 
+const TextGenerationPolicyPatch = Schema.Struct({
+  kind: Schema.optionalKey(
+    Schema.Literals(["default", "conventional_commits", "repo_conventions", "custom"]),
+  ),
+  commitInstructions: Schema.optional(Schema.String),
+  changeRequestInstructions: Schema.optional(Schema.String),
+  branchInstructions: Schema.optional(Schema.String),
+  threadTitleInstructions: Schema.optional(Schema.String),
+  inferRepositoryConventions: Schema.optional(Schema.Boolean),
+});
+
 const CodexSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
@@ -510,6 +570,7 @@ export const ServerSettingsPatch = Schema.Struct({
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
+  textGenerationPolicy: Schema.optionalKey(TextGenerationPolicyPatch),
   observability: Schema.optionalKey(
     Schema.Struct({
       otlpTracesUrl: Schema.optionalKey(TrimmedString),
@@ -563,6 +624,11 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),
   ),
+  sidebarProjectFolders: Schema.optionalKey(Schema.Array(SidebarProjectFolder)),
+  sidebarProjectFolderAssignments: Schema.optionalKey(
+    Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString),
+  ),
+  sidebarProjectFolderOrder: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
   sidebarProjectSortOrder: Schema.optionalKey(SidebarProjectSortOrder),
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),

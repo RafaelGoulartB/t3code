@@ -1,7 +1,12 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import type { ChatAttachment, ModelSelection, ProviderInstanceId } from "@t3tools/contracts";
+import type {
+  ChatAttachment,
+  ModelSelection,
+  ProviderInstanceId,
+  TextGenerationPolicy,
+} from "@t3tools/contracts";
 import { TextGenerationError } from "@t3tools/contracts";
 
 import * as ProviderInstanceRegistry from "../provider/Services/ProviderInstanceRegistry.ts";
@@ -18,6 +23,11 @@ export interface CommitMessageGenerationInput {
   includeBranch?: boolean;
   /** What model and provider to use for generation. */
   modelSelection: ModelSelection;
+  /** Style policy to apply (commit instructions, repo style hints, etc.).
+   * Defaults to `defaultTextGenerationPolicy` when omitted. */
+  policy?: TextGenerationPolicy;
+  /** Recent commit subjects from the repo, used to match the repository's style. */
+  recentCommits?: ReadonlyArray<string> | undefined;
 }
 
 export interface CommitMessageGenerationResult {
@@ -36,6 +46,10 @@ export interface PrContentGenerationInput {
   diffPatch: string;
   /** What model and provider to use for generation. */
   modelSelection: ModelSelection;
+  /** Style policy to apply (change request instructions, etc.). */
+  policy?: TextGenerationPolicy;
+  /** Recent commit subjects from the repo, used to match the repository's style. */
+  recentCommits?: ReadonlyArray<string> | undefined;
 }
 
 export interface PrContentGenerationResult {
@@ -49,6 +63,8 @@ export interface BranchNameGenerationInput {
   attachments?: ReadonlyArray<ChatAttachment> | undefined;
   /** What model and provider to use for generation. */
   modelSelection: ModelSelection;
+  /** Style policy to apply (branch instructions). */
+  policy?: TextGenerationPolicy;
 }
 
 export interface BranchNameGenerationResult {
@@ -61,6 +77,8 @@ export interface ThreadTitleGenerationInput {
   attachments?: ReadonlyArray<ChatAttachment> | undefined;
   /** What model and provider to use for generation. */
   modelSelection: ModelSelection;
+  /** Style policy to apply (thread title instructions). */
+  policy?: TextGenerationPolicy;
 }
 
 export interface ThreadTitleGenerationResult {

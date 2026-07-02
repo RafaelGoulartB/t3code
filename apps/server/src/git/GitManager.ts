@@ -28,6 +28,7 @@ import {
   type VcsStatusRemoteResult,
   VcsStatusResult,
   ModelSelection,
+  type TextGenerationPolicy,
 } from "@t3tools/contracts";
 import {
   detectSourceControlProviderFromGitRemoteUrl,
@@ -43,6 +44,8 @@ import {
 
 import { GitManagerError, GitPullRequestMaterializationError } from "@t3tools/contracts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
+import { defaultTextGenerationPolicy } from "../textGeneration/TextGenerationPresets.ts";
+import { fetchRecentCommitSubjects } from "../textGeneration/RepoStyle.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import { extractBranchNameFromRemoteRef } from "./remoteRefs.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -1145,6 +1148,8 @@ export const make = Effect.gen(function* () {
       includeBranch?: boolean;
       filePaths?: readonly string[];
       modelSelection: ModelSelection;
+      policy: TextGenerationPolicy;
+      recentCommits?: ReadonlyArray<string>;
     }) {
       const context = yield* gitCore.prepareCommitContext(input.cwd, input.filePaths);
       if (!context) {
@@ -1171,6 +1176,8 @@ export const make = Effect.gen(function* () {
           stagedPatch: limitContext(context.stagedPatch, 50_000),
           ...(input.includeBranch ? { includeBranch: true } : {}),
           modelSelection: input.modelSelection,
+          policy: input.policy,
+          ...(input.recentCommits ? { recentCommits: input.recentCommits } : {}),
         })
         .pipe(Effect.map((result) => sanitizeCommitMessage(result)));
 
@@ -1193,6 +1200,8 @@ export const make = Effect.gen(function* () {
     filePaths?: readonly string[],
     progressReporter?: GitActionProgressReporter,
     actionId?: string,
+    policy: TextGenerationPolicy = defaultTextGenerationPolicy,
+    recentCommits?: ReadonlyArray<string>,
   ) {
     const emit = (event: GitActionProgressPayload) =>
       progressReporter && actionId
@@ -1220,6 +1229,8 @@ export const make = Effect.gen(function* () {
         ...(commitMessage ? { commitMessage } : {}),
         ...(filePaths ? { filePaths } : {}),
         modelSelection,
+        policy,
+        ...(recentCommits ? { recentCommits } : {}),
       });
     }
     if (!suggestion) {
@@ -1301,6 +1312,8 @@ export const make = Effect.gen(function* () {
     cwd: string,
     fallbackBranch: string | null,
     emit: GitActionProgressEmitter,
+    policy: TextGenerationPolicy = defaultTextGenerationPolicy,
+    recentCommits?: ReadonlyArray<string>,
   ) {
     const provider = yield* sourceControlProvider(cwd);
     const terms = getChangeRequestTerminologyForKind(provider.kind);
@@ -1355,6 +1368,8 @@ export const make = Effect.gen(function* () {
       diffSummary: limitContext(rangeContext.diffSummary, 20_000),
       diffPatch: limitContext(rangeContext.diffPatch, 60_000),
       modelSelection,
+      policy,
+      ...(recentCommits ? { recentCommits } : {}),
     });
 
     const bodyFile = path.join(
@@ -1635,6 +1650,8 @@ export const make = Effect.gen(function* () {
     branch: string | null,
     commitMessage?: string,
     filePaths?: readonly string[],
+    policy: TextGenerationPolicy = defaultTextGenerationPolicy,
+    recentCommits?: ReadonlyArray<string>,
   ) {
     const suggestion = yield* resolveCommitAndBranchSuggestion({
       cwd,
@@ -1643,6 +1660,8 @@ export const make = Effect.gen(function* () {
       ...(filePaths ? { filePaths } : {}),
       includeBranch: true,
       modelSelection,
+      policy,
+      ...(recentCommits ? { recentCommits } : {}),
     });
     if (!suggestion) {
       return yield* new GitManagerError({
@@ -1731,8 +1750,7 @@ export const make = Effect.gen(function* () {
         let commitMessageForStep = input.commitMessage;
         let preResolvedCommitSuggestion: CommitAndBranchSuggestion | undefined = undefined;
 
-        const modelSelection = yield* serverSettingsService.getSettings.pipe(
-          Effect.map((settings) => settings.textGenerationModelSelection),
+        const settings = yield* serverSettingsService.getSettings.pipe(
           Effect.mapError(
             (cause) =>
               new GitManagerError({
@@ -1743,6 +1761,14 @@ export const make = Effect.gen(function* () {
               }),
           ),
         );
+        const modelSelection = settings.textGenerationModelSelection;
+        const policy = settings.textGenerationPolicy;
+        const recentCommits =
+          policy.kind === "repo_conventions"
+            ? yield* fetchRecentCommitSubjects(input.cwd).pipe(
+                Effect.orElseSucceed(() => [] as ReadonlyArray<string>),
+              )
+            : ([] as ReadonlyArray<string>);
 
         if (input.featureBranch) {
           yield* Ref.set(currentPhase, Option.some("branch"));
@@ -1757,6 +1783,8 @@ export const make = Effect.gen(function* () {
             initialStatus.branch,
             input.commitMessage,
             input.filePaths,
+            policy,
+            recentCommits,
           );
           branchStep = result.branchStep;
           commitMessageForStep = result.resolvedCommitMessage;
@@ -1787,6 +1815,8 @@ export const make = Effect.gen(function* () {
                   input.filePaths,
                   options?.progressReporter,
                   progress.actionId,
+                  policy,
+                  recentCommits,
                 ),
               ),
             )
@@ -1815,7 +1845,14 @@ export const make = Effect.gen(function* () {
               .pipe(
                 Effect.tap(() => Ref.set(currentPhase, Option.some("pr"))),
                 Effect.flatMap(() =>
-                  runPrStep(modelSelection, input.cwd, currentBranch, progress.emit),
+                  runPrStep(
+                    modelSelection,
+                    input.cwd,
+                    currentBranch,
+                    progress.emit,
+                    policy,
+                    recentCommits,
+                  ),
                 ),
               )
           : { status: "skipped_not_requested" as const };

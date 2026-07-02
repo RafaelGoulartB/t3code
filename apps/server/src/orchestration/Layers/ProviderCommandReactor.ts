@@ -664,7 +664,7 @@ const make = Effect.gen(function* () {
     const cwd = input.worktreePath;
     const attachments = input.attachments ?? [];
     yield* Effect.gen(function* () {
-      const { textGenerationModelSelection: modelSelection } =
+      const { textGenerationModelSelection: modelSelection, textGenerationPolicy: policy } =
         yield* serverSettingsService.getSettings;
 
       const generated = yield* textGeneration.generateBranchName({
@@ -672,6 +672,7 @@ const make = Effect.gen(function* () {
         message: input.messageText,
         ...(attachments.length > 0 ? { attachments } : {}),
         modelSelection,
+        policy,
       });
       if (!generated) return;
 
@@ -709,7 +710,7 @@ const make = Effect.gen(function* () {
     }) {
       const attachments = input.attachments ?? [];
       yield* Effect.gen(function* () {
-        const { textGenerationModelSelection: modelSelection } =
+        const { textGenerationModelSelection: modelSelection, textGenerationPolicy: policy } =
           yield* serverSettingsService.getSettings;
 
         const generated = yield* textGeneration.generateThreadTitle({
@@ -717,6 +718,7 @@ const make = Effect.gen(function* () {
           message: input.messageText,
           ...(attachments.length > 0 ? { attachments } : {}),
           modelSelection,
+          policy,
         });
         if (!generated) return;
 

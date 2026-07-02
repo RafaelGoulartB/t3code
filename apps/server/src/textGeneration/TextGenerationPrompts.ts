@@ -27,6 +27,15 @@ export interface CommitMessagePromptInput {
   stagedPatch: string;
   includeBranch: boolean;
   policy?: TextGenerationPolicy | undefined;
+  recentCommits?: ReadonlyArray<string> | undefined;
+}
+
+function recentCommitsSection(
+  recentCommits: ReadonlyArray<string> | undefined,
+): ReadonlyArray<string> {
+  if (!recentCommits || recentCommits.length === 0) return [];
+  const list = recentCommits.map((subject) => `- ${subject}`).join("\n");
+  return ["", "Recent commits (style reference):", limitSection(list, 4_000)];
 }
 
 export function buildCommitMessagePrompt(input: CommitMessagePromptInput) {
@@ -53,6 +62,7 @@ export function buildCommitMessagePrompt(input: CommitMessagePromptInput) {
     "",
     "Staged patch:",
     limitSection(input.stagedPatch, 40_000),
+    ...recentCommitsSection(input.recentCommits),
   ].join("\n");
 
   if (wantsBranch) {
@@ -86,6 +96,7 @@ export interface PrContentPromptInput {
   diffSummary: string;
   diffPatch: string;
   policy?: TextGenerationPolicy | undefined;
+  recentCommits?: ReadonlyArray<string> | undefined;
 }
 
 export function buildPrContentPrompt(input: PrContentPromptInput) {
@@ -110,6 +121,7 @@ export function buildPrContentPrompt(input: PrContentPromptInput) {
     "",
     "Diff patch:",
     limitSection(input.diffPatch, 40_000),
+    ...recentCommitsSection(input.recentCommits),
   ].join("\n");
 
   const outputSchema = Schema.Struct({

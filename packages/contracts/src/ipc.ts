@@ -613,6 +613,10 @@ export interface DesktopPreviewAnnotationTheme {
   ring: string;
   fontSans: string;
   fontMono: string;
+  themeAccent?: string;
+  themeBackground?: string;
+  themeForeground?: string;
+  themeSidebar?: string;
 }
 
 export const DesktopPreviewAnnotationThemeSchema: Schema.Codec<DesktopPreviewAnnotationTheme> =
@@ -634,6 +638,10 @@ export const DesktopPreviewAnnotationThemeSchema: Schema.Codec<DesktopPreviewAnn
     ring: Schema.String,
     fontSans: Schema.String,
     fontMono: Schema.String,
+    themeAccent: Schema.optionalKey(Schema.String),
+    themeBackground: Schema.optionalKey(Schema.String),
+    themeForeground: Schema.optionalKey(Schema.String),
+    themeSidebar: Schema.optionalKey(Schema.String),
   });
 
 export interface DesktopPreviewRecordingFrame {

@@ -23,12 +23,14 @@ import {
   CheckIcon,
   ChevronDownIcon,
   CloudUploadIcon,
+  DownloadIcon,
   ExternalLinkIcon,
   GitBranchPlusIcon,
   GitCommitIcon,
   InfoIcon,
   LockIcon,
   GlobeIcon,
+  RefreshCwIcon,
 } from "lucide-react";
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon } from "~/components/Icons";
@@ -73,6 +75,7 @@ import {
   useGitStackedAction,
   useSourceControlActionRunning,
   useSourceControlPublishRepositoryAction,
+  useVcsFetchAction,
   useVcsInitAction,
   useVcsPullAction,
 } from "~/lib/sourceControlActions";
@@ -152,7 +155,12 @@ function requestVcsStatusRefresh(
   }
   void refresh({ environmentId, input: { cwd } });
 }
-const RUNNING_SOURCE_CONTROL_ACTIONS = ["runStackedAction", "pull", "publishRepository"] as const;
+const RUNNING_SOURCE_CONTROL_ACTIONS = [
+  "runStackedAction",
+  "pull",
+  "fetch",
+  "publishRepository",
+] as const;
 
 const PUBLISH_PROVIDER_OPTIONS = [
   {
@@ -276,6 +284,7 @@ function getMenuActionDisabledReason({
   const hasOpenPr = gitStatus.pr?.state === "open";
   const isAhead = gitStatus.aheadCount > 0;
   const isBehind = gitStatus.behindCount > 0;
+  const isDiverged = isAhead && isBehind;
   const terminology = getSourceControlPresentation(gitStatus.sourceControlProvider).terminology;
 
   if (item.id === "commit") {
@@ -283,6 +292,29 @@ function getMenuActionDisabledReason({
       return "Worktree is clean. Make changes before committing.";
     }
     return "Commit is currently unavailable.";
+  }
+
+  if (item.id === "pull") {
+    if (!hasBranch) {
+      return "Detached HEAD: checkout a ref before pulling.";
+    }
+    if (!gitStatus.hasUpstream) {
+      return "Current ref has no upstream configured.";
+    }
+    if (isDiverged) {
+      return "Branch has diverged from upstream. Rebase/merge first.";
+    }
+    if (!isBehind) {
+      return "Branch is already up to date.";
+    }
+    return "Pull is currently unavailable.";
+  }
+
+  if (item.id === "fetch") {
+    if (!hasPrimaryRemote) {
+      return 'Add an "origin" remote before fetching.';
+    }
+    return "Fetch is currently unavailable.";
   }
 
   if (item.id === "push") {
@@ -337,6 +369,8 @@ function GitActionItemIcon({
   SourceControlIcon: ReturnType<typeof getSourceControlPresentation>["Icon"];
 }) {
   if (icon === "commit") return <GitCommitIcon />;
+  if (icon === "pull") return <DownloadIcon />;
+  if (icon === "fetch") return <RefreshCwIcon />;
   if (icon === "push") return <CloudUploadIcon />;
   return <SourceControlIcon />;
 }
@@ -351,7 +385,7 @@ function GitQuickActionIcon({
   const iconClassName = "size-3.5";
   if (quickAction.kind === "open_pr") return <SourceControlIcon className={iconClassName} />;
   if (quickAction.kind === "open_publish") return <CloudUploadIcon className={iconClassName} />;
-  if (quickAction.kind === "run_pull") return <InfoIcon className={iconClassName} />;
+  if (quickAction.kind === "run_pull") return <DownloadIcon className={iconClassName} />;
   if (quickAction.kind === "run_action") {
     if (quickAction.action === "commit") return <GitCommitIcon className={iconClassName} />;
     if (quickAction.action === "push" || quickAction.action === "commit_push") {
@@ -1108,6 +1142,7 @@ export default function GitActionsControl({
   const initAction = useVcsInitAction(sourceControlScope);
   const runImmediateGitAction = useGitStackedAction(sourceControlScope);
   const pullAction = useVcsPullAction(sourceControlScope);
+  const fetchAction = useVcsFetchAction(sourceControlScope);
   const isGitActionRunning = useSourceControlActionRunning(
     sourceControlScope,
     RUNNING_SOURCE_CONTROL_ACTIONS,
@@ -1523,6 +1558,82 @@ export default function GitActionsControl({
     });
   };
 
+  const runPullActionWithToast = () => {
+    const toastId = toastManager.add({
+      type: "loading",
+      title: "Pulling...",
+      timeout: 0,
+      data: threadToastData,
+    });
+    void (async () => {
+      const result = await pullAction.run();
+      if (result._tag === "Failure") {
+        if (isAtomCommandInterrupted(result)) {
+          toastManager.close(toastId);
+          return;
+        }
+        const error = squashAtomCommandFailure(result);
+        toastManager.update(
+          toastId,
+          stackedThreadToast({
+            type: "error",
+            title: "Pull failed",
+            description: error instanceof Error ? error.message : "An error occurred.",
+            ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+          }),
+        );
+        return;
+      }
+
+      const pullResult = result.value;
+      toastManager.update(toastId, {
+        type: "success",
+        title: pullResult.status === "pulled" ? "Pulled" : "Already up to date",
+        description:
+          pullResult.status === "pulled"
+            ? `Updated ${pullResult.refName} from ${pullResult.upstreamRef ?? "upstream"}`
+            : `${pullResult.refName} is already synchronized.`,
+        data: threadToastData,
+      });
+    })();
+  };
+
+  const runFetchActionWithToast = () => {
+    const toastId = toastManager.add({
+      type: "loading",
+      title: "Fetching...",
+      timeout: 0,
+      data: threadToastData,
+    });
+    void (async () => {
+      const result = await fetchAction.run();
+      if (result._tag === "Failure") {
+        if (isAtomCommandInterrupted(result)) {
+          toastManager.close(toastId);
+          return;
+        }
+        const error = squashAtomCommandFailure(result);
+        toastManager.update(
+          toastId,
+          stackedThreadToast({
+            type: "error",
+            title: "Fetch failed",
+            description: error instanceof Error ? error.message : "An error occurred.",
+            ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+          }),
+        );
+        return;
+      }
+
+      toastManager.update(toastId, {
+        type: "success",
+        title: "Fetched",
+        description: `Updated remote refs from ${result.value.remoteName}.`,
+        data: threadToastData,
+      });
+    })();
+  };
+
   const runQuickAction = () => {
     if (quickAction.kind === "open_pr") {
       void openExistingPr();
@@ -1533,43 +1644,7 @@ export default function GitActionsControl({
       return;
     }
     if (quickAction.kind === "run_pull") {
-      const toastId = toastManager.add({
-        type: "loading",
-        title: "Pulling...",
-        timeout: 0,
-        data: threadToastData,
-      });
-      void (async () => {
-        const result = await pullAction.run();
-        if (result._tag === "Failure") {
-          if (isAtomCommandInterrupted(result)) {
-            toastManager.close(toastId);
-            return;
-          }
-          const error = squashAtomCommandFailure(result);
-          toastManager.update(
-            toastId,
-            stackedThreadToast({
-              type: "error",
-              title: "Pull failed",
-              description: error instanceof Error ? error.message : "An error occurred.",
-              ...(threadToastData !== undefined ? { data: threadToastData } : {}),
-            }),
-          );
-          return;
-        }
-
-        const pullResult = result.value;
-        toastManager.update(toastId, {
-          type: "success",
-          title: pullResult.status === "pulled" ? "Pulled" : "Already up to date",
-          description:
-            pullResult.status === "pulled"
-              ? `Updated ${pullResult.refName} from ${pullResult.upstreamRef ?? "upstream"}`
-              : `${pullResult.refName} is already synchronized.`,
-          data: threadToastData,
-        });
-      })();
+      runPullActionWithToast();
       return;
     }
     if (quickAction.kind === "show_hint") {
@@ -1590,6 +1665,14 @@ export default function GitActionsControl({
     if (item.disabled) return;
     if (item.kind === "open_pr") {
       void openExistingPr();
+      return;
+    }
+    if (item.kind === "run_pull") {
+      runPullActionWithToast();
+      return;
+    }
+    if (item.kind === "run_fetch") {
+      runFetchActionWithToast();
       return;
     }
     if (item.dialogAction === "push") {

@@ -19,10 +19,14 @@ import {
   VcsSwitchRefInput,
   VcsSwitchRefResult,
   GitCommandError,
+  GitManagerError,
   VcsCreateRefInput,
   VcsCreateRefResult,
   VcsCreateWorktreeInput,
   VcsCreateWorktreeResult,
+  VcsDeleteBranchInput,
+  VcsFetchInput,
+  VcsFetchResult,
   VcsInitInput,
   VcsListRefsInput,
   VcsListRefsResult,
@@ -33,6 +37,8 @@ import {
   GitPullRequestRefInput,
   VcsPullResult,
   VcsRemoveWorktreeInput,
+  VcsRenameBranchInput,
+  VcsRenameBranchResult,
   GitResolvePullRequestResult,
   GitRunStackedActionInput,
   VcsStatusInput,
@@ -163,12 +169,15 @@ export const WS_METHODS = {
 
   // VCS methods
   vcsPull: "vcs.pull",
+  vcsFetch: "vcs.fetch",
   vcsRefreshStatus: "vcs.refreshStatus",
   vcsListRefs: "vcs.listRefs",
   vcsCreateWorktree: "vcs.createWorktree",
   vcsRemoveWorktree: "vcs.removeWorktree",
   vcsCreateRef: "vcs.createRef",
   vcsSwitchRef: "vcs.switchRef",
+  vcsRenameBranch: "vcs.renameBranch",
+  vcsDeleteBranch: "vcs.deleteBranch",
   vcsInit: "vcs.init",
 
   // Git workflow methods
@@ -408,6 +417,12 @@ export const WsVcsPullRpc = Rpc.make(WS_METHODS.vcsPull, {
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
 });
 
+export const WsVcsFetchRpc = Rpc.make(WS_METHODS.vcsFetch, {
+  payload: VcsFetchInput,
+  success: VcsFetchResult,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
 export const WsVcsRefreshStatusRpc = Rpc.make(WS_METHODS.vcsRefreshStatus, {
   payload: VcsStatusInput,
   success: VcsStatusResult,
@@ -460,6 +475,17 @@ export const WsVcsSwitchRefRpc = Rpc.make(WS_METHODS.vcsSwitchRef, {
   payload: VcsSwitchRefInput,
   success: VcsSwitchRefResult,
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsRenameBranchRpc = Rpc.make(WS_METHODS.vcsRenameBranch, {
+  payload: VcsRenameBranchInput,
+  success: VcsRenameBranchResult,
+  error: Schema.Union([GitManagerError, GitCommandError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsDeleteBranchRpc = Rpc.make(WS_METHODS.vcsDeleteBranch, {
+  payload: VcsDeleteBranchInput,
+  error: Schema.Union([GitManagerError, GitCommandError, EnvironmentAuthorizationError]),
 });
 
 export const WsVcsInitRpc = Rpc.make(WS_METHODS.vcsInit, {
@@ -708,6 +734,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsAssetsCreateUrlRpc,
   WsSubscribeVcsStatusRpc,
   WsVcsPullRpc,
+  WsVcsFetchRpc,
   WsVcsRefreshStatusRpc,
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
@@ -717,6 +744,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsVcsRemoveWorktreeRpc,
   WsVcsCreateRefRpc,
   WsVcsSwitchRefRpc,
+  WsVcsRenameBranchRpc,
+  WsVcsDeleteBranchRpc,
   WsVcsInitRpc,
   WsReviewGetDiffPreviewRpc,
   WsTerminalOpenRpc,
