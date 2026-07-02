@@ -50,6 +50,7 @@ import {
   makeAcpRequestOpenedEvent,
   makeAcpRequestResolvedEvent,
   makeAcpToolCallEvent,
+  tryExtractTodoPlanFromToolCall,
 } from "../acp/AcpCoreRuntimeEvents.ts";
 import { parsePermissionRequest } from "../acp/AcpRuntimeModel.ts";
 import { makeAcpNativeLoggerFactory } from "../acp/AcpNativeLogging.ts";
@@ -854,6 +855,19 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                         rawPayload: event.rawPayload,
                       }),
                     );
+                    {
+                      const todoPlan = tryExtractTodoPlanFromToolCall(event.toolCall);
+                      if (todoPlan) {
+                        yield* emitPlanUpdate(
+                          ctx,
+                          notificationTurnId,
+                          yield* makeEventStamp(),
+                          todoPlan,
+                          event.rawPayload,
+                          "session/update",
+                        );
+                      }
+                    }
                     return;
                   case "ContentDelta":
                     yield* offerRuntimeEvent(

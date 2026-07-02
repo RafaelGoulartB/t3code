@@ -11,6 +11,7 @@ import {
   type CanonicalItemType,
   type CanonicalRequestType,
   type CodexSettings,
+  EventId,
   ProviderDriverKind,
   type ProviderEvent,
   ProviderInstanceId,
@@ -255,7 +256,9 @@ function itemTitle(itemType: CanonicalItemType, item?: CodexLifecycleItem): stri
     case "mcp_tool_call":
       return "MCP tool call";
     case "dynamic_tool_call":
-      return "Tool call";
+      return item && "tool" in item && typeof item.tool === "string" && item.tool.trim().length > 0
+        ? item.tool.trim()
+        : "Tool call";
     case "web_search":
       return "Web search";
     case "image_view":
@@ -424,6 +427,42 @@ function providerRefsFromEvent(
   if (event.requestId) refs.providerRequestId = event.requestId;
 
   return Object.keys(refs).length > 0 ? (refs as ProviderRuntimeEvent["providerRefs"]) : undefined;
+}
+
+function tryExtractCodexTodoWritePlan(
+  item: CodexLifecycleItem,
+): Array<{ step: string; status: "pending" | "inProgress" | "completed" }> | null {
+  if (
+    item.type !== "dynamicToolCall" ||
+    !("tool" in item) ||
+    typeof item.tool !== "string" ||
+    !item.tool.toLowerCase().includes("todowrite")
+  ) {
+    return null;
+  }
+  const args =
+    "arguments" in item && item.arguments !== null && typeof item.arguments === "object"
+      ? (item.arguments as Record<string, unknown>)
+      : null;
+  const todos = args?.todos;
+  if (!Array.isArray(todos) || todos.length === 0) {
+    return null;
+  }
+  return todos
+    .filter((t): t is Record<string, unknown> => t !== null && typeof t === "object")
+    .map((todo) => ({
+      step:
+        typeof todo.content === "string" && todo.content.trim().length > 0
+          ? todo.content.trim()
+          : "Task",
+      status: (
+        todo.status === "completed"
+          ? "completed"
+          : todo.status === "in_progress"
+            ? "inProgress"
+            : "pending"
+      ) as "pending" | "inProgress" | "completed",
+    }));
 }
 
 function runtimeEventBase(
@@ -827,8 +866,27 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "item/started") {
+    const payload = readPayload(EffectCodexSchema.V2ItemStartedNotification, event.payload);
+    const item = payload?.item;
     const started = mapItemLifecycle(event, canonicalThreadId, "item.started");
-    return started ? [started] : [];
+    if (!started) {
+      return [];
+    }
+    if (item) {
+      const planSteps = tryExtractCodexTodoWritePlan(item);
+      if (planSteps && planSteps.length > 0) {
+        return [
+          started,
+          {
+            ...runtimeEventBase(event, canonicalThreadId),
+            eventId: EventId.make(`${event.id}:plan`),
+            type: "turn.plan.updated",
+            payload: { plan: planSteps },
+          },
+        ];
+      }
+    }
+    return [started];
   }
 
   if (event.method === "item/completed") {
