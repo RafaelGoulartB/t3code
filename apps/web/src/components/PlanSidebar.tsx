@@ -33,7 +33,7 @@ import { stackedThreadToast, toastManager } from "./ui/toast";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useAtomCommand } from "~/state/use-atom-command";
 
-function stepStatusIcon(status: string): React.ReactNode {
+export function stepStatusIcon(status: string): React.ReactNode {
   if (status === "completed") {
     return (
       <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-success/10 text-success-foreground">

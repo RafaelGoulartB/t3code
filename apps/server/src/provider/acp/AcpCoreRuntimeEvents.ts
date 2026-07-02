@@ -213,6 +213,41 @@ export function makeAcpAssistantItemEvent(input: {
   };
 }
 
+export function tryExtractTodoPlanFromToolCall(
+  toolCall: AcpToolCallState,
+): AcpPlanUpdate | null {
+  if (!toolCall.title?.toLowerCase().includes("todowrite")) {
+    return null;
+  }
+  const rawInput = toolCall.data.rawInput;
+  if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) {
+    return null;
+  }
+  const todos = (rawInput as Record<string, unknown>).todos;
+  if (!Array.isArray(todos) || todos.length === 0) {
+    return null;
+  }
+  const plan = todos
+    .filter((t): t is Record<string, unknown> => t !== null && typeof t === "object")
+    .map((todo) => ({
+      step:
+        typeof todo.content === "string" && todo.content.trim().length > 0
+          ? todo.content.trim()
+          : "Task",
+      status: (
+        todo.status === "completed"
+          ? "completed"
+          : todo.status === "in_progress"
+            ? "inProgress"
+            : "pending"
+      ) as "pending" | "inProgress" | "completed",
+    }));
+  if (plan.length === 0) {
+    return null;
+  }
+  return { plan };
+}
+
 export function makeAcpContentDeltaEvent(input: {
   readonly stamp: AcpEventStamp;
   readonly provider: ProviderDriverKind;

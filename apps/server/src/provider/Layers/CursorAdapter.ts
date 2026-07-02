@@ -58,6 +58,7 @@ import {
   makeAcpRequestOpenedEvent,
   makeAcpRequestResolvedEvent,
   makeAcpToolCallEvent,
+  tryExtractTodoPlanFromToolCall,
 } from "../acp/AcpCoreRuntimeEvents.ts";
 import {
   type AcpSessionMode,
@@ -846,6 +847,18 @@ export function makeCursorAdapter(
                         rawPayload: event.rawPayload,
                       }),
                     );
+                    {
+                      const todoPlan = tryExtractTodoPlanFromToolCall(event.toolCall);
+                      if (todoPlan) {
+                        yield* emitPlanUpdate(
+                          ctx,
+                          todoPlan,
+                          event.rawPayload,
+                          "acp.jsonrpc",
+                          "session/update",
+                        );
+                      }
+                    }
                     return;
                   case "ContentDelta":
                     yield* logNative(

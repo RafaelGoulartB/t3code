@@ -779,6 +779,33 @@ export function makeOpenCodeAdapter(
           break;
         }
 
+        case "todo.updated": {
+          const todos = event.properties.todos;
+          if (todos.length === 0) {
+            break;
+          }
+          const plan = todos.map((todo) => ({
+            step: todo.content.trim().length > 0 ? todo.content.trim() : "Task",
+            status: (
+              todo.status === "completed"
+                ? "completed"
+                : todo.status === "in_progress"
+                  ? "inProgress"
+                  : "pending"
+            ) as "pending" | "inProgress" | "completed",
+          }));
+          yield* emit({
+            ...(yield* buildEventBase({
+              threadId: context.session.threadId,
+              turnId,
+              raw: event,
+            })),
+            type: "turn.plan.updated",
+            payload: { plan },
+          });
+          break;
+        }
+
         case "permission.asked": {
           context.pendingPermissions.set(event.properties.id, event.properties);
           yield* emit({
