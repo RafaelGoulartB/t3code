@@ -140,10 +140,10 @@ export const make = Effect.gen(function* () {
 
     yield* terminalManager
       .open({
-        threadId: input.threadId,
+        projectId: project.id,
+        worktreePath: input.worktreePath,
         terminalId,
         cwd,
-        worktreePath: input.worktreePath,
         env,
       })
       .pipe(
@@ -158,7 +158,8 @@ export const make = Effect.gen(function* () {
       );
     yield* terminalManager
       .write({
-        threadId: input.threadId,
+        projectId: project.id,
+        worktreePath: input.worktreePath,
         terminalId,
         data: `${script.command}\r`,
       })

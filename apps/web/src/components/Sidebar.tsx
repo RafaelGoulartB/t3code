@@ -90,7 +90,7 @@ import {
   useThreadShells,
   useThreadShellsForProjectRefs,
 } from "../state/entities";
-import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
+import { selectTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useThreadRunningTerminalIds } from "../state/terminalSessions";
 import { useThreadDiscoveredPorts } from "../portDiscoveryState";
 import { openDiscoveredPort } from "./preview/openDiscoveredPort";
@@ -432,12 +432,14 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
   const isSelected = useThreadSelectionStore((state) => state.selectedThreadKeys.has(threadKey));
   const runningTerminalIds = useThreadRunningTerminalIds({
     environmentId: thread.environmentId,
-    threadId: thread.id,
+    projectId: thread.projectId,
+    worktreePath: thread.worktreePath ?? null,
   });
   const isMobile = useIsMobile();
   const discoveredPorts = useThreadDiscoveredPorts({
     environmentId: thread.environmentId,
-    threadId: thread.id,
+    projectId: thread.projectId,
+    worktreePath: thread.worktreePath ?? null,
   });
   const openPreview = useAtomCommand(previewEnvironment.open, {
     reportFailure: false,
@@ -3664,9 +3666,14 @@ export default function Sidebar() {
     select: (params) => resolveThreadRouteRef(params),
   });
   const routeThreadKey = routeThreadRef ? scopedThreadKey(routeThreadRef) : null;
+  const routeThread = routeThreadRef ? readThreadShell(routeThreadRef) : null;
   const routeTerminalOpen = useTerminalUiStateStore((state) =>
-    routeThreadRef
-      ? selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef).terminalOpen
+    routeThread
+      ? selectTerminalUiState(state.terminalUiStateByProjectKey, {
+          environmentId: routeThread.environmentId,
+          projectId: routeThread.projectId,
+          worktreePath: routeThread.worktreePath ?? null,
+        }).terminalOpen
       : false,
   );
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);

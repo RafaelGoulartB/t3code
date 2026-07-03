@@ -1,4 +1,4 @@
-import type { DiscoveredLocalServer, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { DiscoveredLocalServer, EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { useMemo } from "react";
 
 import { previewEnvironment } from "./state/preview";
@@ -17,35 +17,44 @@ export function useDiscoveredPorts(
   return query.data?.servers ?? EMPTY_PORTS;
 }
 
-export function useThreadDiscoveredPorts(input: {
+export function useProjectDiscoveredPorts(input: {
   readonly environmentId: EnvironmentId | null;
-  readonly threadId: ThreadId | null;
+  readonly projectId: ProjectId | null;
+  readonly worktreePath: string | null;
 }): ReadonlyArray<DiscoveredLocalServer> {
   const ports = useDiscoveredPorts(input.environmentId);
   return useMemo(
     () =>
-      input.threadId
-        ? ports.filter((port) => port.terminal?.threadId === input.threadId)
+      input.projectId
+        ? ports.filter(
+            (port) =>
+              port.terminal?.projectId === input.projectId &&
+              port.terminal.worktreePath === input.worktreePath,
+          )
         : EMPTY_PORTS,
-    [input.threadId, ports],
+    [input.projectId, input.worktreePath, ports],
   );
 }
 
+export const useThreadDiscoveredPorts = useProjectDiscoveredPorts;
+
 export function useTerminalDiscoveredPorts(input: {
   readonly environmentId: EnvironmentId | null;
-  readonly threadId: ThreadId | null;
+  readonly projectId: ProjectId | null;
+  readonly worktreePath: string | null;
   readonly terminalId: string | null;
 }): ReadonlyArray<DiscoveredLocalServer> {
   const ports = useDiscoveredPorts(input.environmentId);
   return useMemo(
     () =>
-      input.threadId && input.terminalId
+      input.projectId && input.terminalId
         ? ports.filter(
             (port) =>
-              port.terminal?.threadId === input.threadId &&
+              port.terminal?.projectId === input.projectId &&
+              port.terminal.worktreePath === input.worktreePath &&
               port.terminal.terminalId === input.terminalId,
           )
         : EMPTY_PORTS,
-    [input.terminalId, input.threadId, ports],
+    [input.projectId, input.terminalId, input.worktreePath, ports],
   );
 }

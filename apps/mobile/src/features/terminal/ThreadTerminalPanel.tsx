@@ -1,4 +1,9 @@
-import { DEFAULT_TERMINAL_ID, type EnvironmentId, type ThreadId } from "@t3tools/contracts";
+import {
+  DEFAULT_TERMINAL_ID,
+  type EnvironmentId,
+  type ProjectId,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { SymbolView } from "expo-symbols";
 import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { Pressable, View } from "react-native";
@@ -18,6 +23,7 @@ import {
 interface ThreadTerminalPanelProps {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
+  readonly projectId: ProjectId;
   readonly cwd: string;
   readonly worktreePath: string | null;
   readonly visible: boolean;
@@ -41,12 +47,12 @@ export const ThreadTerminalPanel = memo(function ThreadTerminalPanel(
   const subscriptionIdentity = useMemo<ThreadTerminalSubscriptionIdentity>(
     () => ({
       environmentId: props.environmentId,
-      threadId: props.threadId,
+      projectId: props.projectId,
       terminalId,
       cwd: props.cwd,
       worktreePath: props.worktreePath,
     }),
-    [props.cwd, props.environmentId, props.threadId, props.worktreePath, terminalId],
+    [props.cwd, props.environmentId, props.projectId, props.worktreePath, terminalId],
   );
   const attachInput = useMemo(
     () =>
@@ -60,7 +66,7 @@ export const ThreadTerminalPanel = memo(function ThreadTerminalPanel(
     terminal: attachInput,
   });
 
-  const terminalKey = `${props.environmentId}:${props.threadId}:${terminalId}`;
+  const terminalKey = `${props.environmentId}:${props.projectId}:${props.worktreePath ?? ""}:${terminalId}`;
   const isRunning = terminal.status === "running" || terminal.status === "starting";
 
   const sendResize = useCallback(
@@ -68,14 +74,15 @@ export const ThreadTerminalPanel = memo(function ThreadTerminalPanel(
       void resizeTerminal({
         environmentId: props.environmentId,
         input: {
-          threadId: props.threadId,
+          projectId: props.projectId,
+          worktreePath: props.worktreePath,
           terminalId,
           cols: size.cols,
           rows: size.rows,
         },
       });
     },
-    [props.environmentId, props.threadId, resizeTerminal, terminalId],
+    [props.environmentId, props.projectId, props.worktreePath, resizeTerminal, terminalId],
   );
 
   useEffect(() => {
@@ -93,13 +100,21 @@ export const ThreadTerminalPanel = memo(function ThreadTerminalPanel(
       void writeTerminal({
         environmentId: props.environmentId,
         input: {
-          threadId: props.threadId,
+          projectId: props.projectId,
+          worktreePath: props.worktreePath,
           terminalId,
           data,
         },
       });
     },
-    [isRunning, props.environmentId, props.threadId, terminalId, writeTerminal],
+    [
+      isRunning,
+      props.environmentId,
+      props.projectId,
+      props.worktreePath,
+      terminalId,
+      writeTerminal,
+    ],
   );
 
   const handleResize = useCallback(

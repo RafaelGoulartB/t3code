@@ -9,7 +9,7 @@
  * @module Preview
  */
 import { Schema } from "effect";
-import { ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 const Url = TrimmedNonEmptyString.check(Schema.isMaxLength(2048));
 const Title = Schema.String.check(Schema.isMaxLength(512));
@@ -254,7 +254,8 @@ export const DiscoveredLocalServer = Schema.Struct({
   pid: Schema.NullOr(Schema.Int.check(Schema.isGreaterThan(0))),
   terminal: Schema.NullOr(
     Schema.Struct({
-      threadId: ThreadId,
+      projectId: ProjectId,
+      worktreePath: Schema.NullOr(TrimmedNonEmptyString),
       terminalId: TrimmedNonEmptyString,
     }),
   ),

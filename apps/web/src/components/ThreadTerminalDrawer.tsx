@@ -13,6 +13,7 @@ import {
   XIcon,
 } from "lucide-react";
 import {
+  type ProjectId,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
   type ThreadId,
@@ -270,7 +271,7 @@ export function shouldHandleTerminalSelectionMouseUp(
 
 interface TerminalViewportProps {
   threadRef: ScopedThreadRef;
-  threadId: ThreadId;
+  projectId: ProjectId;
   terminalId: string;
   terminalLabel: string;
   cwd: string;
@@ -293,7 +294,7 @@ interface TerminalLaunchLocation {
 
 export function TerminalViewport({
   threadRef,
-  threadId,
+  projectId,
   terminalId,
   terminalLabel,
   cwd,
@@ -344,23 +345,23 @@ export function TerminalViewport({
   const terminalSession = useAttachedTerminalSession({
     environmentId,
     terminal: {
-      threadId,
+      projectId,
+      worktreePath: worktreePath ?? null,
       terminalId,
       cwd,
-      ...(worktreePath !== undefined ? { worktreePath } : {}),
       ...(runtimeEnv ? { env: runtimeEnv } : {}),
     },
   });
   const writeTerminal = useEffectEvent((data: string) =>
     runTerminalWrite({
       environmentId,
-      input: { threadId, terminalId, data },
+      input: { projectId, worktreePath: worktreePath ?? null, terminalId, data },
     }),
   );
   const resizeTerminal = useEffectEvent((cols: number, rows: number) =>
     runTerminalResize({
       environmentId,
-      input: { threadId, terminalId, cols, rows },
+      input: { projectId, worktreePath: worktreePath ?? null, terminalId, cols, rows },
     }),
   );
   const terminalBuffer = terminalSession.buffer;
@@ -705,7 +706,7 @@ export function TerminalViewport({
     // autoFocus is intentionally omitted;
     // it is only read at mount time and must not trigger terminal teardown/recreation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cwd, environmentId, runtimeEnvKey, terminalId, threadId, worktreePath]);
+  }, [cwd, environmentId, projectId, runtimeEnvKey, terminalId, worktreePath]);
 
   useEffect(() => {
     const terminal = terminalRef.current;
@@ -793,7 +794,7 @@ export function TerminalViewport({
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [drawerHeight, environmentId, resizeEpoch, terminalId, threadId]);
+  }, [drawerHeight, environmentId, projectId, resizeEpoch, terminalId]);
   return (
     <div
       ref={containerRef}
@@ -805,6 +806,7 @@ export function TerminalViewport({
 interface ThreadTerminalDrawerProps {
   mode?: "drawer" | "panel";
   threadRef: ScopedThreadRef;
+  projectId: ProjectId;
   threadId: ThreadId;
   cwd: string;
   worktreePath?: string | null;
@@ -866,6 +868,7 @@ function TerminalActionButton({ label, className, onClick, children }: TerminalA
 export default function ThreadTerminalDrawer({
   mode = "drawer",
   threadRef,
+  projectId,
   threadId,
   cwd,
   worktreePath,
@@ -1330,7 +1333,7 @@ export default function ThreadTerminalDrawer({
                       <div className="h-full p-1">
                         <TerminalViewport
                           threadRef={threadRef}
-                          threadId={threadId}
+                          projectId={projectId}
                           terminalId={terminalId}
                           terminalLabel={terminalLabelById.get(terminalId) ?? "Terminal"}
                           cwd={terminalLaunchLocation.cwd}
@@ -1358,7 +1361,7 @@ export default function ThreadTerminalDrawer({
                 <TerminalViewport
                   key={resolvedActiveTerminalId}
                   threadRef={threadRef}
-                  threadId={threadId}
+                  projectId={projectId}
                   terminalId={resolvedActiveTerminalId}
                   terminalLabel={terminalLabelById.get(resolvedActiveTerminalId) ?? "Terminal"}
                   cwd={activeTerminalLaunchLocation.cwd}
