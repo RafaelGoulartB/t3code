@@ -37,6 +37,7 @@ describe("terminalUiStateStore actions", () => {
     );
     expect(terminalUiState).toEqual({
       terminalOpen: false,
+      terminalMaximized: false,
       terminalHeight: 280,
       terminalIds: [],
       activeTerminalId: "",
@@ -92,6 +93,7 @@ describe("terminalUiStateStore actions", () => {
     );
     expect(terminalUiState).toEqual({
       terminalOpen: true,
+      terminalMaximized: false,
       terminalHeight: 280,
       terminalIds: [DEFAULT_THREAD_TERMINAL_ID],
       activeTerminalId: DEFAULT_THREAD_TERMINAL_ID,
@@ -187,6 +189,7 @@ describe("terminalUiStateStore actions", () => {
         terminalUiStateByProjectKey: {
           [terminalUiScopeKey(TERMINAL_REF)]: {
             terminalOpen: true,
+            terminalMaximized: true,
             terminalHeight: 320,
             terminalIds: ["term-1"],
             activeTerminalId: "term-1",
@@ -210,6 +213,7 @@ describe("terminalUiStateStore actions", () => {
       terminalUiStateByProjectKey: {
         [terminalUiScopeKey(TERMINAL_REF)]: {
           terminalOpen: true,
+          terminalMaximized: true,
           terminalHeight: 320,
           terminalIds: ["term-1"],
           activeTerminalId: "term-1",
@@ -236,6 +240,33 @@ describe("terminalUiStateStore actions", () => {
         TERMINAL_REF,
       ).terminalIds,
     ).toEqual([]);
+  });
+
+  it("toggles maximized state per project scope", () => {
+    const store = useTerminalUiStateStore.getState();
+    store.setTerminalOpen(TERMINAL_REF, true);
+    store.toggleTerminalMaximized(TERMINAL_REF);
+
+    expect(
+      selectTerminalUiState(
+        useTerminalUiStateStore.getState().terminalUiStateByProjectKey,
+        TERMINAL_REF,
+      ).terminalMaximized,
+    ).toBe(true);
+    expect(
+      selectTerminalUiState(
+        useTerminalUiStateStore.getState().terminalUiStateByProjectKey,
+        OTHER_TERMINAL_REF,
+      ).terminalMaximized,
+    ).toBe(false);
+
+    store.toggleTerminalMaximized(TERMINAL_REF);
+    expect(
+      selectTerminalUiState(
+        useTerminalUiStateStore.getState().terminalUiStateByProjectKey,
+        TERMINAL_REF,
+      ).terminalMaximized,
+    ).toBe(false);
   });
 
   it("keeps a valid active terminal after closing an active split terminal", () => {

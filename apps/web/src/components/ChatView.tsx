@@ -467,6 +467,7 @@ interface PersistentThreadTerminalDrawerProps {
   splitVerticalShortcutLabel: string | undefined;
   newShortcutLabel: string | undefined;
   closeShortcutLabel: string | undefined;
+  toggleMaximizeShortcutLabel: string | undefined;
   keybindings: ResolvedKeybindingsConfig;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
 }
@@ -481,6 +482,7 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
   splitVerticalShortcutLabel,
   newShortcutLabel,
   closeShortcutLabel,
+  toggleMaximizeShortcutLabel,
   keybindings,
   onAddTerminalContext,
 }: PersistentThreadTerminalDrawerProps) {
@@ -571,6 +573,9 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
     [drawerTerminalSessions],
   );
   const storeSetTerminalHeight = useTerminalUiStateStore((state) => state.setTerminalHeight);
+  const storeToggleTerminalMaximized = useTerminalUiStateStore(
+    (state) => state.toggleTerminalMaximized,
+  );
   const storeSplitTerminal = useTerminalUiStateStore((state) => state.splitTerminal);
   const storeSplitTerminalVertical = useTerminalUiStateStore(
     (state) => state.splitTerminalVertical,
@@ -641,6 +646,10 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
     },
     [storeSetTerminalHeight, terminalScopeRef],
   );
+  const toggleTerminalMaximized = useCallback(() => {
+    if (!terminalScopeRef) return;
+    storeToggleTerminalMaximized(terminalScopeRef);
+  }, [storeToggleTerminalMaximized, terminalScopeRef]);
 
   const splitTerminal = useCallback(() => {
     if (!cwd || !terminalScopeRef) {
@@ -801,6 +810,7 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
         runtimeEnv={runtimeEnv}
         visible={visible}
         height={terminalUiState.terminalHeight}
+        maximized={terminalUiState.terminalMaximized}
         // Known-session order is MRU and changes on focus; persisted store order keeps sidebar labels stable.
         terminalIds={terminalUiState.terminalIds}
         activeTerminalId={terminalUiState.activeTerminalId}
@@ -814,6 +824,8 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
         splitVerticalShortcutLabel={visible ? splitVerticalShortcutLabel : undefined}
         newShortcutLabel={visible ? newShortcutLabel : undefined}
         closeShortcutLabel={visible ? closeShortcutLabel : undefined}
+        toggleMaximizeShortcutLabel={visible ? toggleMaximizeShortcutLabel : undefined}
+        onToggleMaximized={toggleTerminalMaximized}
         keybindings={keybindings}
         onActiveTerminalChange={activateTerminal}
         onCloseTerminal={closeTerminal}
@@ -1217,6 +1229,7 @@ function ChatViewContent(props: ChatViewProps) {
   const storeNewTerminal = useTerminalUiStateStore((s) => s.newTerminal);
   const storeSetActiveTerminal = useTerminalUiStateStore((s) => s.setActiveTerminal);
   const storeCloseTerminal = useTerminalUiStateStore((s) => s.closeTerminal);
+  const storeToggleTerminalMaximized = useTerminalUiStateStore((s) => s.toggleTerminalMaximized);
   const activeRouteTerminalScopeKey = routeThreadTerminalScopeRef
     ? terminalUiScopeKey(routeThreadTerminalScopeRef)
     : null;
@@ -2184,6 +2197,11 @@ function ChatViewContent(props: ChatViewProps) {
     () => shortcutLabelForCommand(keybindings, "terminal.close", terminalShortcutLabelOptions),
     [keybindings, terminalShortcutLabelOptions],
   );
+  const toggleMaximizeTerminalShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(keybindings, "terminal.toggleMaximize", terminalShortcutLabelOptions),
+    [keybindings, terminalShortcutLabelOptions],
+  );
   const onToggleDiff = useCallback(() => {
     if (!isServerThread) {
       return;
@@ -2987,6 +3005,10 @@ function ChatViewContent(props: ChatViewProps) {
       threadKey === routeThreadKey ? null : routeThreadKey,
     );
   }, [canMaximizeRightPanel, routeThreadKey]);
+  const toggleTerminalDrawerMaximized = useCallback(() => {
+    if (!activeTerminalScopeRef || !terminalUiState.terminalOpen) return;
+    storeToggleTerminalMaximized(activeTerminalScopeRef);
+  }, [activeTerminalScopeRef, storeToggleTerminalMaximized, terminalUiState.terminalOpen]);
   const cleanupRightPanelSurfaces = useCallback(
     (surfaces: readonly RightPanelSurface[]) => {
       if (!activeThreadRef) return;
@@ -3768,6 +3790,17 @@ function ChatViewContent(props: ChatViewProps) {
         return;
       }
 
+      if (command === "terminal.toggleMaximize") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (terminalFocusOwner === "right-panel") {
+          toggleRightPanelMaximized();
+          return;
+        }
+        toggleTerminalDrawerMaximized();
+        return;
+      }
+
       if (command === "terminal.split") {
         event.preventDefault();
         event.stopPropagation();
@@ -3863,6 +3896,8 @@ function ChatViewContent(props: ChatViewProps) {
     keybindings,
     onToggleDiff,
     toggleRightPanel,
+    toggleRightPanelMaximized,
+    toggleTerminalDrawerMaximized,
     toggleTerminalVisibility,
     composerRef,
   ]);
@@ -5344,6 +5379,7 @@ function ChatViewContent(props: ChatViewProps) {
             splitVerticalShortcutLabel={splitTerminalVerticalShortcutLabel ?? undefined}
             newShortcutLabel={newTerminalShortcutLabel ?? undefined}
             closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
+            toggleMaximizeShortcutLabel={toggleMaximizeTerminalShortcutLabel ?? undefined}
             keybindings={keybindings}
             onAddTerminalContext={addTerminalContextToDraft}
           />

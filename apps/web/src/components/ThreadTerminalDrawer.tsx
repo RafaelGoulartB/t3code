@@ -5,6 +5,8 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
+  Maximize2,
+  Minimize2,
   Plus,
   SquareSplitHorizontal,
   SquareSplitVertical,
@@ -50,6 +52,7 @@ import {
   isTerminalNewShortcut,
   isTerminalSplitShortcut,
   isTerminalSplitVerticalShortcut,
+  isTerminalToggleMaximizeShortcut,
   isTerminalToggleShortcut,
   terminalDeleteShortcutData,
   terminalNavigationShortcutData,
@@ -502,6 +505,7 @@ export function TerminalViewport({
       const options = { context: { terminalFocus: true, terminalOpen: true } };
       if (
         isTerminalToggleShortcut(event, currentKeybindings, options) ||
+        isTerminalToggleMaximizeShortcut(event, currentKeybindings, options) ||
         isTerminalSplitShortcut(event, currentKeybindings, options) ||
         isTerminalSplitVerticalShortcut(event, currentKeybindings, options) ||
         isTerminalNewShortcut(event, currentKeybindings, options) ||
@@ -813,6 +817,7 @@ interface ThreadTerminalDrawerProps {
   runtimeEnv?: Record<string, string>;
   visible?: boolean;
   height: number;
+  maximized?: boolean;
   terminalIds: string[];
   activeTerminalId: string;
   terminalGroups: ThreadTerminalGroup[];
@@ -825,6 +830,8 @@ interface ThreadTerminalDrawerProps {
   splitVerticalShortcutLabel?: string | undefined;
   newShortcutLabel?: string | undefined;
   closeShortcutLabel?: string | undefined;
+  toggleMaximizeShortcutLabel?: string | undefined;
+  onToggleMaximized?: (() => void) | undefined;
   onActiveTerminalChange: (terminalId: string) => void;
   onCloseTerminal: (terminalId: string) => void;
   onHeightChange: (height: number) => void;
@@ -875,6 +882,7 @@ export default function ThreadTerminalDrawer({
   runtimeEnv,
   visible = true,
   height,
+  maximized = false,
   terminalIds,
   activeTerminalId,
   terminalGroups,
@@ -887,6 +895,8 @@ export default function ThreadTerminalDrawer({
   splitVerticalShortcutLabel,
   newShortcutLabel,
   closeShortcutLabel,
+  toggleMaximizeShortcutLabel,
+  onToggleMaximized,
   onActiveTerminalChange,
   onCloseTerminal,
   onHeightChange,
@@ -1045,6 +1055,8 @@ export default function ThreadTerminalDrawer({
     resolvedTerminalGroups.length > 1 ||
     resolvedTerminalGroups.some((terminalGroup) => terminalGroup.terminalIds.length > 1);
   const hasReachedSplitLimit = visibleTerminalIds.length >= MAX_TERMINALS_PER_GROUP;
+  const effectiveDrawerHeight =
+    maximized && typeof window !== "undefined" ? window.innerHeight : drawerHeight;
   const terminalLabelById = useMemo(() => {
     const next = new Map<string, string>();
     for (const terminalId of normalizedTerminalIds) {
@@ -1080,6 +1092,13 @@ export default function ThreadTerminalDrawer({
   const closeTerminalActionLabel = closeShortcutLabel
     ? `Close Terminal (${closeShortcutLabel})`
     : "Close Terminal";
+  const toggleMaximizeTerminalActionLabel = maximized
+    ? toggleMaximizeShortcutLabel
+      ? `Restore Terminal (${toggleMaximizeShortcutLabel})`
+      : "Restore Terminal"
+    : toggleMaximizeShortcutLabel
+      ? `Maximize Terminal (${toggleMaximizeShortcutLabel})`
+      : "Maximize Terminal";
   const onSplitTerminalAction = useCallback(() => {
     if (hasReachedSplitLimit) return;
     onSplitTerminal();
@@ -1186,7 +1205,7 @@ export default function ThreadTerminalDrawer({
       return;
     }
     setResizeEpoch((value) => value + 1);
-  }, [visible]);
+  }, [maximized, visible]);
 
   useEffect(() => {
     return () => {
@@ -1200,11 +1219,15 @@ export default function ThreadTerminalDrawer({
         data-terminal-owner={isPanel ? "right-panel" : "drawer"}
         className={cn(
           "thread-terminal-drawer relative flex min-w-0 flex-col overflow-hidden bg-background",
-          isPanel ? "h-full flex-1" : "shrink-0 border-t border-border/80",
+          isPanel
+            ? "h-full flex-1"
+            : maximized
+              ? "fixed inset-0 z-50 border border-border/80"
+              : "shrink-0 border-t border-border/80",
         )}
-        style={isPanel ? undefined : { height: `${drawerHeight}px` }}
+        style={isPanel || maximized ? undefined : { height: `${drawerHeight}px` }}
       >
-        {!isPanel ? (
+        {!isPanel && !maximized ? (
           <div
             className="absolute inset-x-0 top-0 z-20 h-1.5 cursor-row-resize"
             onPointerDown={handleResizePointerDown}
@@ -1234,11 +1257,15 @@ export default function ThreadTerminalDrawer({
       data-terminal-owner={isPanel ? "right-panel" : "drawer"}
       className={cn(
         "thread-terminal-drawer relative flex min-w-0 flex-col overflow-hidden bg-background",
-        isPanel ? "h-full flex-1" : "shrink-0 border-t border-border/80",
+        isPanel
+          ? "h-full flex-1"
+          : maximized
+            ? "fixed inset-0 z-50 border border-border/80"
+            : "shrink-0 border-t border-border/80",
       )}
-      style={isPanel ? undefined : { height: `${drawerHeight}px` }}
+      style={isPanel || maximized ? undefined : { height: `${drawerHeight}px` }}
     >
-      {!isPanel ? (
+      {!isPanel && !maximized ? (
         <div
           className="absolute inset-x-0 top-0 z-20 h-1.5 cursor-row-resize"
           onPointerDown={handleResizePointerDown}
@@ -1290,6 +1317,22 @@ export default function ThreadTerminalDrawer({
             >
               <Trash2 className="size-3.25" />
             </TerminalActionButton>
+            {!isPanel && onToggleMaximized ? (
+              <>
+                <div className="h-4 w-px bg-border/80" />
+                <TerminalActionButton
+                  className="p-1 text-foreground/90 transition-colors hover:bg-accent"
+                  onClick={onToggleMaximized}
+                  label={toggleMaximizeTerminalActionLabel}
+                >
+                  {maximized ? (
+                    <Minimize2 className="size-3.25" />
+                  ) : (
+                    <Maximize2 className="size-3.25" />
+                  )}
+                </TerminalActionButton>
+              </>
+            ) : null}
           </div>
         </div>
       )}
@@ -1348,7 +1391,7 @@ export default function ThreadTerminalDrawer({
                           focusRequestId={focusRequestId}
                           autoFocus={terminalId === resolvedActiveTerminalId}
                           resizeEpoch={resizeEpoch}
-                          drawerHeight={drawerHeight}
+                          drawerHeight={effectiveDrawerHeight}
                           keybindings={keybindings}
                         />
                       </div>
@@ -1376,7 +1419,7 @@ export default function ThreadTerminalDrawer({
                   focusRequestId={focusRequestId}
                   autoFocus
                   resizeEpoch={resizeEpoch}
-                  drawerHeight={drawerHeight}
+                  drawerHeight={effectiveDrawerHeight}
                   keybindings={keybindings}
                 />
               </div>
@@ -1423,6 +1466,19 @@ export default function ThreadTerminalDrawer({
                   >
                     <Trash2 className="size-3.25" />
                   </TerminalActionButton>
+                  {!isPanel && onToggleMaximized ? (
+                    <TerminalActionButton
+                      className="inline-flex h-full items-center border-l border-border/70 px-1 text-foreground/90 transition-colors hover:bg-accent/70"
+                      onClick={onToggleMaximized}
+                      label={toggleMaximizeTerminalActionLabel}
+                    >
+                      {maximized ? (
+                        <Minimize2 className="size-3.25" />
+                      ) : (
+                        <Maximize2 className="size-3.25" />
+                      )}
+                    </TerminalActionButton>
+                  ) : null}
                 </div>
               </div>
 

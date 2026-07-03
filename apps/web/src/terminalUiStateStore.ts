@@ -19,6 +19,7 @@ import {
 
 interface ThreadTerminalUiState {
   terminalOpen: boolean;
+  terminalMaximized: boolean;
   terminalHeight: number;
   terminalIds: string[];
   activeTerminalId: string;
@@ -176,6 +177,7 @@ function threadTerminalUiStateEqual(
 ): boolean {
   return (
     left.terminalOpen === right.terminalOpen &&
+    left.terminalMaximized === right.terminalMaximized &&
     left.terminalHeight === right.terminalHeight &&
     left.activeTerminalId === right.activeTerminalId &&
     left.activeTerminalGroupId === right.activeTerminalGroupId &&
@@ -186,6 +188,7 @@ function threadTerminalUiStateEqual(
 
 const DEFAULT_THREAD_TERMINAL_UI_STATE: ThreadTerminalUiState = Object.freeze({
   terminalOpen: false,
+  terminalMaximized: false,
   terminalHeight: DEFAULT_THREAD_TERMINAL_HEIGHT,
   terminalIds: [],
   activeTerminalId: "",
@@ -221,6 +224,7 @@ function normalizeThreadTerminalUiState(state: ThreadTerminalUiState): ThreadTer
 
   const normalized: ThreadTerminalUiState = {
     terminalOpen: state.terminalOpen,
+    terminalMaximized: Boolean(state.terminalMaximized),
     terminalHeight:
       Number.isFinite(state.terminalHeight) && state.terminalHeight > 0
         ? state.terminalHeight
@@ -371,6 +375,15 @@ function setThreadTerminalOpen(state: ThreadTerminalUiState, open: boolean): Thr
   return { ...normalized, terminalOpen: open };
 }
 
+function setThreadTerminalMaximized(
+  state: ThreadTerminalUiState,
+  maximized: boolean,
+): ThreadTerminalUiState {
+  const normalized = normalizeThreadTerminalUiState(state);
+  if (normalized.terminalMaximized === maximized) return normalized;
+  return { ...normalized, terminalMaximized: maximized };
+}
+
 function setThreadTerminalHeight(
   state: ThreadTerminalUiState,
   height: number,
@@ -458,6 +471,7 @@ function closeThreadTerminal(
 
   return normalizeThreadTerminalUiState({
     terminalOpen: normalized.terminalOpen,
+    terminalMaximized: normalized.terminalMaximized,
     terminalHeight: normalized.terminalHeight,
     terminalIds: remainingTerminalIds,
     activeTerminalId: nextActiveTerminalId,
@@ -499,9 +513,8 @@ export function selectTerminalUiState(
   if (!scopeRef || scopeRef.projectId.length === 0) {
     return getDefaultThreadTerminalUiState();
   }
-  return (
-    terminalUiStateByProjectKey[terminalUiScopeKey(scopeRef)] ?? getDefaultThreadTerminalUiState()
-  );
+  const state = terminalUiStateByProjectKey[terminalUiScopeKey(scopeRef)];
+  return state ? normalizeThreadTerminalUiState(state) : getDefaultThreadTerminalUiState();
 }
 
 function updateTerminalUiStateByProjectKey(
@@ -580,6 +593,8 @@ interface TerminalUiStateStoreState {
   /** Closed ids hidden from stale server metadata until that id is explicitly opened again. */
   suppressedTerminalIdsByProjectKey: Record<string, string[]>;
   setTerminalOpen: (scopeRef: ScopedTerminalUiRef, open: boolean) => void;
+  setTerminalMaximized: (scopeRef: ScopedTerminalUiRef, maximized: boolean) => void;
+  toggleTerminalMaximized: (scopeRef: ScopedTerminalUiRef) => void;
   setTerminalHeight: (scopeRef: ScopedTerminalUiRef, height: number) => void;
   splitTerminal: (scopeRef: ScopedTerminalUiRef, terminalId: string) => void;
   splitTerminalVertical: (scopeRef: ScopedTerminalUiRef, terminalId: string) => void;
@@ -652,6 +667,13 @@ export const useTerminalUiStateStore = create<TerminalUiStateStoreState>()(
         },
         setTerminalHeight: (scopeRef, height) =>
           updateTerminal(scopeRef, (state) => setThreadTerminalHeight(state, height)),
+        setTerminalMaximized: (scopeRef, maximized) =>
+          updateTerminal(scopeRef, (state) => setThreadTerminalMaximized(state, maximized)),
+        toggleTerminalMaximized: (scopeRef) =>
+          updateTerminal(scopeRef, (state) => {
+            const normalized = normalizeThreadTerminalUiState(state);
+            return setThreadTerminalMaximized(normalized, !normalized.terminalMaximized);
+          }),
         splitTerminal: (scopeRef, terminalId) =>
           updateTerminal(scopeRef, (state) => splitThreadTerminal(state, terminalId), {
             terminalId,
