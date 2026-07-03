@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema";
 import { ProviderInstanceId } from "./providerInstance.ts";
 import {
   ClientSettingsSchema,
+  DEFAULT_TERMINAL_FONT_SIZE,
   DEFAULT_SERVER_SETTINGS,
   DEFAULT_SIDEBAR_PROJECT_FOLDER_COLOR,
   ServerSettings,
@@ -29,6 +30,21 @@ describe("ClientSettings word wrap", () => {
     expect(decoded.wordWrap).toBe(true);
     expect(decoded).not.toHaveProperty("chatWordWrap");
     expect(decoded).not.toHaveProperty("diffWordWrap");
+  });
+});
+
+describe("ClientSettings terminal font size", () => {
+  it("defaults to the standard terminal font size", () => {
+    expect(decodeClientSettings({}).terminalFontSize).toBe(DEFAULT_TERMINAL_FONT_SIZE);
+  });
+
+  it("accepts valid terminal font sizes", () => {
+    expect(decodeClientSettings({ terminalFontSize: 16 }).terminalFontSize).toBe(16);
+  });
+
+  it("rejects terminal font sizes outside the supported range", () => {
+    expect(() => decodeClientSettings({ terminalFontSize: 8 })).toThrow();
+    expect(() => decodeClientSettings({ terminalFontSize: 25 })).toThrow();
   });
 });
 

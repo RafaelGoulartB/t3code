@@ -31,6 +31,7 @@ const clientSettings: ClientSettings = {
   sidebarThreadSortOrder: "created_at",
   sidebarThreadPreviewCount: 6,
   timestampFormat: "24-hour",
+  terminalFontSize: 14,
   wordWrap: true,
 };
 

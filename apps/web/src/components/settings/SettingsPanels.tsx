@@ -31,7 +31,11 @@ import {
   settlePromise,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
+import {
+  DEFAULT_UNIFIED_SETTINGS,
+  MAX_TERMINAL_FONT_SIZE,
+  MIN_TERMINAL_FONT_SIZE,
+} from "@t3tools/contracts/settings";
 import { createModelSelection } from "@t3tools/shared/model";
 import * as Arr from "effect/Array";
 import * as Duration from "effect/Duration";
@@ -124,6 +128,15 @@ const THEME_OPTIONS = [
     label: "Dark",
   },
 ] as const;
+
+function normalizeTerminalFontSize(value: string): number | null {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const parsed = Number(trimmed);
+  if (!Number.isInteger(parsed)) return null;
+  if (parsed < MIN_TERMINAL_FONT_SIZE || parsed > MAX_TERMINAL_FONT_SIZE) return null;
+  return parsed;
+}
 
 const TIMESTAMP_FORMAT_LABELS = {
   locale: "System default",
@@ -435,6 +448,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
         ? ["Time format"]
         : []),
+      ...(settings.terminalFontSize !== DEFAULT_UNIFIED_SETTINGS.terminalFontSize
+        ? ["Terminal font size"]
+        : []),
       ...(settings.sidebarThreadPreviewCount !== DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount
         ? ["Visible threads"]
         : []),
@@ -485,6 +501,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.automaticGitFetchInterval,
       settings.enableAssistantStreaming,
       settings.sidebarThreadPreviewCount,
+      settings.terminalFontSize,
       settings.timestampFormat,
       settings.wordWrap,
       theme,
@@ -507,6 +524,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     }
     updateSettings({
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
+      terminalFontSize: DEFAULT_UNIFIED_SETTINGS.terminalFontSize,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
@@ -966,6 +984,41 @@ export function GeneralSettingsPanel() {
                 </SelectItem>
               </SelectPopup>
             </Select>
+          }
+        />
+
+        <SettingsRow
+          title="Terminal font size"
+          description={`Set terminal text size from ${MIN_TERMINAL_FONT_SIZE}px to ${MAX_TERMINAL_FONT_SIZE}px.`}
+          resetAction={
+            settings.terminalFontSize !== DEFAULT_UNIFIED_SETTINGS.terminalFontSize ? (
+              <SettingResetButton
+                label="terminal font size"
+                onClick={() =>
+                  updateSettings({
+                    terminalFontSize: DEFAULT_UNIFIED_SETTINGS.terminalFontSize,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <DraftInput
+              className="w-full sm:w-24"
+              nativeInput
+              type="number"
+              min={MIN_TERMINAL_FONT_SIZE}
+              max={MAX_TERMINAL_FONT_SIZE}
+              step={1}
+              inputMode="numeric"
+              value={String(settings.terminalFontSize)}
+              onCommit={(value) => {
+                const next = normalizeTerminalFontSize(value);
+                if (next === null || next === settings.terminalFontSize) return;
+                updateSettings({ terminalFontSize: next });
+              }}
+              aria-label="Terminal font size"
+            />
           }
         />
 

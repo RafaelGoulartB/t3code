@@ -491,15 +491,25 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
   const closeTerminalMutation = useAtomCommand(terminalEnvironment.close, "terminal close");
   const serverThread = useThread(threadRef);
   const draftThread = useComposerDraftStore((store) => store.getDraftThreadByRef(threadRef));
-  const projectRef = serverThread
-    ? scopeProjectRef(serverThread.environmentId, serverThread.projectId)
-    : draftThread
-      ? scopeProjectRef(draftThread.environmentId, draftThread.projectId)
-      : null;
+  const projectRef = useMemo(() => {
+    if (serverThread) {
+      return scopeProjectRef(serverThread.environmentId, serverThread.projectId);
+    }
+    if (draftThread) {
+      return scopeProjectRef(draftThread.environmentId, draftThread.projectId);
+    }
+    return null;
+  }, [
+    draftThread?.environmentId,
+    draftThread?.projectId,
+    serverThread?.environmentId,
+    serverThread?.projectId,
+  ]);
   const threadWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
-  const terminalScopeRef: ScopedTerminalUiRef | null = projectRef
-    ? { ...projectRef, worktreePath: threadWorktreePath }
-    : null;
+  const terminalScopeRef = useMemo<ScopedTerminalUiRef | null>(
+    () => (projectRef ? { ...projectRef, worktreePath: threadWorktreePath } : null),
+    [projectRef, threadWorktreePath],
+  );
   const project = useProject(projectRef);
   const terminalUiState = useTerminalUiStateStore((state) =>
     selectTerminalUiState(state.terminalUiStateByProjectKey, terminalScopeRef),
@@ -880,15 +890,25 @@ const PersistentThreadTerminalPanel = memo(function PersistentThreadTerminalPane
 }: PersistentThreadTerminalPanelProps) {
   const serverThread = useThread(threadRef);
   const draftThread = useComposerDraftStore((store) => store.getDraftThreadByRef(threadRef));
-  const projectRef = serverThread
-    ? scopeProjectRef(serverThread.environmentId, serverThread.projectId)
-    : draftThread
-      ? scopeProjectRef(draftThread.environmentId, draftThread.projectId)
-      : null;
+  const projectRef = useMemo(() => {
+    if (serverThread) {
+      return scopeProjectRef(serverThread.environmentId, serverThread.projectId);
+    }
+    if (draftThread) {
+      return scopeProjectRef(draftThread.environmentId, draftThread.projectId);
+    }
+    return null;
+  }, [
+    draftThread?.environmentId,
+    draftThread?.projectId,
+    serverThread?.environmentId,
+    serverThread?.projectId,
+  ]);
   const threadWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
-  const terminalScopeRef: ScopedTerminalUiRef | null = projectRef
-    ? { ...projectRef, worktreePath: threadWorktreePath }
-    : null;
+  const terminalScopeRef = useMemo<ScopedTerminalUiRef | null>(
+    () => (projectRef ? { ...projectRef, worktreePath: threadWorktreePath } : null),
+    [projectRef, threadWorktreePath],
+  );
   const project = useProject(projectRef);
   const knownTerminalSessions = useKnownTerminalSessions({
     environmentId: threadRef.environmentId,

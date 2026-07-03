@@ -46,6 +46,30 @@ describe("terminalUiStateStore actions", () => {
     });
   });
 
+  it("returns a stable normalized state for legacy persisted terminal UI entries", () => {
+    const terminalUiStateByProjectKey = {
+      [terminalUiScopeKey(TERMINAL_REF)]: {
+        terminalOpen: true,
+        terminalHeight: 280,
+        terminalIds: [DEFAULT_THREAD_TERMINAL_ID],
+        activeTerminalId: DEFAULT_THREAD_TERMINAL_ID,
+        terminalGroups: [
+          {
+            id: `group-${DEFAULT_THREAD_TERMINAL_ID}`,
+            terminalIds: [DEFAULT_THREAD_TERMINAL_ID],
+          },
+        ],
+        activeTerminalGroupId: `group-${DEFAULT_THREAD_TERMINAL_ID}`,
+      },
+    };
+
+    const first = selectTerminalUiState(terminalUiStateByProjectKey as never, TERMINAL_REF);
+    const second = selectTerminalUiState(terminalUiStateByProjectKey as never, TERMINAL_REF);
+
+    expect(first).toBe(second);
+    expect(first.terminalMaximized).toBe(false);
+  });
+
   it("opens and splits terminals into the active group", () => {
     const store = useTerminalUiStateStore.getState();
     store.setTerminalOpen(TERMINAL_REF, true);

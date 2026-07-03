@@ -20,6 +20,7 @@ import {
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
+import { DEFAULT_TERMINAL_FONT_SIZE } from "@t3tools/contracts/settings";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import {
@@ -67,6 +68,7 @@ import { useAttachedTerminalSession } from "../state/terminalSessions";
 import { serverEnvironment } from "../state/server";
 import { previewEnvironment } from "../state/preview";
 import { terminalEnvironment } from "../state/terminal";
+import { useClientSettings } from "../hooks/useSettings";
 import { openTerminalLinkInPreview } from "./preview/openTerminalLinkInPreview";
 import { useAtomCommand } from "../state/use-atom-command";
 
@@ -314,6 +316,8 @@ export function TerminalViewport({
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const terminalFontSize = useClientSettings((settings) => settings.terminalFontSize);
+  const terminalFontSizeRef = useRef(terminalFontSize);
   const environmentId = threadRef.environmentId;
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const openInPreferredEditor = useOpenInPreferredEditor(
@@ -383,6 +387,10 @@ export function TerminalViewport({
   }, [keybindings]);
 
   useEffect(() => {
+    terminalFontSizeRef.current = terminalFontSize;
+  }, [terminalFontSize]);
+
+  useEffect(() => {
     const mount = containerRef.current;
     if (!mount) return;
 
@@ -392,7 +400,7 @@ export function TerminalViewport({
     const terminal = new Terminal({
       cursorBlink: true,
       lineHeight: 1,
-      fontSize: 12,
+      fontSize: terminalFontSizeRef.current ?? DEFAULT_TERMINAL_FONT_SIZE,
       scrollback: 5_000,
       fontFamily:
         '"SF Mono", "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", Menlo, monospace',
@@ -782,6 +790,25 @@ export function TerminalViewport({
       window.cancelAnimationFrame(frame);
     };
   }, [autoFocus, focusRequestId]);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    const fitAddon = fitAddonRef.current;
+    if (!terminal || !fitAddon || terminal.options.fontSize === terminalFontSize) return;
+
+    terminal.options.fontSize = terminalFontSize;
+    const wasAtBottom = terminal.buffer.active.viewportY >= terminal.buffer.active.baseY;
+    const frame = window.requestAnimationFrame(() => {
+      fitTerminalSafely(fitAddon);
+      if (wasAtBottom) {
+        terminal.scrollToBottom();
+      }
+      void resizeTerminal(terminal.cols, terminal.rows);
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [resizeTerminal, terminalFontSize]);
 
   useEffect(() => {
     const terminal = terminalRef.current;

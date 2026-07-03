@@ -195,6 +195,7 @@ const DEFAULT_THREAD_TERMINAL_UI_STATE: ThreadTerminalUiState = Object.freeze({
   terminalGroups: [],
   activeTerminalGroupId: "",
 });
+const normalizedTerminalUiStateCache = new WeakMap<ThreadTerminalUiState, ThreadTerminalUiState>();
 
 function createDefaultThreadTerminalUiState(): ThreadTerminalUiState {
   return {
@@ -209,6 +210,11 @@ function getDefaultThreadTerminalUiState(): ThreadTerminalUiState {
 }
 
 function normalizeThreadTerminalUiState(state: ThreadTerminalUiState): ThreadTerminalUiState {
+  const cached = normalizedTerminalUiStateCache.get(state);
+  if (cached) {
+    return cached;
+  }
+
   const nextTerminalIds = normalizeTerminalIds(state.terminalIds);
   const activeTerminalId = nextTerminalIds.includes(state.activeTerminalId)
     ? state.activeTerminalId
@@ -235,7 +241,9 @@ function normalizeThreadTerminalUiState(state: ThreadTerminalUiState): ThreadTer
     activeTerminalGroupId:
       activeGroupIdFromState ?? activeGroupIdFromTerminal ?? terminalGroups[0]?.id ?? "",
   };
-  return threadTerminalUiStateEqual(state, normalized) ? state : normalized;
+  const next = threadTerminalUiStateEqual(state, normalized) ? state : normalized;
+  normalizedTerminalUiStateCache.set(state, next);
+  return next;
 }
 
 function isDefaultThreadTerminalUiState(state: ThreadTerminalUiState): boolean {
