@@ -49,7 +49,9 @@ import {
   type GitQuickAction,
   type DefaultBranchConfirmableAction,
   requiresDefaultBranchConfirmation,
+  pruneExcludedGitFilePaths,
   resolveDefaultBranchActionDialogCopy,
+  resolveGitFileSelection,
   resolveLiveThreadBranchUpdate,
   resolveQuickAction,
   resolveThreadBranchUpdate,
@@ -114,7 +116,7 @@ interface PendingDefaultBranchAction {
   includesCommit: boolean;
   commitMessage?: string;
   onConfirmed?: () => void;
-  filePaths?: string[];
+  filePaths?: ReadonlyArray<string>;
 }
 
 type PublishProviderKind = Extract<
@@ -144,7 +146,7 @@ interface RunGitActionWithToastInput {
   statusOverride?: VcsStatusResult | null;
   featureBranch?: boolean;
   progressToastId?: GitActionToastId;
-  filePaths?: string[];
+  filePaths?: ReadonlyArray<string>;
 }
 
 const GIT_STATUS_WINDOW_REFRESH_DEBOUNCE_MS = 250;
@@ -1044,6 +1046,7 @@ export default function GitActionsControl({
   const [isEditingFiles, setIsEditingFiles] = useState(false);
   const [selectionTouched, setSelectionTouched] = useState(false);
   const [stashMessage, setStashMessage] = useState("");
+  const [isGitMenuOpen, setIsGitMenuOpen] = useState(false);
   const [isBranchDialogOpen, setIsBranchDialogOpen] = useState(false);
   const [newBranchName, setNewBranchName] = useState("");
   const [newWorktreeBase, setNewWorktreeBase] = useState("");
@@ -1151,11 +1154,24 @@ export default function GitActionsControl({
   const gitStatusForActions = gitStatus;
 
   const allFiles = gitStatusForActions?.workingTree.files ?? [];
-  const selectedFiles = allFiles.filter((f) => !excludedFiles.has(f.path));
-  const selectedFilePaths = selectionTouched ? selectedFiles.map((f) => f.path) : undefined;
-  const allSelected = !selectionTouched || excludedFiles.size === 0;
-  const noneSelected = selectedFiles.length === 0;
-  const explicitSelectionEmpty = selectionTouched && noneSelected;
+  const allFilePaths = useMemo(() => allFiles.map((file) => file.path), [allFiles]);
+  const fileSelection = useMemo(
+    () =>
+      resolveGitFileSelection({
+        allPaths: allFilePaths,
+        excludedPaths: excludedFiles,
+        selectionTouched,
+      }),
+    [allFilePaths, excludedFiles, selectionTouched],
+  );
+  const selectedFilePaths = fileSelection.selectedFilePathsForCommit;
+  const selectedFiles = useMemo(() => {
+    const selectedPaths = new Set(fileSelection.selectedPaths);
+    return allFiles.filter((file) => selectedPaths.has(file.path));
+  }, [allFiles, fileSelection.selectedPaths]);
+  const allSelected = fileSelection.allSelected;
+  const noneSelected = fileSelection.noneSelected;
+  const explicitSelectionEmpty = fileSelection.explicitSelectionEmpty;
 
   const branchRefsQuery = useEnvironmentQuery(
     activeEnvironmentId !== null && gitCwd !== null && isBranchDialogOpen
@@ -1166,7 +1182,7 @@ export default function GitActionsControl({
       : null,
   );
   const stashListQuery = useEnvironmentQuery(
-    activeEnvironmentId !== null && gitCwd !== null
+    activeEnvironmentId !== null && gitCwd !== null && (isGitMenuOpen || isBranchDialogOpen)
       ? vcsEnvironment.stashList({
           environmentId: activeEnvironmentId,
           input: { cwd: gitCwd },
@@ -1202,6 +1218,12 @@ export default function GitActionsControl({
     !activeServerThread &&
     activeDraftThread?.envMode === "worktree" &&
     activeDraftThread.worktreePath === null;
+
+  useEffect(() => {
+    setExcludedFiles((current) =>
+      pruneExcludedGitFilePaths({ excludedPaths: current, allPaths: allFilePaths }),
+    );
+  }, [allFilePaths]);
 
   useEffect(() => {
     if (isGitActionRunning || isSelectingWorktreeBase) {
@@ -1496,7 +1518,7 @@ export default function GitActionsControl({
         action,
         ...(commitMessage ? { commitMessage } : {}),
         ...(featureBranch ? { featureBranch } : {}),
-        ...(filePaths ? { filePaths } : {}),
+        ...(filePaths ? { filePaths: [...filePaths] } : {}),
         onProgress: applyProgressEvent,
       });
 
@@ -1799,7 +1821,7 @@ export default function GitActionsControl({
     [gitCwd, openInPreferredEditor, threadToastData],
   );
 
-  const selectedOrAllFilePaths = selectedFilePaths ?? allFiles.map((file) => file.path);
+  const selectedOrAllFilePaths = fileSelection.selectedOrAllPaths;
 
   const runDiscardSelectedChanges = () => {
     if (selectedOrAllFilePaths.length === 0) return;
@@ -1811,7 +1833,7 @@ export default function GitActionsControl({
       return;
     }
     void (async () => {
-      const result = await discardChangesAction.run({ filePaths: selectedOrAllFilePaths });
+      const result = await discardChangesAction.run({ filePaths: [...selectedOrAllFilePaths] });
       if (result._tag === "Failure") {
         if (isAtomCommandInterrupted(result)) return;
         const error = squashAtomCommandFailure(result);
@@ -1841,7 +1863,7 @@ export default function GitActionsControl({
     void (async () => {
       const result = await stashPushAction.run({
         ...(message ? { message } : {}),
-        ...(selectedFilePaths ? { filePaths: selectedFilePaths } : {}),
+        ...(selectedFilePaths ? { filePaths: [...selectedFilePaths] } : {}),
       });
       if (result._tag === "Failure") {
         if (isAtomCommandInterrupted(result)) return;
@@ -1934,7 +1956,6 @@ export default function GitActionsControl({
           cwd: gitCwd,
           branch,
           ...(worktreePath ? { worktreePath } : {}),
-          force: true,
         },
       });
       if (reportCommandFailure("Delete branch failed", result)) return;
@@ -2067,6 +2088,7 @@ export default function GitActionsControl({
           <GroupSeparator className="hidden @3xl/header-actions:block" />
           <Menu
             onOpenChange={(open) => {
+              setIsGitMenuOpen(open);
               if (open) {
                 requestVcsStatusRefresh(refreshVcsStatus, activeEnvironmentId, gitCwd);
               }

@@ -3,9 +3,11 @@ import { assert, describe, it } from "vite-plus/test";
 import {
   buildGitActionProgressStages,
   buildMenuItems,
+  pruneExcludedGitFilePaths,
   requiresDefaultBranchConfirmation,
   resolveAutoFeatureBranchName,
   resolveDefaultBranchActionDialogCopy,
+  resolveGitFileSelection,
   resolveLiveThreadBranchUpdate,
   resolveQuickAction,
   resolveThreadBranchUpdate,
@@ -961,5 +963,57 @@ describe("resolveAutoFeatureBranchName", () => {
   it("falls back to feature/update when no preferred name is provided", () => {
     const ref = resolveAutoFeatureBranchName(["main"]);
     assert.equal(ref, "feature/update");
+  });
+});
+
+describe("git file selection", () => {
+  it("keeps commit payload undefined until the user explicitly edits selection", () => {
+    const selection = resolveGitFileSelection({
+      allPaths: ["a.ts", "b.ts"],
+      excludedPaths: new Set(),
+      selectionTouched: false,
+    });
+
+    assert.deepEqual(selection.selectedPaths, ["a.ts", "b.ts"]);
+    assert.equal(selection.selectedFilePathsForCommit, undefined);
+    assert.deepEqual(selection.selectedOrAllPaths, ["a.ts", "b.ts"]);
+    assert.isTrue(selection.allSelected);
+    assert.isFalse(selection.explicitSelectionEmpty);
+  });
+
+  it("returns only explicitly selected paths after selection changes", () => {
+    const selection = resolveGitFileSelection({
+      allPaths: ["a.ts", "b.ts", "c.ts"],
+      excludedPaths: new Set(["b.ts"]),
+      selectionTouched: true,
+    });
+
+    assert.deepEqual(selection.selectedPaths, ["a.ts", "c.ts"]);
+    assert.deepEqual(selection.selectedFilePathsForCommit, ["a.ts", "c.ts"]);
+    assert.deepEqual(selection.selectedOrAllPaths, ["a.ts", "c.ts"]);
+    assert.isFalse(selection.allSelected);
+    assert.isFalse(selection.explicitSelectionEmpty);
+  });
+
+  it("marks explicit empty selections as blocked", () => {
+    const selection = resolveGitFileSelection({
+      allPaths: ["a.ts"],
+      excludedPaths: new Set(["a.ts"]),
+      selectionTouched: true,
+    });
+
+    assert.deepEqual(selection.selectedFilePathsForCommit, []);
+    assert.isTrue(selection.noneSelected);
+    assert.isTrue(selection.explicitSelectionEmpty);
+  });
+
+  it("prunes excluded paths that no longer exist in git status", () => {
+    const current = new Set(["gone.ts", "kept.ts"]);
+    const next = pruneExcludedGitFilePaths({
+      excludedPaths: current,
+      allPaths: ["kept.ts", "new.ts"],
+    });
+
+    assert.deepEqual([...next], ["kept.ts"]);
   });
 });

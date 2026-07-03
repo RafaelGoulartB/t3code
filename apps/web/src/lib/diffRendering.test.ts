@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
-import { buildPatchCacheKey, getRenderablePatch } from "./diffRendering";
+import {
+  buildPatchCacheKey,
+  getRenderablePatch,
+  resolveFileDiffDiscardPaths,
+} from "./diffRendering";
 
 describe("buildPatchCacheKey", () => {
   it("returns a stable cache key for identical content", () => {
@@ -80,5 +84,44 @@ describe("getRenderablePatch", () => {
     expect(parsed?.kind).toBe("files");
     if (parsed?.kind !== "files") return;
     expect(parsed.files[0]?.hunks[0]?.unifiedLineStart).toBe(47);
+  });
+});
+
+describe("resolveFileDiffDiscardPaths", () => {
+  it("returns the changed file path for a normal working tree diff", () => {
+    const parsed = getRenderablePatch(
+      [
+        "diff --git a/src/app.ts b/src/app.ts",
+        "--- a/src/app.ts",
+        "+++ b/src/app.ts",
+        "@@ -1 +1 @@",
+        "-before",
+        "+after",
+      ].join("\n"),
+    );
+    expect(parsed?.kind).toBe("files");
+    if (parsed?.kind !== "files") return;
+
+    expect(resolveFileDiffDiscardPaths(parsed.files[0]!)).toEqual(["src/app.ts"]);
+  });
+
+  it("returns old and new paths for a rename diff", () => {
+    const parsed = getRenderablePatch(
+      [
+        "diff --git a/src/old.ts b/src/new.ts",
+        "similarity index 88%",
+        "rename from src/old.ts",
+        "rename to src/new.ts",
+        "--- a/src/old.ts",
+        "+++ b/src/new.ts",
+        "@@ -1 +1 @@",
+        "-before",
+        "+after",
+      ].join("\n"),
+    );
+    expect(parsed?.kind).toBe("files");
+    if (parsed?.kind !== "files") return;
+
+    expect(resolveFileDiffDiscardPaths(parsed.files[0]!)).toEqual(["src/new.ts", "src/old.ts"]);
   });
 });

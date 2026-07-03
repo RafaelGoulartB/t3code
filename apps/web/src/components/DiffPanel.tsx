@@ -17,6 +17,7 @@ import {
   Rows3Icon,
   SearchIcon,
   TextWrapIcon,
+  Trash2Icon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOpenInPreferredEditor } from "../editorPreferences";
@@ -30,6 +31,7 @@ import {
   buildFileDiffRenderKey,
   getDiffCollapseIconClassName,
   getRenderablePatch,
+  resolveFileDiffDiscardPaths,
   resolveDiffThemeName,
   resolveFileDiffPath,
 } from "../lib/diffRendering";
@@ -62,11 +64,22 @@ import {
   DropdownMenuTrigger,
 } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "./ui/dialog";
 import { useEnvironmentQuery } from "../state/query";
 import { serverEnvironment } from "../state/server";
 import { reviewEnvironment } from "../state/review";
 import { vcsEnvironment } from "../state/vcs";
 import { buildBaseRefChoices, filterBaseRefChoices } from "../lib/baseRefChoices";
+import { useVcsDiscardChangesAction } from "~/lib/sourceControlActions";
+import { stackedThreadToast, toastManager } from "./ui/toast";
 
 type DiffRenderMode = "stacked" | "split";
 type DiffThemeType = "light" | "dark";
@@ -191,6 +204,10 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
   const [wordWrap, setWordWrap] = useState(settings.wordWrap);
   const [diffIgnoreWhitespace, setDiffIgnoreWhitespace] = useState(settings.diffIgnoreWhitespace);
   const [baseRefQuery, setBaseRefQuery] = useState("");
+  const [pendingDiscardFile, setPendingDiscardFile] = useState<{
+    readonly filePath: string;
+    readonly filePaths: ReadonlyArray<string>;
+  } | null>(null);
   const [collapsedDiffFiles, setCollapsedDiffFiles] = useState<CollapsedDiffFilesState>(() => ({
     scopeKey: null,
     fileKeys: EMPTY_COLLAPSED_DIFF_FILE_KEYS,
@@ -216,6 +233,14 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
       : null,
   );
   const activeCwd = activeThread?.worktreePath ?? activeProject?.workspaceRoot;
+  const sourceControlScope = useMemo(
+    () => ({
+      environmentId: activeThread?.environmentId ?? null,
+      cwd: activeCwd ?? null,
+    }),
+    [activeCwd, activeThread?.environmentId],
+  );
+  const discardChangesAction = useVcsDiscardChangesAction(sourceControlScope);
   const serverConfig = useAtomValue(
     serverEnvironment.configValueAtom(activeThread?.environmentId ?? null),
   );
@@ -314,7 +339,7 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
     },
     { enabled: isGitRepo && selectedTurn !== undefined },
   );
-  const primaryBranchDiffPreview = useEnvironmentQuery(
+  const branchDiffPreview = useEnvironmentQuery(
     selectedTurnId === null && activeThread && activeCwd
       ? reviewEnvironment.diffPreview({
           environmentId: activeThread.environmentId,
@@ -326,29 +351,11 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
         })
       : null,
   );
-  const shouldRetryBranchDiffAtEnvironmentCwd =
-    selectedTurnId === null &&
-    primaryBranchDiffPreview.error?.includes("configured workspace root") === true &&
-    serverConfig?.cwd !== undefined &&
-    serverConfig.cwd !== activeCwd;
-  const fallbackBranchDiffPreview = useEnvironmentQuery(
-    shouldRetryBranchDiffAtEnvironmentCwd && activeThread && serverConfig
-      ? reviewEnvironment.diffPreview({
-          environmentId: activeThread.environmentId,
-          input: {
-            cwd: serverConfig.cwd,
-            ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
-            ignoreWhitespace: diffIgnoreWhitespace,
-          },
-        })
-      : null,
-  );
-  const branchDiffPreview = shouldRetryBranchDiffAtEnvironmentCwd
-    ? fallbackBranchDiffPreview
-    : primaryBranchDiffPreview;
   const selectedGitSource = branchDiffPreview.data?.sources.find(
     (source) => source.kind === (selectedGitScope === "unstaged" ? "working-tree" : "branch-range"),
   );
+  const canDiscardWorkingTreeFile =
+    selectedTurnId === null && selectedGitSource?.kind === "working-tree";
   const localBranchRefs = useEnvironmentQuery(
     selectedTurnId === null &&
       selectedGitScope === "branch" &&
@@ -495,6 +502,35 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
       branchDiffPreview.refresh();
     }
   }, [activeCheckpointDiff, branchDiffPreview, gitStatusQuery, selectedTurn]);
+
+  const confirmDiscardFile = useCallback(() => {
+    const target = pendingDiscardFile;
+    if (!target) return;
+    void (async () => {
+      const result = await discardChangesAction.run({ filePaths: [...target.filePaths] });
+      if (result._tag === "Failure") {
+        if (!isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Discard failed",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        }
+        return;
+      }
+
+      setPendingDiscardFile(null);
+      refreshSelectedDiff();
+      toastManager.add({
+        type: "success",
+        title: "Changes discarded",
+        description: target.filePath,
+      });
+    })();
+  }, [discardChangesAction, pendingDiscardFile, refreshSelectedDiff]);
 
   const selectTurn = (turnId: TurnId) => {
     if (!routeThreadRef) return;
@@ -835,35 +871,60 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
                   composerDraftTarget={composerDraftTarget}
                   renderHeaderPrefix={(fileDiff, fileKey, collapsed) => {
                     const filePath = resolveFileDiffPath(fileDiff);
+                    const discardPaths = resolveFileDiffDiscardPaths(fileDiff);
                     return (
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <button
-                              type="button"
-                              className={cn(
-                                "inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0 transition-colors hover:bg-foreground/10 focus-visible:outline-hidden",
-                                getDiffCollapseIconClassName(fileDiff),
-                              )}
-                              aria-label={collapsed ? `Expand ${filePath}` : `Collapse ${filePath}`}
-                              aria-expanded={!collapsed}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                toggleDiffFileCollapsed(fileKey);
-                              }}
-                            />
-                          }
-                        >
-                          {collapsed ? (
-                            <ChevronRightIcon className="size-4" />
-                          ) : (
-                            <ChevronDownIcon className="size-4" />
-                          )}
-                        </TooltipTrigger>
-                        <TooltipPopup side="top">
-                          {collapsed ? "Expand diff" : "Collapse diff"}
-                        </TooltipPopup>
-                      </Tooltip>
+                      <>
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <button
+                                type="button"
+                                className={cn(
+                                  "inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0 transition-colors hover:bg-foreground/10 focus-visible:outline-hidden",
+                                  getDiffCollapseIconClassName(fileDiff),
+                                )}
+                                aria-label={
+                                  collapsed ? `Expand ${filePath}` : `Collapse ${filePath}`
+                                }
+                                aria-expanded={!collapsed}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  toggleDiffFileCollapsed(fileKey);
+                                }}
+                              />
+                            }
+                          >
+                            {collapsed ? (
+                              <ChevronRightIcon className="size-4" />
+                            ) : (
+                              <ChevronDownIcon className="size-4" />
+                            )}
+                          </TooltipTrigger>
+                          <TooltipPopup side="top">
+                            {collapsed ? "Expand diff" : "Collapse diff"}
+                          </TooltipPopup>
+                        </Tooltip>
+                        {canDiscardWorkingTreeFile && discardPaths.length > 0 ? (
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <button
+                                  type="button"
+                                  className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                                  aria-label={`Discard changes in ${filePath}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setPendingDiscardFile({ filePath, filePaths: discardPaths });
+                                  }}
+                                />
+                              }
+                            >
+                              <Trash2Icon className="size-3.5" />
+                            </TooltipTrigger>
+                            <TooltipPopup side="top">Discard file changes</TooltipPopup>
+                          </Tooltip>
+                        ) : null}
+                      </>
                     );
                   }}
                   options={{
@@ -898,6 +959,46 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
           </div>
         </>
       )}
+      <Dialog
+        open={pendingDiscardFile !== null}
+        onOpenChange={(open) => {
+          if (discardChangesAction.isPending) return;
+          if (!open) setPendingDiscardFile(null);
+        }}
+      >
+        <DialogPopup className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Discard changes?</DialogTitle>
+            <DialogDescription>
+              This will run Git discard for this file and cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="space-y-3">
+            <div className="rounded-md border border-input bg-muted/40 px-3 py-2 font-mono text-xs">
+              {pendingDiscardFile?.filePath}
+            </div>
+          </DialogPanel>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={discardChangesAction.isPending}
+              onClick={() => setPendingDiscardFile(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={discardChangesAction.isPending}
+              onClick={confirmDiscardFile}
+            >
+              <Trash2Icon className="size-3.5" aria-hidden />
+              {discardChangesAction.isPending ? "Discarding..." : "Discard"}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
     </DiffPanelShell>
   );
 }

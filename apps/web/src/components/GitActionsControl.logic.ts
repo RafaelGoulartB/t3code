@@ -37,6 +37,15 @@ export interface DefaultBranchActionDialogCopy {
   continueLabel: string;
 }
 
+export interface GitFileSelectionState {
+  readonly selectedPaths: ReadonlyArray<string>;
+  readonly selectedFilePathsForCommit: ReadonlyArray<string> | undefined;
+  readonly selectedOrAllPaths: ReadonlyArray<string>;
+  readonly allSelected: boolean;
+  readonly noneSelected: boolean;
+  readonly explicitSelectionEmpty: boolean;
+}
+
 export type DefaultBranchConfirmableAction =
   | "push"
   | "create_pr"
@@ -353,6 +362,38 @@ export function shouldOpenCommitSelectionForQuickAction(input: {
     input.quickAction.action === "commit_push" ||
     input.quickAction.action === "commit_push_pr"
   );
+}
+
+export function resolveGitFileSelection(input: {
+  allPaths: ReadonlyArray<string>;
+  excludedPaths: ReadonlySet<string>;
+  selectionTouched: boolean;
+}): GitFileSelectionState {
+  const selectedPaths = input.allPaths.filter((path) => !input.excludedPaths.has(path));
+  const selectedFilePathsForCommit = input.selectionTouched ? selectedPaths : undefined;
+  return {
+    selectedPaths,
+    selectedFilePathsForCommit,
+    selectedOrAllPaths: selectedFilePathsForCommit ?? input.allPaths,
+    allSelected: !input.selectionTouched || selectedPaths.length === input.allPaths.length,
+    noneSelected: selectedPaths.length === 0,
+    explicitSelectionEmpty: input.selectionTouched && selectedPaths.length === 0,
+  };
+}
+
+export function pruneExcludedGitFilePaths(input: {
+  excludedPaths: ReadonlySet<string>;
+  allPaths: ReadonlyArray<string>;
+}): ReadonlySet<string> {
+  if (input.excludedPaths.size === 0) return input.excludedPaths;
+  const allPathsSet = new Set(input.allPaths);
+  const next = new Set<string>();
+  for (const path of input.excludedPaths) {
+    if (allPathsSet.has(path)) {
+      next.add(path);
+    }
+  }
+  return next.size === input.excludedPaths.size ? input.excludedPaths : next;
 }
 
 export function resolveDefaultBranchActionDialogCopy(input: {

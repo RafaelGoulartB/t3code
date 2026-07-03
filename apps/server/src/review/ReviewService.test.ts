@@ -4,8 +4,11 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as PlatformError from "effect/PlatformError";
+import { ProjectId } from "@t3tools/contracts";
 
 import { ServerConfig } from "../config.ts";
+import { createEmptyReadModel } from "../orchestration/projector.ts";
+import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as ReviewService from "./ReviewService.ts";
@@ -13,8 +16,10 @@ import * as ReviewService from "./ReviewService.ts";
 function makeLayer(input: {
   readonly workspaceRoot: string;
   readonly baseDir: string;
+  readonly registeredProjectRoots?: ReadonlyArray<string>;
   readonly detectCalls?: Array<{ readonly cwd: string }>;
 }) {
+  const now = "2026-01-01T00:00:00.000Z";
   return ReviewService.layer.pipe(
     Layer.provide(
       Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
@@ -24,6 +29,25 @@ function makeLayer(input: {
           Effect.sync(() => {
             input.detectCalls?.push({ cwd: request.cwd });
             return null;
+          }),
+      }),
+    ),
+    Layer.provide(
+      Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
+        getCommandReadModel: () =>
+          Effect.succeed({
+            ...createEmptyReadModel(now),
+            projects:
+              input.registeredProjectRoots?.map((projectRoot, index) => ({
+                id: ProjectId.make(`project-${index}`),
+                title: `Project ${index}`,
+                workspaceRoot: projectRoot,
+                defaultModelSelection: null,
+                scripts: [],
+                createdAt: now,
+                updatedAt: now,
+                deletedAt: null,
+              })) ?? [],
           }),
       }),
     ),
@@ -72,6 +96,36 @@ describe("ReviewService", () => {
       assert.strictEqual(result.cwd, workspaceRoot);
       assert.deepStrictEqual(result.sources, []);
       assert.deepStrictEqual(detectCalls, [{ cwd: workspaceRoot }]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("allows diff preview cwd inside a registered project root", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
+      const projectRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-project-" });
+      const nestedProjectCwd = `${projectRoot}/packages/app`;
+      yield* fs.makeDirectory(nestedProjectCwd, { recursive: true });
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
+      const detectCalls: Array<{ readonly cwd: string }> = [];
+
+      const result = yield* Effect.gen(function* () {
+        const review = yield* ReviewService.ReviewService;
+        return yield* review.getDiffPreview({ cwd: nestedProjectCwd });
+      }).pipe(
+        Effect.provide(
+          makeLayer({
+            workspaceRoot,
+            baseDir,
+            registeredProjectRoots: [projectRoot],
+            detectCalls,
+          }),
+        ),
+      );
+
+      assert.strictEqual(result.cwd, nestedProjectCwd);
+      assert.deepStrictEqual(result.sources, []);
+      assert.deepStrictEqual(detectCalls, [{ cwd: nestedProjectCwd }]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 

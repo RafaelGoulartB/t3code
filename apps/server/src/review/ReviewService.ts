@@ -14,6 +14,7 @@ import {
 } from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
+import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 
@@ -32,6 +33,7 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const vcsRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const git = yield* GitVcsDriver.GitVcsDriver;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
 
   const canonicalizePath = (value: string) => {
     const resolvedPath = path.resolve(value);
@@ -60,20 +62,38 @@ export const make = Effect.gen(function* () {
   const assertWorkspaceBoundCwd = Effect.fn("ReviewService.assertWorkspaceBoundCwd")(function* (
     cwd: string,
   ) {
-    const [candidate, workspaceRoot, worktreesRoot] = yield* Effect.all([
+    const readModel = yield* projectionSnapshotQuery.getCommandReadModel().pipe(
+      Effect.mapError(
+        (cause) =>
+          new VcsRepositoryDetectionError({
+            operation: "ReviewService.assertWorkspaceBoundCwd.readProjects",
+            cwd,
+            detail:
+              "Failed to read registered project roots while validating the review workspace.",
+            cause,
+          }),
+      ),
+    );
+    const registeredProjectRoots = readModel.projects
+      .filter((project) => project.deletedAt === null)
+      .map((project) => project.workspaceRoot);
+
+    const [candidate, ...allowedRoots] = yield* Effect.all([
       canonicalizePath(cwd),
       canonicalizePath(config.cwd),
       canonicalizePath(config.worktreesDir),
+      ...registeredProjectRoots.map((projectRoot) => canonicalizePath(projectRoot)),
     ]);
 
-    if (isWithinRoot(candidate, workspaceRoot) || isWithinRoot(candidate, worktreesRoot)) {
+    if (allowedRoots.some((root) => isWithinRoot(candidate, root))) {
       return;
     }
 
     return yield* new VcsRepositoryDetectionError({
       operation: "ReviewService.getDiffPreview",
       cwd,
-      detail: "Review diff preview cwd must stay within the configured workspace root.",
+      detail:
+        "Review diff preview cwd must stay within the configured workspace root or a registered project root.",
     });
   });
 
