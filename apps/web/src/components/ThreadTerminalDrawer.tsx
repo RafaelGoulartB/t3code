@@ -1055,8 +1055,7 @@ export default function ThreadTerminalDrawer({
     resolvedTerminalGroups.length > 1 ||
     resolvedTerminalGroups.some((terminalGroup) => terminalGroup.terminalIds.length > 1);
   const hasReachedSplitLimit = visibleTerminalIds.length >= MAX_TERMINALS_PER_GROUP;
-  const effectiveDrawerHeight =
-    maximized && typeof window !== "undefined" ? window.innerHeight : drawerHeight;
+  const effectiveDrawerHeight = drawerHeight;
   const terminalLabelById = useMemo(() => {
     const next = new Map<string, string>();
     for (const terminalId of normalizedTerminalIds) {
@@ -1222,7 +1221,7 @@ export default function ThreadTerminalDrawer({
           isPanel
             ? "h-full flex-1"
             : maximized
-              ? "fixed inset-0 z-50 border border-border/80"
+              ? "min-h-0 flex-1 border-t border-border/80"
               : "shrink-0 border-t border-border/80",
         )}
         style={isPanel || maximized ? undefined : { height: `${drawerHeight}px` }}
@@ -1260,7 +1259,7 @@ export default function ThreadTerminalDrawer({
         isPanel
           ? "h-full flex-1"
           : maximized
-            ? "fixed inset-0 z-50 border border-border/80"
+            ? "min-h-0 flex-1 border-t border-border/80"
             : "shrink-0 border-t border-border/80",
       )}
       style={isPanel || maximized ? undefined : { height: `${drawerHeight}px` }}

@@ -800,7 +800,12 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
   }
 
   return (
-    <div className={visible ? undefined : "hidden"}>
+    <div
+      className={cn(
+        !visible && "hidden",
+        visible && terminalUiState.terminalMaximized && "flex min-h-0 flex-1",
+      )}
+    >
       <ThreadTerminalDrawer
         threadRef={threadRef}
         projectId={terminalScopeRef.projectId}
@@ -1233,6 +1238,9 @@ function ChatViewContent(props: ChatViewProps) {
   const activeRouteTerminalScopeKey = routeThreadTerminalScopeRef
     ? terminalUiScopeKey(routeThreadTerminalScopeRef)
     : null;
+  const terminalDrawerMaximized = Boolean(
+    terminalUiState.terminalOpen && terminalUiState.terminalMaximized,
+  );
 
   const fallbackDraftProjectRef = draftThread
     ? scopeProjectRef(draftThread.environmentId, draftThread.projectId)
@@ -5108,6 +5116,7 @@ function ChatViewContent(props: ChatViewProps) {
           data-chat-header
           className={cn(
             "border-b border-border transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none",
+            terminalDrawerMaximized && "hidden",
             isElectron
               ? cn(
                   "workspace-topbar drag-region relative px-3 sm:px-5",
@@ -5143,13 +5152,15 @@ function ChatViewContent(props: ChatViewProps) {
         </header>
 
         {/* Error banner */}
-        <ProviderStatusBanner status={activeProviderStatus} />
-        <ThreadErrorBanner
-          error={threadError}
-          onDismiss={() => setThreadError(activeThread.id, null)}
-        />
+        <div className={cn(terminalDrawerMaximized && "hidden")}>
+          <ProviderStatusBanner status={activeProviderStatus} />
+          <ThreadErrorBanner
+            error={threadError}
+            onDismiss={() => setThreadError(activeThread.id, null)}
+          />
+        </div>
         {/* Main content area with optional plan sidebar */}
-        <div className="flex min-h-0 min-w-0 flex-1">
+        <div className={cn("flex min-h-0 min-w-0 flex-1", terminalDrawerMaximized && "hidden")}>
           {/* Chat column */}
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
             {/* Messages Wrapper */}
