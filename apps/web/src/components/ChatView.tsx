@@ -5136,7 +5136,6 @@ function ChatViewContent(props: ChatViewProps) {
           data-chat-header
           className={cn(
             "border-b border-border transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none",
-            terminalDrawerMaximized && "hidden",
             isElectron
               ? cn(
                   "workspace-topbar drag-region relative px-3 sm:px-5",
