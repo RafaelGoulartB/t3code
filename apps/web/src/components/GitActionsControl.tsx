@@ -53,6 +53,7 @@ import {
   resolveDefaultBranchActionDialogCopy,
   resolveGitFileSelection,
   resolveLiveThreadBranchUpdate,
+  resolveThreadBranchMetadataPatch,
   resolveQuickAction,
   resolveThreadBranchUpdate,
   shouldOpenCommitSelectionForQuickAction,
@@ -1086,13 +1087,11 @@ export default function GitActionsControl({
           return;
         }
 
-        const worktreePath = activeServerThread.worktreePath;
         void updateThreadMetadata({
           environmentId: activeThreadRef.environmentId,
           input: {
             threadId: activeThreadRef.threadId,
-            branch,
-            worktreePath,
+            ...resolveThreadBranchMetadataPatch(branch, activeServerThread.branch),
           },
         });
 
