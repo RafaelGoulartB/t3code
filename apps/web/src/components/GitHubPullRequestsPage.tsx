@@ -2,14 +2,32 @@ import type {
   EnvironmentId,
   GitHubPullRequestAction,
   GitHubPullRequestChecksFilter,
+  GitHubPullRequestCiStatus,
+  GitHubPullRequestListItem,
   GitHubPullRequestPreset,
   GitHubPullRequestReviewFilter,
+  GitHubPullRequestReviewStatus,
   GitHubPullRequestStateFilter,
 } from "@t3tools/contracts";
-import { ExternalLinkIcon, GitPullRequestIcon, RefreshCwIcon } from "lucide-react";
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import {
+  CheckCheckIcon,
+  CheckCircle2Icon,
+  ChevronDownIcon,
+  Clock3Icon,
+  ExternalLinkIcon,
+  GitPullRequestIcon,
+  MessageCircleWarningIcon,
+  MinusCircleIcon,
+  RefreshCwIcon,
+  XCircleIcon,
+} from "lucide-react";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
+import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import { usePreparePullRequestThreadAction } from "../lib/sourceControlActions";
+import { useOpenPrLink } from "../lib/openPullRequestLink";
 import { useAtomCommand } from "../state/use-atom-command";
 import { githubPullRequestEnvironment } from "../state/githubPullRequests";
 import { useEnvironmentQuery } from "../state/query";
@@ -18,6 +36,15 @@ import { useProjects } from "../state/entities";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { SidebarInset } from "./ui/sidebar";
 import { Button } from "./ui/button";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "./ui/dialog";
 import { Input } from "./ui/input";
 import { cn } from "../lib/utils";
 import {
@@ -49,6 +76,82 @@ function formatDate(value: string | null): string {
   if (!value) return "—";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
+}
+
+const CI_STATUS_LABELS: Record<GitHubPullRequestCiStatus, string> = {
+  success: "CI aprovado",
+  failure: "CI falhou",
+  pending: "CI pendente",
+  none: "Sem checks de CI",
+  unknown: "Status do CI desconhecido",
+};
+
+const REVIEW_STATUS_LABELS: Record<GitHubPullRequestReviewStatus, string> = {
+  approved: "PR aprovada",
+  changes_requested: "Alterações solicitadas",
+  pending: "Revisão pendente",
+  none: "Sem decisão de revisão",
+  unknown: "Status da revisão desconhecido",
+};
+
+const CI_STATUS_SHORT_LABELS: Record<GitHubPullRequestCiStatus, string> = {
+  success: "Aprovado",
+  failure: "Falhou",
+  pending: "Pendente",
+  none: "Sem checks",
+  unknown: "Desconhecido",
+};
+
+const REVIEW_STATUS_SHORT_LABELS: Record<GitHubPullRequestReviewStatus, string> = {
+  approved: "Aprovada",
+  changes_requested: "Alterações pedidas",
+  pending: "Pendente",
+  none: "Sem revisão",
+  unknown: "Desconhecido",
+};
+
+function PullRequestStatusIndicator({
+  kind,
+  status,
+}: {
+  readonly kind: "ci" | "review";
+  readonly status: GitHubPullRequestCiStatus | GitHubPullRequestReviewStatus;
+}) {
+  const label =
+    kind === "ci"
+      ? CI_STATUS_LABELS[status as GitHubPullRequestCiStatus]
+      : REVIEW_STATUS_LABELS[status as GitHubPullRequestReviewStatus];
+  const Icon =
+    kind === "ci"
+      ? status === "success"
+        ? CheckCircle2Icon
+        : status === "failure"
+          ? XCircleIcon
+          : status === "none"
+            ? MinusCircleIcon
+            : Clock3Icon
+      : status === "approved"
+        ? CheckCheckIcon
+        : status === "changes_requested"
+          ? MessageCircleWarningIcon
+          : status === "none"
+            ? MinusCircleIcon
+            : Clock3Icon;
+  const tone =
+    status === "success" || status === "approved"
+      ? "text-emerald-600 dark:text-emerald-400"
+      : status === "failure" || status === "changes_requested"
+        ? "text-destructive"
+        : status === "pending"
+          ? "text-amber-600 dark:text-amber-400"
+          : "text-muted-foreground";
+
+  return (
+    <span className={`inline-flex items-center gap-1 ${tone}`} title={label} aria-label={label}>
+      <Icon className="size-3.5" aria-hidden="true" />
+      <span className="sr-only">{label}</span>
+    </span>
+  );
 }
 
 function csvValues(value: string): string[] {
@@ -104,12 +207,376 @@ function updateSearch(
   });
 }
 
+function normalizeRepositoryName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\.git$/, "");
+}
+
+function projectMatchesPullRequest(
+  project: ReturnType<typeof useProjects>[number],
+  repository: string,
+): boolean {
+  const identity = project.repositoryIdentity;
+  if (!identity) return false;
+
+  const requestedRepository = normalizeRepositoryName(repository);
+  const qualifiedName =
+    identity.owner && identity.name ? `${identity.owner}/${identity.name}` : null;
+  return [qualifiedName, identity.displayName]
+    .filter((value): value is string => Boolean(value))
+    .some((value) => normalizeRepositoryName(value) === requestedRepository);
+}
+
+function PullRequestChatDialog({
+  item,
+  projects,
+  open,
+  onOpenChange,
+}: {
+  readonly item: GitHubPullRequestListItem | null;
+  readonly projects: ReturnType<typeof useProjects>;
+  readonly open: boolean;
+  readonly onOpenChange: (open: boolean) => void;
+}) {
+  const handleNewThread = useNewThreadHandler();
+  const [selectedProjectKey, setSelectedProjectKey] = useState("");
+  const [preparingMode, setPreparingMode] = useState<"local" | "worktree" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const isPreparing = preparingMode !== null;
+  const candidates = useMemo(
+    () =>
+      item ? projects.filter((project) => projectMatchesPullRequest(project, item.repository)) : [],
+    [item, projects],
+  );
+  const selectedProject =
+    candidates.find(
+      (project) => `${project.environmentId}\u0000${project.id}` === selectedProjectKey,
+    ) ??
+    candidates[0] ??
+    null;
+  const prepareAction = usePreparePullRequestThreadAction({
+    environmentId: selectedProject?.environmentId ?? null,
+    cwd: selectedProject?.workspaceRoot ?? null,
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    setSelectedProjectKey((current) => {
+      if (candidates.some((project) => `${project.environmentId}\u0000${project.id}` === current)) {
+        return current;
+      }
+      return candidates[0] ? `${candidates[0].environmentId}\u0000${candidates[0].id}` : "";
+    });
+    setError(null);
+  }, [candidates, open]);
+
+  const handleOpenChat = async (mode: "local" | "worktree") => {
+    if (!item || !selectedProject) return;
+    if (
+      mode === "local" &&
+      !window.confirm(
+        "Fazer checkout desta PR no projeto selecionado? Isso pode alterar a branch atual e os arquivos locais.",
+      )
+    ) {
+      return;
+    }
+    setPreparingMode(mode);
+    setError(null);
+    const result = await prepareAction.run({ reference: String(item.number), mode });
+    if (result._tag === "Failure") {
+      setPreparingMode(null);
+      setError(
+        prepareAction.error instanceof Error
+          ? prepareAction.error.message
+          : "Não foi possível preparar o worktree desta PR.",
+      );
+      return;
+    }
+
+    try {
+      await handleNewThread(scopeProjectRef(selectedProject.environmentId, selectedProject.id), {
+        branch: result.value.branch,
+        worktreePath: result.value.worktreePath,
+        envMode: result.value.worktreePath ? "worktree" : "local",
+        startFromOrigin: false,
+      });
+      onOpenChange(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível abrir o chat.");
+    } finally {
+      setPreparingMode(null);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(nextOpen) => !isPreparing && onOpenChange(nextOpen)}>
+      <DialogPopup className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Abrir chat com a PR</DialogTitle>
+          <DialogDescription>
+            Escolha um projeto local e decida se a PR deve usar um worktree reutilizável ou a branch
+            do próprio projeto.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel className="space-y-3">
+          {item ? (
+            <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm">
+              <div className="font-medium">{item.title}</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {item.repository} #{item.number}
+              </div>
+            </div>
+          ) : null}
+          {candidates.length > 0 ? (
+            <label className="grid gap-1.5">
+              <span className="text-xs font-medium">Projeto local</span>
+              <select
+                aria-label="Projeto local para a pull request"
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                value={selectedProjectKey}
+                onChange={(event) => setSelectedProjectKey(event.target.value)}
+                disabled={isPreparing}
+              >
+                {candidates.map((project) => (
+                  <option
+                    key={`${project.environmentId}\u0000${project.id}`}
+                    value={`${project.environmentId}\u0000${project.id}`}
+                  >
+                    {project.title} — {project.workspaceRoot}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+              Nenhum projeto local compatível foi encontrado. Adicione ou abra esse repositório em
+              um projeto antes de iniciar o chat.
+            </p>
+          )}
+          {selectedProject ? (
+            <p className="text-xs text-muted-foreground">
+              Destino: <code>{selectedProject.workspaceRoot}</code>
+            </p>
+          ) : null}
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+        </DialogPanel>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPreparing}>
+            Cancelar
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => void handleOpenChat("local")}
+            disabled={!selectedProject || isPreparing}
+          >
+            {preparingMode === "local" ? "Fazendo checkout..." : "Abrir chat sem worktree"}
+          </Button>
+          <Button
+            onClick={() => void handleOpenChat("worktree")}
+            disabled={!selectedProject || isPreparing}
+          >
+            {preparingMode === "worktree" ? "Preparando worktree..." : "Abrir chat em worktree"}
+          </Button>
+        </DialogFooter>
+      </DialogPopup>
+    </Dialog>
+  );
+}
+
+function PullRequestCard({
+  item,
+  search,
+  environmentId,
+  onOpenChat,
+}: {
+  readonly item: GitHubPullRequestListItem;
+  readonly search: PullRequestSearch;
+  readonly environmentId: EnvironmentId | null;
+  readonly onOpenChat: (item: GitHubPullRequestListItem) => void;
+}) {
+  const openPrLink = useOpenPrLink();
+  const [expanded, setExpanded] = useState(false);
+  const [owner, repo] = item.repository.split("/");
+  const detailsId = `pull-request-${owner ?? "repo"}-${repo ?? "repository"}-${item.number}`;
+  return (
+    <article className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-ring hover:bg-accent/30">
+      <button
+        type="button"
+        className="w-full cursor-pointer rounded-lg border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        aria-expanded={expanded}
+        aria-controls={detailsId}
+        onClick={() => setExpanded((current) => !current)}
+      >
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">{item.repository}</span>
+          <span>#{item.number}</span>
+          <span>{item.state}</span>
+          {item.isDraft ? <span className="rounded bg-muted px-1.5 py-0.5">Draft</span> : null}
+          <span className="ms-auto">Atualizada {formatDate(item.updatedAt)}</span>
+          <ChevronDownIcon
+            className={`size-4 transition-transform ${expanded ? "rotate-180" : ""}`}
+            aria-hidden="true"
+          />
+        </div>
+        <div className="mt-1 text-sm font-medium text-foreground">{item.title}</div>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span>{item.author ? `por ${item.author}` : "Autor desconhecido"}</span>
+          {item.labels.map((label) => (
+            <span key={label.name} className="rounded-full bg-muted px-2 py-0.5">
+              {label.name}
+            </span>
+          ))}
+        </div>
+        <div className="mt-3 flex items-center gap-3 text-xs" aria-label="Status da pull request">
+          <span className="inline-flex items-center gap-1.5">
+            <PullRequestStatusIndicator kind="ci" status={item.ciStatus} />
+            <span className="text-muted-foreground">
+              CI: {CI_STATUS_SHORT_LABELS[item.ciStatus]}
+            </span>
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <PullRequestStatusIndicator kind="review" status={item.reviewStatus} />
+            <span className="text-muted-foreground">
+              Review: {REVIEW_STATUS_SHORT_LABELS[item.reviewStatus]}
+            </span>
+          </span>
+          <span className="ms-auto text-muted-foreground">
+            {expanded ? "Ocultar detalhes" : "Mostrar detalhes"}
+          </span>
+        </div>
+      </button>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button size="xs" onClick={() => onOpenChat(item)}>
+          <GitPullRequestIcon className="size-3.5" /> Abrir chat
+        </Button>
+        <Button
+          size="xs"
+          variant="outline"
+          onClick={(event) => openPrLink(event, item.url)}
+          aria-label={`Abrir ${item.repository} #${item.number} no navegador`}
+        >
+          <ExternalLinkIcon className="size-3.5" /> Abrir na web
+        </Button>
+      </div>
+      {expanded ? (
+        <PullRequestCardDetails
+          id={detailsId}
+          item={item}
+          search={search}
+          environmentId={environmentId}
+        />
+      ) : null}
+    </article>
+  );
+}
+
+function PullRequestCardDetails({
+  id,
+  item,
+  search,
+  environmentId,
+}: {
+  readonly id: string;
+  readonly item: GitHubPullRequestListItem;
+  readonly search: PullRequestSearch;
+  readonly environmentId: EnvironmentId | null;
+}) {
+  const query = useEnvironmentQuery(
+    environmentId
+      ? githubPullRequestEnvironment.details({
+          environmentId,
+          input: { repository: item.repository, number: item.number },
+        })
+      : null,
+  );
+  const detail = query.data;
+  const checks = detail?.checks ?? [];
+
+  return (
+    <div id={id} className="mt-4 border-t border-border pt-4">
+      {query.error ? (
+        <p className="text-sm text-destructive">Não foi possível carregar os detalhes da PR.</p>
+      ) : query.isPending && !detail ? (
+        <p className="text-sm text-muted-foreground">Carregando detalhes da PR...</p>
+      ) : detail ? (
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_16rem]">
+          <div className="min-w-0 space-y-3">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <span>
+                Branch: <strong className="text-foreground">{detail.headRefName}</strong> →{" "}
+                <strong className="text-foreground">{detail.baseRefName}</strong>
+              </span>
+              <span>
+                Alterações: +{detail.additions} / -{detail.deletions} em {detail.changedFiles}{" "}
+                arquivos
+              </span>
+            </div>
+            <p className="whitespace-pre-wrap text-sm text-foreground">
+              {detail.body.trim() || "Esta PR não possui descrição."}
+            </p>
+            <Link
+              to="/pull-requests/$owner/$repo/$number"
+              params={{
+                owner: item.repository.split("/")[0] ?? "",
+                repo: item.repository.split("/")[1] ?? "",
+                number: String(item.number),
+              }}
+              search={search}
+              className="inline-flex text-xs font-medium text-primary underline-offset-4 hover:underline"
+            >
+              Abrir página completa da PR
+            </Link>
+          </div>
+          <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3 text-xs">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-muted-foreground">CI</span>
+              <PullRequestStatusIndicator
+                kind="ci"
+                status={
+                  checks.length === 0
+                    ? "none"
+                    : checks.some((check) =>
+                          ["fail", "failure", "error", "cancel"].some((value) =>
+                            `${check.bucket} ${check.state}`.toLowerCase().includes(value),
+                          ),
+                        )
+                      ? "failure"
+                      : checks.some((check) =>
+                            ["pending", "queue", "progress"].some((value) =>
+                              `${check.bucket} ${check.state}`.toLowerCase().includes(value),
+                            ),
+                          )
+                        ? "pending"
+                        : "success"
+                }
+              />
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-muted-foreground">Review</span>
+              <span className="text-foreground">{detail.reviewDecision ?? "Pendente"}</span>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-muted-foreground">Criada</span>
+              <span className="text-foreground">{formatDate(detail.createdAt)}</span>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">Nenhum detalhe disponível.</p>
+      )}
+    </div>
+  );
+}
+
 export function GitHubPullRequestsPage() {
   const routeSearch = useSearch({ from: "/pull-requests" });
   const search = resolvePullRequestSearch(routeSearch);
   const navigate = useNavigate();
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const projects = useProjects();
   const environmentId =
     search.environment ?? primaryEnvironmentId ?? environments[0]?.environmentId ?? null;
   const environmentIdForRpc = environmentId as EnvironmentId | null;
@@ -121,6 +588,7 @@ export function GitHubPullRequestsPage() {
         })
       : null,
   );
+  const [chatItem, setChatItem] = useState<GitHubPullRequestListItem | null>(null);
 
   const clear = () => updateSearch(navigate, search, clearPullRequestFilters(search));
   const selectPreset = (preset: PullRequestSearch["preset"]) => {
@@ -267,36 +735,13 @@ export function GitHubPullRequestsPage() {
           ) : null}
           <div className="grid gap-2">
             {list?.items.map((item) => (
-              <Link
+              <PullRequestCard
                 key={`${item.repository}#${item.number}`}
-                to="/pull-requests/$owner/$repo/$number"
-                params={{
-                  owner: item.repository.split("/")[0] ?? "",
-                  repo: item.repository.split("/")[1] ?? "",
-                  number: String(item.number),
-                }}
+                item={item}
                 search={search}
-                className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-ring hover:bg-accent/30"
-              >
-                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <span className="font-medium text-foreground">{item.repository}</span>
-                  <span>#{item.number}</span>
-                  <span>{item.state}</span>
-                  {item.isDraft ? (
-                    <span className="rounded bg-muted px-1.5 py-0.5">Draft</span>
-                  ) : null}
-                  <span className="ms-auto">Atualizada {formatDate(item.updatedAt)}</span>
-                </div>
-                <div className="mt-1 text-sm font-medium text-foreground">{item.title}</div>
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <span>{item.author ? `por ${item.author}` : "Autor desconhecido"}</span>
-                  {item.labels.map((label) => (
-                    <span key={label.name} className="rounded-full bg-muted px-2 py-0.5">
-                      {label.name}
-                    </span>
-                  ))}
-                </div>
-              </Link>
+                environmentId={environmentIdForRpc}
+                onOpenChat={setChatItem}
+              />
             ))}
           </div>
           {list?.truncated ? (
@@ -314,6 +759,14 @@ export function GitHubPullRequestsPage() {
           ) : null}
         </main>
       </div>
+      <PullRequestChatDialog
+        item={chatItem}
+        projects={projects}
+        open={chatItem !== null}
+        onOpenChange={(open) => {
+          if (!open) setChatItem(null);
+        }}
+      />
     </SidebarInset>
   );
 }

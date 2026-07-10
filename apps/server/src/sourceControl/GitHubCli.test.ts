@@ -37,20 +37,28 @@ describe("GitHubCli.layer", () => {
         Effect.succeed(
           processOutput(
             // @effect-diagnostics-next-line preferSchemaOverJson:off
-            JSON.stringify([
-              {
-                number: 7,
-                title: "Fix CI",
-                url: "https://github.com/octo/repo/pull/7",
-                repository: { nameWithOwner: "octo/repo" },
-                author: { login: "octocat" },
-                state: "OPEN",
-                isDraft: false,
-                createdAt: "2026-07-09T00:00:00Z",
-                updatedAt: "2026-07-10T00:00:00Z",
-                labels: [],
+            JSON.stringify({
+              data: {
+                search: {
+                  nodes: [
+                    {
+                      number: 7,
+                      title: "Fix CI",
+                      url: "https://github.com/octo/repo/pull/7",
+                      repository: { nameWithOwner: "octo/repo" },
+                      author: { login: "octocat" },
+                      state: "OPEN",
+                      isDraft: false,
+                      createdAt: "2026-07-09T00:00:00Z",
+                      updatedAt: "2026-07-10T00:00:00Z",
+                      labels: [],
+                      reviewDecision: "APPROVED",
+                      statusCheckRollup: { state: "SUCCESS" },
+                    },
+                  ],
+                },
               },
-            ]),
+            }),
           ),
         ),
       );
@@ -68,30 +76,148 @@ describe("GitHubCli.layer", () => {
       });
 
       assert.equal(result.items[0]?.repository, "octo/repo");
-      expect(mockRun).toHaveBeenCalledWith({
+      assert.equal(result.items[0]?.ciStatus, "success");
+      assert.equal(result.items[0]?.reviewStatus, "approved");
+      const firstCall = mockRun.mock.calls[0]?.[0];
+      expect(firstCall).toMatchObject({
         operation: "GitHubCli.execute",
         command: "gh",
-        args: [
-          "search",
-          "prs",
-          "--state",
-          "open",
-          "--limit",
-          "25",
-          "--sort",
-          "updated",
-          "--json",
-          "number,title,url,author,repository,state,createdAt,updatedAt,isDraft,labels",
-          "--author",
-          "@me",
-          "--checks",
-          "failure",
-          "--owner",
-          "octo",
-        ],
         cwd: "/repo",
         timeoutMs: 30_000,
       });
+      expect(firstCall?.args).toEqual(
+        expect.arrayContaining(["api", "graphql", "-f", expect.stringContaining("query=")]),
+      );
+      expect(firstCall?.args.join(" ")).toContain("org:octo");
+      expect(firstCall?.args.join(" ")).toContain("status:failure");
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("aggregates CI and review status for list cards", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(
+        Effect.succeed(
+          processOutput(
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify({
+              data: {
+                search: {
+                  nodes: [
+                    {
+                      number: 8,
+                      title: "Failed checks",
+                      url: "https://github.com/octo/repo/pull/8",
+                      repository: { nameWithOwner: "octo/repo" },
+                      author: { login: "octocat" },
+                      state: "OPEN",
+                      isDraft: false,
+                      labels: [],
+                      reviewDecision: "CHANGES_REQUESTED",
+                      statusCheckRollup: { state: "FAILURE" },
+                    },
+                    {
+                      number: 9,
+                      title: "Waiting for review",
+                      url: "https://github.com/octo/repo/pull/9",
+                      repository: { nameWithOwner: "octo/repo" },
+                      author: { login: "octocat" },
+                      state: "OPEN",
+                      isDraft: false,
+                      labels: [],
+                      reviewDecision: "REVIEW_REQUIRED",
+                      statusCheckRollup: { state: "PENDING" },
+                    },
+                  ],
+                },
+              },
+            }),
+          ),
+        ),
+      );
+
+      const gh = yield* GitHubCli.GitHubCli;
+      const result = yield* gh.searchPullRequests({
+        cwd: "/repo",
+        filters: { preset: "mine", limit: 10 },
+      });
+
+      assert.deepStrictEqual(
+        result.items.map((item) => ({ ciStatus: item.ciStatus, reviewStatus: item.reviewStatus })),
+        [
+          { ciStatus: "failure", reviewStatus: "changes_requested" },
+          { ciStatus: "pending", reviewStatus: "pending" },
+        ],
+      );
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("parses GraphQL pull request details", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(
+        Effect.succeed(
+          processOutput(
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify({
+              data: {
+                repository: {
+                  pullRequest: {
+                    number: 10,
+                    title: "Detailed PR",
+                    body: "Description",
+                    url: "https://github.com/octo/repo/pull/10",
+                    repository: { nameWithOwner: "octo/repo" },
+                    author: { login: "octocat" },
+                    state: "OPEN",
+                    isDraft: false,
+                    baseRefName: "main",
+                    headRefName: "feature/details",
+                    createdAt: "2026-07-10T00:00:00Z",
+                    updatedAt: "2026-07-10T01:00:00Z",
+                    mergedAt: null,
+                    additions: 4,
+                    deletions: 1,
+                    changedFiles: 2,
+                    reviewDecision: "REVIEW_REQUIRED",
+                    mergeable: "MERGEABLE",
+                    mergeStateStatus: "CLEAN",
+                    labels: { nodes: [{ name: "bug", color: "red" }] },
+                    assignees: { nodes: [] },
+                    reviewRequests: { nodes: [] },
+                    reviews: { nodes: [] },
+                    comments: { nodes: [] },
+                    statusCheckRollup: {
+                      contexts: {
+                        nodes: [
+                          {
+                            __typename: "CheckRun",
+                            name: "build",
+                            status: "COMPLETED",
+                            conclusion: "SUCCESS",
+                            detailsUrl: "https://github.com/octo/repo/actions/runs/10",
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            }),
+          ),
+        ),
+      );
+
+      const gh = yield* GitHubCli.GitHubCli;
+      const result = yield* gh.getPullRequestDetails({
+        cwd: "/repo",
+        reference: { repository: "octo/repo", number: 10 },
+      });
+
+      assert.equal(result.title, "Detailed PR");
+      assert.equal(result.reviewDecision, "REVIEW_REQUIRED");
+      assert.equal(result.checks[0]?.bucket, "pass");
+      expect(mockRun.mock.calls[0]?.[0].args).toEqual(
+        expect.arrayContaining(["api", "graphql", "-F", "number=10"]),
+      );
     }).pipe(Effect.provide(layer)),
   );
 

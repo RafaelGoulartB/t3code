@@ -26,6 +26,24 @@ export type GitHubPullRequestReviewFilter = typeof GitHubPullRequestReviewFilter
 export const GitHubPullRequestChecksFilter = Schema.Literals(["pending", "success", "failure"]);
 export type GitHubPullRequestChecksFilter = typeof GitHubPullRequestChecksFilter.Type;
 
+export const GitHubPullRequestCiStatus = Schema.Literals([
+  "success",
+  "failure",
+  "pending",
+  "none",
+  "unknown",
+]);
+export type GitHubPullRequestCiStatus = typeof GitHubPullRequestCiStatus.Type;
+
+export const GitHubPullRequestReviewStatus = Schema.Literals([
+  "approved",
+  "changes_requested",
+  "pending",
+  "none",
+  "unknown",
+]);
+export type GitHubPullRequestReviewStatus = typeof GitHubPullRequestReviewStatus.Type;
+
 export const GitHubPullRequestSort = Schema.Literals(["best-match", "created", "updated"]);
 export type GitHubPullRequestSort = typeof GitHubPullRequestSort.Type;
 
@@ -65,6 +83,8 @@ export const GitHubPullRequestListItem = Schema.Struct({
   createdAt: Schema.NullOr(Schema.String),
   updatedAt: Schema.NullOr(Schema.String),
   labels: Schema.Array(GitHubPullRequestLabel),
+  ciStatus: GitHubPullRequestCiStatus,
+  reviewStatus: GitHubPullRequestReviewStatus,
 });
 export type GitHubPullRequestListItem = typeof GitHubPullRequestListItem.Type;
 

@@ -401,6 +401,82 @@ function checkValues(value: unknown): ReadonlyArray<GitHubPullRequestCheck> {
   });
 }
 
+function pullRequestCiStatus(
+  value: unknown,
+): "success" | "failure" | "pending" | "none" | "unknown" {
+  if (value === undefined) return "unknown";
+  const rollupState = stringValue(asRecord(value).state)?.toUpperCase();
+  if (rollupState) {
+    if (["FAILURE", "ERROR"].includes(rollupState)) return "failure";
+    if (["PENDING", "EXPECTED"].includes(rollupState)) return "pending";
+    if (["SUCCESS", "NEUTRAL", "SKIPPED", "STALE"].includes(rollupState)) return "success";
+  }
+  const checks = checkValues(value);
+  if (checks.length === 0) return "none";
+
+  let hasUnknown = false;
+  let hasPending = false;
+  for (const check of checks) {
+    const bucket = check.bucket.toLowerCase();
+    const state = check.state.toLowerCase();
+    if (
+      bucket.includes("fail") ||
+      bucket.includes("error") ||
+      bucket.includes("cancel") ||
+      state.includes("fail") ||
+      state.includes("error") ||
+      state.includes("cancel")
+    ) {
+      return "failure";
+    }
+    if (
+      bucket.includes("pending") ||
+      bucket.includes("queue") ||
+      bucket.includes("progress") ||
+      state.includes("pending") ||
+      state.includes("queue") ||
+      state.includes("progress")
+    ) {
+      hasPending = true;
+      continue;
+    }
+    if (
+      !bucket.includes("pass") &&
+      !bucket.includes("success") &&
+      !bucket.includes("skip") &&
+      !state.includes("success") &&
+      !state.includes("complete")
+    ) {
+      hasUnknown = true;
+    }
+  }
+
+  if (hasPending) return "pending";
+  return hasUnknown ? "unknown" : "success";
+}
+
+function pullRequestReviewStatus(
+  value: unknown,
+): "approved" | "changes_requested" | "pending" | "none" | "unknown" {
+  if (value === undefined) return "unknown";
+  switch (
+    String(value ?? "")
+      .trim()
+      .toUpperCase()
+  ) {
+    case "APPROVED":
+      return "approved";
+    case "CHANGES_REQUESTED":
+      return "changes_requested";
+    case "REVIEW_REQUIRED":
+      return "pending";
+    case "":
+      return "none";
+    default:
+      return "unknown";
+  }
+}
+
 function normalizeListResult(raw: unknown, limit: number): GitHubPullRequestListResult {
   const items = Array.isArray(raw)
     ? raw
@@ -422,11 +498,217 @@ function normalizeListResult(raw: unknown, limit: number): GitHubPullRequestList
             createdAt: nullableStringValue(record.createdAt),
             updatedAt: nullableStringValue(record.updatedAt),
             labels: labelValues(record.labels),
+            ciStatus: pullRequestCiStatus(record.statusCheckRollup),
+            reviewStatus: pullRequestReviewStatus(record.reviewDecision),
           };
         })
         .filter((item): item is NonNullable<typeof item> => item !== null)
     : [];
   return { items, limit, truncated: items.length >= limit };
+}
+
+const GRAPHQL_PULL_REQUEST_SEARCH_QUERY = `query($searchQuery: String!, $limit: Int!) {
+  search(type: ISSUE, query: $searchQuery, first: $limit) {
+    nodes {
+      ... on PullRequest {
+        number
+        title
+        url
+        repository { nameWithOwner }
+        author { login }
+        state
+        isDraft
+        createdAt
+        updatedAt
+        labels(first: 20) { nodes { name color } }
+        reviewDecision
+        statusCheckRollup { state }
+      }
+    }
+  }
+}`;
+
+const GRAPHQL_PULL_REQUEST_DETAILS_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      number
+      title
+      body
+      url
+      repository { nameWithOwner }
+      author { login }
+      state
+      isDraft
+      baseRefName
+      headRefName
+      createdAt
+      updatedAt
+      mergedAt
+      additions
+      deletions
+      changedFiles
+      reviewDecision
+      mergeable
+      mergeStateStatus
+      labels(first: 100) { nodes { name color } }
+      assignees(first: 100) { nodes { login } }
+      reviewRequests(first: 100) {
+        nodes {
+          requestedReviewer {
+            ... on User { login }
+            ... on Team { name }
+          }
+        }
+      }
+      reviews(first: 100) {
+        nodes { author { login } state body submittedAt }
+      }
+      comments(first: 100) {
+        nodes { author { login } body createdAt }
+      }
+      statusCheckRollup {
+        contexts(first: 100) {
+          nodes {
+            __typename
+            ... on CheckRun {
+              name
+              status
+              conclusion
+              detailsUrl
+              workflowName
+              startedAt
+              completedAt
+            }
+            ... on StatusContext {
+              context
+              state
+              description
+              targetUrl
+              createdAt
+              updatedAt
+            }
+          }
+        }
+      }
+    }
+  }
+}`;
+
+function quoteSearchQualifier(value: string): string {
+  const trimmed = value.trim();
+  return /\s/.test(trimmed) ? `"${trimmed.replaceAll('"', '\\"')}"` : trimmed;
+}
+
+function buildPullRequestSearchQuery(filters: GitHubPullRequestListInput): string {
+  const preset = filters.preset ?? "mine";
+  const qualifiers: string[] = ["is:pr"];
+  const state = filters.state ?? "open";
+  if (state === "open" || state === "closed") qualifiers.push(`state:${state}`);
+  if (state === "merged") qualifiers.push("is:merged");
+
+  if (preset === "mine") qualifiers.push("author:@me");
+  if (preset === "involvement") qualifiers.push("involves:@me");
+  if (preset === "review_requested") qualifiers.push("user-review-requested:@me");
+  if (preset === "checks_failed") qualifiers.push("author:@me", "status:failure");
+  if (preset === "changes_requested") {
+    qualifiers.push("author:@me", "review:changes_requested");
+  }
+  if (filters.organization) qualifiers.push(`org:${quoteSearchQualifier(filters.organization)}`);
+  if (filters.organization && !filters.author && preset === "all") qualifiers.push("author:@me");
+  if (filters.repository) qualifiers.push(`repo:${quoteSearchQualifier(filters.repository)}`);
+  if (filters.author) qualifiers.push(`author:${quoteSearchQualifier(filters.author)}`);
+  if (filters.reviewRequested) {
+    qualifiers.push(`review-requested:${quoteSearchQualifier(filters.reviewRequested)}`);
+  }
+  if (filters.review) {
+    qualifiers.push(`review:${filters.review === "required" ? "required" : filters.review}`);
+  }
+  if (filters.checks) qualifiers.push(`status:${filters.checks}`);
+  if (filters.label) qualifiers.push(`label:${quoteSearchQualifier(filters.label)}`);
+  if (filters.sort === "created" || filters.sort === "updated") {
+    qualifiers.push(`sort:${filters.sort}-desc`);
+  }
+
+  return [filters.query?.trim(), ...qualifiers].filter(Boolean).join(" ");
+}
+
+function normalizeGraphqlListResult(raw: unknown, limit: number): GitHubPullRequestListResult {
+  const data = asRecord(asRecord(raw).data);
+  const search = asRecord(data.search);
+  if (!Array.isArray(search.nodes)) {
+    throw new Error("GitHub GraphQL search returned no pull request nodes.");
+  }
+  const nodes = search.nodes;
+  const normalizedNodes = nodes.map((node) => {
+    const record = asRecord(node);
+    const labels = asRecord(record.labels);
+    return {
+      ...record,
+      labels: Array.isArray(labels.nodes) ? labels.nodes : [],
+    };
+  });
+  return normalizeListResult(normalizedNodes, limit);
+}
+
+function normalizeGraphqlDetails(raw: unknown, repository: string): GitHubPullRequestDetails {
+  const data = asRecord(asRecord(raw).data);
+  const repositoryRecord = asRecord(data.repository);
+  const pullRequest = asRecord(repositoryRecord.pullRequest);
+  if (Object.keys(pullRequest).length === 0) {
+    throw new Error("GitHub GraphQL returned no pull request details.");
+  }
+
+  const labels = asRecord(pullRequest.labels);
+  const assignees = asRecord(pullRequest.assignees);
+  const reviewRequests = asRecord(pullRequest.reviewRequests);
+  const reviews = asRecord(pullRequest.reviews);
+  const comments = asRecord(pullRequest.comments);
+  const rollup = asRecord(pullRequest.statusCheckRollup);
+  const contexts = asRecord(rollup.contexts);
+  const checks = (Array.isArray(contexts.nodes) ? contexts.nodes : []).map((entry) => {
+    const check = asRecord(entry);
+    const type = stringValue(check.__typename);
+    const state = stringValue(check.conclusion ?? check.status ?? check.state) ?? "UNKNOWN";
+    const normalizedState = state.toUpperCase();
+    const bucket = ["FAILURE", "ERROR", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"].includes(
+      normalizedState,
+    )
+      ? "fail"
+      : ["PENDING", "EXPECTED", "QUEUED", "IN_PROGRESS", "WAITING", "REQUESTED"].includes(
+            normalizedState,
+          )
+        ? "pending"
+        : ["SKIPPED"].includes(normalizedState)
+          ? "skipping"
+          : ["CANCELLED"].includes(normalizedState)
+            ? "cancel"
+            : "pass";
+    return {
+      name: stringValue(check.name) ?? stringValue(check.context) ?? type ?? "Unnamed check",
+      state,
+      bucket,
+      description: stringValue(check.description) ?? "",
+      link: nullableStringValue(check.detailsUrl ?? check.targetUrl),
+      workflow: nullableStringValue(check.workflowName),
+      startedAt: nullableStringValue(check.startedAt ?? check.createdAt),
+      completedAt: nullableStringValue(check.completedAt ?? check.updatedAt),
+    } satisfies GitHubPullRequestCheck;
+  });
+
+  return normalizeDetails(
+    {
+      ...pullRequest,
+      labels: Array.isArray(labels.nodes) ? labels.nodes : [],
+      assignees: Array.isArray(assignees.nodes) ? assignees.nodes : [],
+      reviewRequests: (Array.isArray(reviewRequests.nodes) ? reviewRequests.nodes : [])
+        .map((entry) => asRecord(asRecord(entry).requestedReviewer))
+        .filter((entry) => Object.keys(entry).length > 0),
+      reviews: Array.isArray(reviews.nodes) ? reviews.nodes : [],
+      comments: Array.isArray(comments.nodes) ? comments.nodes : [],
+      statusCheckRollup: checks,
+    },
+    repository,
+  );
 }
 
 function normalizeDetails(raw: unknown, repository: string): GitHubPullRequestDetails {
@@ -587,7 +869,7 @@ export const make = Effect.gen(function* () {
       const filters = input.filters;
       const limit = filters.limit ?? 50;
       const state = filters.state ?? "open";
-      const args = [
+      const basicArgs = [
         "search",
         "prs",
         ...(filters.query && filters.query.trim().length > 0 ? [filters.query.trim()] : []),
@@ -601,54 +883,87 @@ export const make = Effect.gen(function* () {
         "number,title,url,author,repository,state,createdAt,updatedAt,isDraft,labels",
       ];
       const preset = filters.preset ?? "mine";
-      if (preset === "mine") args.push("--author", "@me");
-      if (preset === "involvement") args.push("--involves", "@me");
-      if (preset === "review_requested") args.push("--review-requested", "@me");
-      if (preset === "checks_failed") args.push("--author", "@me", "--checks", "failure");
+      if (preset === "mine") basicArgs.push("--author", "@me");
+      if (preset === "involvement") basicArgs.push("--involves", "@me");
+      if (preset === "review_requested") basicArgs.push("--review-requested", "@me");
+      if (preset === "checks_failed") basicArgs.push("--author", "@me", "--checks", "failure");
       if (preset === "changes_requested") {
-        args.push("--author", "@me", "--review", "changes_requested");
+        basicArgs.push("--author", "@me", "--review", "changes_requested");
       }
-      if (filters.organization) args.push("--owner", filters.organization);
+      if (filters.organization) basicArgs.push("--owner", filters.organization);
       if (filters.organization && !filters.author && preset === "all") {
-        args.push("--author", "@me");
+        basicArgs.push("--author", "@me");
       }
-      if (filters.repository) args.push("--repo", filters.repository);
-      if (filters.author) args.push("--author", filters.author);
-      if (filters.reviewRequested) args.push("--review-requested", filters.reviewRequested);
-      if (filters.review) args.push("--review", filters.review);
-      if (filters.checks) args.push("--checks", filters.checks);
-      if (filters.label) args.push("--label", filters.label);
+      if (filters.repository) basicArgs.push("--repo", filters.repository);
+      if (filters.author) basicArgs.push("--author", filters.author);
+      if (filters.reviewRequested) basicArgs.push("--review-requested", filters.reviewRequested);
+      if (filters.review) basicArgs.push("--review", filters.review);
+      if (filters.checks) basicArgs.push("--checks", filters.checks);
+      if (filters.label) basicArgs.push("--label", filters.label);
 
-      return execute({ cwd: input.cwd, args }).pipe(
-        Effect.flatMap((result) =>
-          Effect.try({
-            try: () => normalizeListResult(jsonOutput(result.stdout.trim()), limit),
-            catch: (cause) =>
-              new GitHubPullRequestListDecodeError({ command: "gh", cwd: input.cwd, cause }),
-          }),
-        ),
-      );
-    },
-    getPullRequestDetails: (input) =>
-      execute({
+      const parseResult = (
+        raw: string,
+        normalize: (value: unknown) => GitHubPullRequestListResult,
+      ) =>
+        Effect.try({
+          try: () => normalize(jsonOutput(raw)),
+          catch: (cause) =>
+            new GitHubPullRequestListDecodeError({ command: "gh", cwd: input.cwd, cause }),
+        });
+      const graphqlSearch = execute({
         cwd: input.cwd,
         args: [
-          "pr",
-          "view",
-          ...targetArgs(input.reference.repository, input.reference.number),
-          "--json",
-          "number,title,body,url,repository,author,state,isDraft,baseRefName,headRefName,createdAt,updatedAt,mergedAt,additions,deletions,changedFiles,reviewDecision,mergeable,mergeStateStatus,labels,assignees,reviewRequests,reviews,comments,statusCheckRollup",
+          "api",
+          "graphql",
+          "-f",
+          `query=${GRAPHQL_PULL_REQUEST_SEARCH_QUERY}`,
+          "-f",
+          `searchQuery=${buildPullRequestSearchQuery(filters)}`,
+          "-F",
+          `limit=${limit}`,
+        ],
+      }).pipe(
+        Effect.flatMap((result) =>
+          parseResult(result.stdout.trim(), (value) => normalizeGraphqlListResult(value, limit)),
+        ),
+      );
+      const basicSearch = Effect.suspend(() =>
+        execute({ cwd: input.cwd, args: basicArgs }).pipe(
+          Effect.flatMap((result) =>
+            parseResult(result.stdout.trim(), (value) => normalizeListResult(value, limit)),
+          ),
+        ),
+      );
+      return graphqlSearch.pipe(Effect.catch(() => basicSearch));
+    },
+    getPullRequestDetails: (input) => {
+      const [owner, ...repositoryParts] = input.reference.repository.split("/");
+      const repo = repositoryParts.join("/");
+      return execute({
+        cwd: input.cwd,
+        args: [
+          "api",
+          "graphql",
+          "-f",
+          `query=${GRAPHQL_PULL_REQUEST_DETAILS_QUERY}`,
+          "-f",
+          `owner=${owner ?? ""}`,
+          "-f",
+          `repo=${repo}`,
+          "-F",
+          `number=${input.reference.number}`,
         ],
       }).pipe(
         Effect.flatMap((result) =>
           Effect.try({
             try: () =>
-              normalizeDetails(jsonOutput(result.stdout.trim()), input.reference.repository),
+              normalizeGraphqlDetails(jsonOutput(result.stdout.trim()), input.reference.repository),
             catch: (cause) =>
               new GitHubPullRequestDecodeError({ command: "gh", cwd: input.cwd, cause }),
           }),
         ),
-      ),
+      );
+    },
     getPullRequestChecks: (input) =>
       execute({
         cwd: input.cwd,
