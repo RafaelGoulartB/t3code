@@ -110,6 +110,17 @@ const REVIEW_STATUS_SHORT_LABELS: Record<GitHubPullRequestReviewStatus, string> 
   unknown: "Desconhecido",
 };
 
+function reviewStateLabel(state: string): string {
+  const labels: Record<string, string> = {
+    APPROVED: "Aprovada",
+    CHANGES_REQUESTED: "Alterações solicitadas",
+    COMMENTED: "Comentou",
+    DISMISSED: "Dispensada",
+    PENDING: "Pendente",
+  };
+  return labels[state.toUpperCase()] ?? state;
+}
+
 function PullRequestStatusIndicator({
   kind,
   status,
@@ -528,6 +539,7 @@ function PullRequestCardDetails({
   );
   const detail = query.data;
   const checks = detail?.checks ?? [];
+  const reviewComments = detail?.reviews.filter((review) => review.body.trim()) ?? [];
 
   return (
     <div id={id} className="mt-4 border-t border-border pt-4">
@@ -563,6 +575,47 @@ function PullRequestCardDetails({
             >
               Abrir página completa da PR
             </Link>
+            <section
+              className="rounded-lg border border-border/70 bg-muted/20 p-3"
+              aria-label="Comentários de revisão"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  <MessageCircleWarningIcon className="size-4 text-primary" aria-hidden="true" />
+                  Comentários de revisão
+                </div>
+                <span className="rounded-full bg-background px-2 py-0.5 text-xs text-muted-foreground">
+                  {reviewComments.length}
+                </span>
+              </div>
+              {reviewComments.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  {reviewComments.map((review) => (
+                    <article
+                      key={`review-${review.author?.login ?? "unknown"}-${review.submittedAt ?? review.state}-${review.body}`}
+                      className="rounded-md border border-border/70 bg-background/70 p-3"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <span className="font-medium text-foreground">
+                          {review.author?.login ?? "Usuário"}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {reviewStateLabel(review.state)}
+                          {review.submittedAt ? ` · ${formatDate(review.submittedAt)}` : ""}
+                        </span>
+                      </div>
+                      <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">
+                        {review.body}
+                      </p>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Nenhum comentário foi deixado nas revisões desta PR.
+                </p>
+              )}
+            </section>
           </div>
           <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3 text-xs">
             <div className="flex items-center justify-between gap-2">
