@@ -1,8 +1,11 @@
 import type {
   EnvironmentId,
+  GitHubActor,
   GitHubPullRequestAction,
   GitHubPullRequestChecksFilter,
   GitHubPullRequestCiStatus,
+  GitHubPullRequestDetails,
+  GitHubPullRequestLabel,
   GitHubPullRequestListItem,
   GitHubPullRequestPreset,
   GitHubPullRequestReviewFilter,
@@ -11,21 +14,38 @@ import type {
 } from "@t3tools/contracts";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
+  AlertCircleIcon,
   CheckCheckIcon,
   CheckCircle2Icon,
   ChevronDownIcon,
+  CircleAlertIcon,
+  ClipboardIcon,
   Clock3Icon,
+  EyeIcon,
   ExternalLinkIcon,
+  FileTextIcon,
+  GitMergeIcon,
+  GitPullRequestArrowIcon,
+  GitPullRequestClosedIcon,
+  GitPullRequestDraftIcon,
   GitPullRequestIcon,
+  MessageCircleDashedIcon,
+  MessageCircleIcon,
   MessageCircleWarningIcon,
+  MessageSquareIcon,
   MinusCircleIcon,
+  PencilLineIcon,
   RefreshCwIcon,
+  RotateCcwIcon,
+  Trash2Icon,
   XCircleIcon,
+  XIcon,
 } from "lucide-react";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { usePreparePullRequestThreadAction } from "../lib/sourceControlActions";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -48,6 +68,9 @@ import {
 } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
+import { Badge } from "./ui/badge";
+import { Switch } from "./ui/switch";
+import { Toggle } from "./ui/toggle";
 import { cn } from "../lib/utils";
 import {
   clearPullRequestFilters,
@@ -73,6 +96,128 @@ const stateLabels: Record<GitHubPullRequestStateFilter, string> = {
   merged: "Mescladas",
   all: "Todas",
 };
+
+const PR_STATE_PRESENTATION = {
+  open: {
+    label: "Aberta",
+    className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    accentClass: "bg-emerald-500",
+    Icon: GitPullRequestArrowIcon,
+  },
+  closed: {
+    label: "Fechada",
+    className: "border-border bg-muted text-muted-foreground",
+    accentClass: "bg-zinc-500",
+    Icon: GitPullRequestClosedIcon,
+  },
+  merged: {
+    label: "Mesclada",
+    className: "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300",
+    accentClass: "bg-violet-500",
+    Icon: GitMergeIcon,
+  },
+} as const;
+
+type PullRequestStateKey = keyof typeof PR_STATE_PRESENTATION;
+
+function prStatePresentation(
+  state: string,
+): (typeof PR_STATE_PRESENTATION)[PullRequestStateKey] | null {
+  if (state === "open" || state === "closed" || state === "merged") {
+    return PR_STATE_PRESENTATION[state];
+  }
+  return null;
+}
+
+const REVIEW_DECISION_PRESENTATION: Record<
+  string,
+  { label: string; className: string; Icon: typeof CheckCheckIcon; tone: string }
+> = {
+  APPROVED: {
+    label: "Aprovada",
+    className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    Icon: CheckCheckIcon,
+    tone: "text-emerald-600 dark:text-emerald-300",
+  },
+  CHANGES_REQUESTED: {
+    label: "Alterações solicitadas",
+    className: "border-destructive/30 bg-destructive/10 text-destructive",
+    Icon: MessageCircleWarningIcon,
+    tone: "text-destructive",
+  },
+  REVIEW_REQUIRED: {
+    label: "Revisão pendente",
+    className: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+    Icon: Clock3Icon,
+    tone: "text-amber-600 dark:text-amber-300",
+  },
+};
+
+function reviewDecisionPresentation(decision: string | null) {
+  if (!decision) {
+    return {
+      label: "Revisão pendente",
+      className: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+      Icon: Clock3Icon,
+      tone: "text-amber-600 dark:text-amber-300",
+    } as const;
+  }
+  return (
+    REVIEW_DECISION_PRESENTATION[decision] ?? {
+      label: decision,
+      className: "border-border bg-muted text-muted-foreground",
+      Icon: MessageCircleDashedIcon,
+      tone: "text-muted-foreground",
+    }
+  );
+}
+
+const REVIEW_STATE_PRESENTATION: Record<
+  string,
+  { label: string; className: string; tone: string; Icon: typeof CheckCheckIcon }
+> = {
+  APPROVED: {
+    label: "Aprovou",
+    className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    tone: "text-emerald-600 dark:text-emerald-300",
+    Icon: CheckCheckIcon,
+  },
+  CHANGES_REQUESTED: {
+    label: "Pediu alterações",
+    className: "border-destructive/30 bg-destructive/10 text-destructive",
+    tone: "text-destructive",
+    Icon: MessageCircleWarningIcon,
+  },
+  COMMENTED: {
+    label: "Comentou",
+    className: "border-border bg-muted text-foreground",
+    tone: "text-muted-foreground",
+    Icon: MessageCircleIcon,
+  },
+  DISMISSED: {
+    label: "Dispensada",
+    className: "border-border bg-muted text-muted-foreground",
+    tone: "text-muted-foreground",
+    Icon: CircleAlertIcon,
+  },
+  PENDING: {
+    label: "Pendente",
+    className: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+    tone: "text-amber-600 dark:text-amber-300",
+    Icon: Clock3Icon,
+  },
+};
+
+function reviewStatePresentation(state: string) {
+  return (
+    REVIEW_STATE_PRESENTATION[state.toUpperCase()] ?? {
+      label: state,
+      className: "border-border bg-muted text-muted-foreground",
+      tone: "text-muted-foreground",
+      Icon: MessageCircleDashedIcon,
+    }
+  );
+}
 
 function formatDate(value: string | null): string {
   if (!value) return "—";
@@ -460,6 +605,18 @@ function PullRequestCard({
   readonly onOpenChat: (item: GitHubPullRequestListItem) => void;
 }) {
   const openPrLink = useOpenPrLink();
+  const { copyToClipboard } = useCopyToClipboard({
+    target: "pull request link",
+    onCopy: () =>
+      toastManager.add(stackedThreadToast({ type: "success", title: "Link da PR copiado" })),
+    onError: () =>
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Não foi possível copiar o link da PR",
+        }),
+      ),
+  });
   const [expanded, setExpanded] = useState(false);
   const [owner, repo] = item.repository.split("/");
   const detailsId = `pull-request-${owner ?? "repo"}-${repo ?? "repository"}-${item.number}`;
@@ -572,6 +729,15 @@ function PullRequestCard({
             }
           >
             Editar PR
+          </Button>
+          <Button
+            size="icon-xs"
+            variant="outline"
+            aria-label={`Copiar link da PR ${item.repository} #${item.number}`}
+            title="Copiar link da PR"
+            onClick={() => copyToClipboard(item.url)}
+          >
+            <ClipboardIcon aria-hidden="true" />
           </Button>
         </div>
       </div>
@@ -1009,17 +1175,656 @@ export function GitHubPullRequestsPage() {
   );
 }
 
-function ActionButton({
-  children,
-  onClick,
+function PullRequestStatePill({ state }: { readonly state: string }) {
+  const presentation = prStatePresentation(state);
+  if (!presentation) return null;
+  const { label, className, Icon } = presentation;
+  return (
+    <Badge size="sm" className={cn("gap-1", className)}>
+      <Icon className="size-3" />
+      {label}
+    </Badge>
+  );
+}
+
+function PullRequestDraftPill() {
+  return (
+    <Badge size="sm" className="gap-1 border-border bg-muted text-muted-foreground">
+      <GitPullRequestDraftIcon className="size-3" />
+      Rascunho
+    </Badge>
+  );
+}
+
+function PullRequestReviewPill({ decision }: { readonly decision: string | null }) {
+  const { label, className, Icon } = reviewDecisionPresentation(decision);
+  return (
+    <Badge size="sm" className={cn("gap-1", className)}>
+      <Icon className="size-3" />
+      {label}
+    </Badge>
+  );
+}
+
+function PullRequestLocalReviewPill({
+  variant,
 }: {
+  readonly variant: "approve" | "request_changes";
+}) {
+  if (variant === "approve") {
+    return (
+      <Badge
+        size="sm"
+        className="gap-1 border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+      >
+        <EyeIcon className="size-3" />
+        Você acabou de aprovar
+      </Badge>
+    );
+  }
+  return (
+    <Badge size="sm" className="gap-1 border-destructive/30 bg-destructive/10 text-destructive">
+      <AlertCircleIcon className="size-3" />
+      Você pediu alterações
+    </Badge>
+  );
+}
+
+function PullRequestActionsPanel({
+  detail,
+  localReviewAction,
+  onApprove,
+  onRequestChanges,
+  onToggleDraft,
+  onClose,
+  onReopen,
+  onSquashMerge,
+  onAutoMerge,
+  onUpdateBranch,
+}: {
+  readonly detail: GitHubPullRequestDetails;
+  readonly localReviewAction: "approve" | "request_changes" | null;
+  readonly onApprove: () => void;
+  readonly onRequestChanges: () => void;
+  readonly onToggleDraft: () => void;
+  readonly onClose: () => void;
+  readonly onReopen: () => void;
+  readonly onSquashMerge: () => void;
+  readonly onAutoMerge: () => void;
+  readonly onUpdateBranch: () => void;
+}) {
+  const isMerged = detail.state === "merged";
+  const isClosed = detail.state === "closed";
+  const reviewActiveTone = localReviewAction ?? "default";
+  return (
+    <section
+      aria-label="Ações da pull request"
+      className="space-y-3 rounded-xl border border-border p-4"
+    >
+      <div className="flex items-center justify-between">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Ações da pull request
+        </h2>
+        {isMerged ? (
+          <Badge
+            size="sm"
+            className="border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300"
+          >
+            <GitMergeIcon className="size-3" />
+            Já mesclada
+          </Badge>
+        ) : null}
+        {isClosed && !isMerged ? (
+          <Badge size="sm" className="border-border bg-muted text-muted-foreground">
+            <GitPullRequestClosedIcon className="size-3" />
+            Fechada
+          </Badge>
+        ) : null}
+      </div>
+      <ActionGroup label="Revisão">
+        <Button
+          size="xs"
+          variant={reviewActiveTone === "approve" ? "default" : "outline"}
+          disabled={isMerged || isClosed}
+          onClick={onApprove}
+        >
+          <CheckCheckIcon className="size-3.5" /> Approve
+        </Button>
+        <Button
+          size="xs"
+          variant="destructive-outline"
+          disabled={isMerged || isClosed}
+          onClick={onRequestChanges}
+        >
+          <MessageCircleWarningIcon className="size-3.5" /> Request changes
+        </Button>
+      </ActionGroup>
+      <ActionGroup label="Estado">
+        <Button size="xs" variant="outline" disabled={isMerged} onClick={onToggleDraft}>
+          <PencilLineIcon className="size-3.5" />
+          {detail.isDraft ? "Mark ready" : "Mark draft"}
+        </Button>
+        {detail.state === "closed" ? (
+          <Button size="xs" variant="outline" onClick={onReopen}>
+            <RotateCcwIcon className="size-3.5" /> Reopen
+          </Button>
+        ) : (
+          <Button size="xs" variant="outline" disabled={isMerged} onClick={onClose}>
+            <XIcon className="size-3.5" /> Close
+          </Button>
+        )}
+        <Button size="xs" variant="ghost" disabled={isMerged || isClosed} onClick={onUpdateBranch}>
+          <RefreshCwIcon className="size-3.5" /> Update branch
+        </Button>
+      </ActionGroup>
+      <ActionGroup label="Merge">
+        <Button size="xs" variant="outline" disabled={isMerged || isClosed} onClick={onSquashMerge}>
+          <GitMergeIcon className="size-3.5" /> Squash merge
+        </Button>
+        <Button size="xs" variant="outline" disabled={isMerged || isClosed} onClick={onAutoMerge}>
+          <GitPullRequestArrowIcon className="size-3.5" /> Auto-merge
+        </Button>
+      </ActionGroup>
+    </section>
+  );
+}
+
+function ActionGroup({
+  label,
+  children,
+}: {
+  readonly label: string;
   readonly children: ReactNode;
-  readonly onClick: () => void;
 }) {
   return (
-    <Button size="xs" variant="outline" onClick={onClick}>
-      {children}
-    </Button>
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="w-20 shrink-0 text-xs text-muted-foreground">{label}</span>
+      <div className="flex flex-wrap items-center gap-2">{children}</div>
+    </div>
+  );
+}
+
+function PullRequestDescriptionCard({ detail }: { readonly detail: GitHubPullRequestDetails }) {
+  const statePresentation = prStatePresentation(detail.state);
+  return (
+    <article className="relative overflow-hidden rounded-xl border border-border">
+      {statePresentation ? (
+        <div aria-hidden="true" className={cn("h-1 w-full", statePresentation.accentClass)} />
+      ) : null}
+      <div className="space-y-3 p-4">
+        {detail.body.trim() ? (
+          <PullRequestMarkdown text={detail.body} />
+        ) : (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <FileTextIcon className="size-4" />
+            Esta pull request ainda não tem descrição.
+          </p>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function PullRequestEditor({
+  detail,
+  editTitle,
+  editBody,
+  showMarkdownPreview,
+  onEditTitleChange,
+  onEditBodyChange,
+  onTogglePreview,
+  onSave,
+  onDiscard,
+}: {
+  readonly detail: GitHubPullRequestDetails;
+  readonly editTitle: string;
+  readonly editBody: string;
+  readonly showMarkdownPreview: boolean;
+  readonly onEditTitleChange: (value: string) => void;
+  readonly onEditBodyChange: (value: string) => void;
+  readonly onTogglePreview: (value: boolean) => void;
+  readonly onSave: () => void;
+  readonly onDiscard: () => void;
+}) {
+  const titleChanged = editTitle !== detail.title;
+  const bodyChanged = editBody !== detail.body;
+  const isDirty = titleChanged || bodyChanged;
+  const isTitleInvalid = !editTitle.trim();
+  const isMerged = detail.state === "merged";
+  const titleLength = editTitle.length;
+  const isTitleNearLimit = titleLength > 200;
+  return (
+    <section
+      id="pr-editor"
+      aria-label="Editar pull request"
+      className="space-y-4 rounded-xl border border-border p-4"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
+            <PencilLineIcon className="size-4 text-muted-foreground" />
+            Editar pull request
+          </h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Altere o título e a descrição em Markdown. As mudanças são enviadas para o GitHub.
+          </p>
+        </div>
+        {isDirty ? (
+          <Badge
+            size="sm"
+            className="gap-1 border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+          >
+            <span aria-hidden="true">●</span>
+            Alterações não salvas
+          </Badge>
+        ) : null}
+      </div>
+      <div className="space-y-2">
+        <div className="flex items-baseline justify-between gap-2">
+          <label htmlFor="pr-title" className="text-xs font-medium text-muted-foreground">
+            Título
+          </label>
+          <span
+            className={cn(
+              "text-[11px] tabular-nums",
+              isTitleNearLimit ? "text-amber-600 dark:text-amber-300" : "text-muted-foreground",
+            )}
+          >
+            {titleLength}/256
+          </span>
+        </div>
+        <Input
+          id="pr-title"
+          value={editTitle}
+          onChange={(event) => onEditTitleChange(event.target.value)}
+          placeholder="Título da pull request"
+          disabled={isMerged}
+          aria-invalid={isTitleInvalid || undefined}
+        />
+      </div>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <label htmlFor="pr-body" className="text-xs font-medium text-muted-foreground">
+            Descrição (Markdown)
+          </label>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Toggle
+                size="xs"
+                pressed={showMarkdownPreview}
+                onPressedChange={onTogglePreview}
+                aria-label="Mostrar preview do Markdown"
+              >
+                <EyeIcon className="size-3" />
+                Preview
+              </Toggle>
+            </label>
+          </div>
+        </div>
+        {showMarkdownPreview ? (
+          <div className="space-y-2">
+            <Textarea
+              id="pr-body"
+              value={editBody}
+              onChange={(event) => onEditBodyChange(event.target.value)}
+              placeholder="Descreva o que esta PR altera (Markdown é suportado)"
+              disabled={isMerged}
+              className="min-h-40 font-mono text-sm"
+            />
+            <div className="rounded-lg border border-border bg-muted/20 p-3">
+              {editBody.trim() ? (
+                <PullRequestMarkdown text={editBody} />
+              ) : (
+                <p className="text-xs text-muted-foreground">Nada para visualizar ainda.</p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <Textarea
+            id="pr-body"
+            value={editBody}
+            onChange={(event) => onEditBodyChange(event.target.value)}
+            placeholder="Descreva o que esta PR altera (Markdown é suportado)"
+            disabled={isMerged}
+            className="min-h-40 font-mono text-sm"
+          />
+        )}
+      </div>
+      <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
+        <Button size="xs" variant="ghost" disabled={!isDirty} onClick={onDiscard}>
+          <Trash2Icon className="size-3.5" /> Descartar
+        </Button>
+        <Button size="xs" disabled={isTitleInvalid || !isDirty} onClick={onSave}>
+          <PencilLineIcon className="size-3.5" /> Salvar edição
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function PullRequestCommentComposer({
+  body,
+  onBodyChange,
+  asReview,
+  onAsReviewChange,
+  onSubmit,
+}: {
+  readonly body: string;
+  readonly onBodyChange: (value: string) => void;
+  readonly asReview: boolean;
+  readonly onAsReviewChange: (value: boolean) => void;
+  readonly onSubmit: () => void;
+}) {
+  const canSubmit = body.trim().length > 0;
+  return (
+    <section
+      aria-label="Adicionar comentário"
+      className="space-y-3 rounded-xl border border-border p-4"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <label
+          htmlFor="pr-comment-body"
+          className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
+        >
+          <MessageSquareIcon className="size-3.5" />
+          Adicionar comentário
+        </label>
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Switch checked={asReview} onCheckedChange={onAsReviewChange} />
+          Enviar como review
+        </label>
+      </div>
+      <Textarea
+        id="pr-comment-body"
+        value={body}
+        onChange={(event) => onBodyChange(event.target.value)}
+        placeholder="Deixe um comentário na conversa desta PR… (Ctrl/Cmd + Enter para enviar)"
+        className="min-h-24"
+        onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+            event.preventDefault();
+            if (canSubmit) onSubmit();
+          }
+        }}
+      />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[11px] text-muted-foreground">
+          {asReview
+            ? "Será registrado como uma review do tipo comentário."
+            : "Será registrado como um comentário comum."}
+        </span>
+        <Button size="xs" disabled={!canSubmit} onClick={onSubmit}>
+          <MessageCircleIcon className="size-3.5" />
+          {asReview ? "Comentar como review" : "Comentar"}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function PullRequestMetadataPanel({
+  detail,
+  labels,
+  assignees,
+  reviewers,
+  onLabelsChange,
+  onAssigneesChange,
+  onReviewersChange,
+  onAddLabels,
+  onRemoveLabel,
+  onAddAssignees,
+  onRemoveAssignee,
+  onAddReviewers,
+  onRemoveReviewer,
+}: {
+  readonly detail: GitHubPullRequestDetails;
+  readonly labels: string;
+  readonly assignees: string;
+  readonly reviewers: string;
+  readonly onLabelsChange: (value: string) => void;
+  readonly onAssigneesChange: (value: string) => void;
+  readonly onReviewersChange: (value: string) => void;
+  readonly onAddLabels: (values: string[]) => void;
+  readonly onRemoveLabel: (name: string) => void;
+  readonly onAddAssignees: (values: string[]) => void;
+  readonly onRemoveAssignee: (login: string) => void;
+  readonly onAddReviewers: (values: string[]) => void;
+  readonly onRemoveReviewer: (login: string) => void;
+}) {
+  return (
+    <section
+      aria-label="Metadados da pull request"
+      className="space-y-4 rounded-xl border border-border p-4"
+    >
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Metadados
+      </h2>
+      <MetadataField
+        label="Labels"
+        placeholder="bug, priority"
+        inputId="pr-labels"
+        value={labels}
+        onChange={onLabelsChange}
+        onAdd={() => {
+          const values = csvValues(labels);
+          if (values.length === 0) return;
+          onAddLabels(values);
+          onLabelsChange("");
+        }}
+        currentItems={detail.labels.map((label: GitHubPullRequestLabel) => ({
+          key: label.name,
+          label: label.name,
+          color: label.color ? `#${label.color}` : null,
+          onRemove: () => onRemoveLabel(label.name),
+        }))}
+        emptyHint="Nenhuma label aplicada."
+      />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <MetadataField
+          label="Assignees"
+          placeholder="@me, user"
+          inputId="pr-assignees"
+          value={assignees}
+          onChange={onAssigneesChange}
+          onAdd={() => {
+            const values = csvValues(assignees);
+            if (values.length === 0) return;
+            onAddAssignees(values);
+            onAssigneesChange("");
+          }}
+          currentItems={detail.assignees.map((user: GitHubActor) => ({
+            key: user.login,
+            label: user.login,
+            onRemove: () => onRemoveAssignee(user.login),
+          }))}
+          emptyHint="Sem assignees."
+        />
+        <MetadataField
+          label="Reviewers"
+          placeholder="user, org/team"
+          inputId="pr-reviewers"
+          value={reviewers}
+          onChange={onReviewersChange}
+          onAdd={() => {
+            const values = csvValues(reviewers);
+            if (values.length === 0) return;
+            onAddReviewers(values);
+            onReviewersChange("");
+          }}
+          currentItems={detail.reviewRequests.map((user: GitHubActor) => ({
+            key: user.login,
+            label: user.login,
+            onRemove: () => onRemoveReviewer(user.login),
+          }))}
+          emptyHint="Nenhum reviewer atribuído."
+        />
+      </div>
+    </section>
+  );
+}
+
+function MetadataField({
+  label,
+  placeholder,
+  inputId,
+  value,
+  onChange,
+  onAdd,
+  currentItems,
+  emptyHint,
+}: {
+  readonly label: string;
+  readonly placeholder: string;
+  readonly inputId: string;
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+  readonly onAdd: () => void;
+  readonly currentItems: ReadonlyArray<{
+    readonly key: string;
+    readonly label: string;
+    readonly color?: string | null;
+    readonly onRemove: () => void;
+  }>;
+  readonly emptyHint: string;
+}) {
+  const trimmed = value.trim();
+  return (
+    <div className="space-y-2">
+      <div className="flex items-baseline justify-between gap-2">
+        <label htmlFor={inputId} className="text-xs font-medium text-muted-foreground">
+          {label}
+        </label>
+        <span className="text-[11px] text-muted-foreground">
+          {currentItems.length} {currentItems.length === 1 ? "ativo" : "ativos"}
+        </span>
+      </div>
+      {currentItems.length > 0 ? (
+        <ul className="flex flex-wrap gap-1.5">
+          {currentItems.map((item) => (
+            <li key={item.key}>
+              <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-xs">
+                {item.color ? (
+                  <span
+                    aria-hidden="true"
+                    className="size-2 rounded-full"
+                    style={{ backgroundColor: item.color }}
+                  />
+                ) : null}
+                <span className="font-medium text-foreground">{item.label}</span>
+                <button
+                  type="button"
+                  onClick={item.onRemove}
+                  aria-label={`Remover ${item.label}`}
+                  className="ms-1 inline-flex size-4 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <XIcon className="size-3" />
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-[11px] text-muted-foreground">{emptyHint}</p>
+      )}
+      <div className="flex items-center gap-2">
+        <Input
+          id={inputId}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          className="flex-1"
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && trimmed) {
+              event.preventDefault();
+              onAdd();
+            }
+          }}
+        />
+        <Button size="xs" disabled={!trimmed} onClick={onAdd}>
+          Adicionar
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function PullRequestSidebar({
+  detail,
+  projects,
+  targetCwd,
+  onTargetCwdChange,
+  onCheckout,
+}: {
+  readonly detail: GitHubPullRequestDetails;
+  readonly projects: ReturnType<typeof useProjects>;
+  readonly targetCwd: string;
+  readonly onTargetCwdChange: (value: string) => void;
+  readonly onCheckout: () => void;
+}) {
+  return (
+    <aside className="space-y-4 self-start lg:sticky lg:top-4">
+      <section className="rounded-xl border border-border p-4 text-xs">
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Resumo
+        </h2>
+        <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-3 gap-y-2">
+          <SidebarRow label="Autor" value={detail.author?.login ?? "—"} />
+          <SidebarRow
+            label="Branch"
+            value={
+              <span className="font-mono text-foreground">
+                {detail.headRefName} → {detail.baseRefName}
+              </span>
+            }
+          />
+          <SidebarRow
+            label="Alterações"
+            value={
+              <span className="font-mono text-foreground">
+                <span className="text-emerald-600 dark:text-emerald-400">+{detail.additions}</span>{" "}
+                / <span className="text-destructive">-{detail.deletions}</span> ·{" "}
+                {detail.changedFiles} arquivos
+              </span>
+            }
+          />
+          <SidebarRow label="Review" value={detail.reviewDecision ?? "Pendente"} />
+          <SidebarRow label="Mergeable" value={detail.mergeable ?? "—"} />
+        </dl>
+      </section>
+      <section className="rounded-xl border border-border p-4 text-xs">
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Checkout em projeto / worktree
+        </h2>
+        <select
+          aria-label="Projeto de destino para checkout"
+          className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+          value={targetCwd}
+          onChange={(event) => onTargetCwdChange(event.target.value)}
+        >
+          <option value="">Escolher destino…</option>
+          {projects.map((project) => (
+            <option
+              key={`${project.environmentId}:${project.id}`}
+              value={`${project.environmentId}\u0000${project.workspaceRoot}`}
+            >
+              {project.title} — {project.workspaceRoot}
+            </option>
+          ))}
+        </select>
+        <Button size="xs" className="mt-2 w-full" disabled={!targetCwd} onClick={onCheckout}>
+          <GitPullRequestArrowIcon className="size-3.5" /> Fazer checkout
+        </Button>
+      </section>
+    </aside>
+  );
+}
+
+function SidebarRow({ label, value }: { readonly label: string; readonly value: ReactNode }) {
+  return (
+    <>
+      <dt className="shrink-0 text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 text-right text-foreground">{value}</dd>
+    </>
   );
 }
 
@@ -1068,12 +1873,17 @@ export function GitHubPullRequestDetailsPage() {
   const projects = useProjects();
   const [tab, setTab] = useState<"overview" | "conversation" | "checks" | "diff">("overview");
   const [body, setBody] = useState("");
+  const [commentAsReview, setCommentAsReview] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const [editBody, setEditBody] = useState("");
+  const [showMarkdownPreview, setShowMarkdownPreview] = useState(false);
   const [targetCwd, setTargetCwd] = useState("");
   const [labels, setLabels] = useState("");
   const [assignees, setAssignees] = useState("");
   const [reviewers, setReviewers] = useState("");
+  const [localReviewAction, setLocalReviewAction] = useState<"approve" | "request_changes" | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!detailQuery.data) return;
@@ -1085,13 +1895,19 @@ export function GitHubPullRequestDetailsPage() {
     toastManager.add(stackedThreadToast({ type, title, ...(description ? { description } : {}) }));
   };
 
-  const executeAction = async (action: GitHubPullRequestAction, confirmation?: string) => {
+  const executeAction = async (
+    action: GitHubPullRequestAction,
+    options: { confirmation?: string; trackReview?: "approve" | "request_changes" } = {},
+  ) => {
+    const { confirmation, trackReview } = options;
     if (confirmation && !window.confirm(confirmation)) return;
     const result = await runAction({ environmentId: environmentIdForRpc!, input: action });
     if (result._tag === "Failure") {
       notify("A ação falhou", "error", "O GitHub não aceitou a operação.");
       return;
     }
+    if (trackReview) setLocalReviewAction(trackReview);
+    if (action.kind === "comment") setBody("");
     notify("Ação concluída", "success", result.value.message);
     detailQuery.refresh();
     checksQuery.refresh();
@@ -1103,7 +1919,7 @@ export function GitHubPullRequestDetailsPage() {
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden bg-background text-foreground">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3 sm:px-6">
+        <header className="flex flex-wrap items-start gap-3 border-b border-border px-4 py-3 sm:px-6">
           <Button
             size="xs"
             variant="ghost"
@@ -1111,9 +1927,19 @@ export function GitHubPullRequestDetailsPage() {
           >
             ← PRs
           </Button>
-          <div className="min-w-0 flex-1">
-            <div className="text-xs text-muted-foreground">
-              {reference.repository} #{number}
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span className="font-mono">{reference.repository}</span>
+              <span className="font-mono">#{number}</span>
+              {detail ? <PullRequestStatePill state={detail.state} /> : null}
+              {detail?.isDraft ? <PullRequestDraftPill /> : null}
+              {detail ? <PullRequestReviewPill decision={detail.reviewDecision} /> : null}
+              {localReviewAction === "approve" ? (
+                <PullRequestLocalReviewPill variant="approve" />
+              ) : null}
+              {localReviewAction === "request_changes" ? (
+                <PullRequestLocalReviewPill variant="request_changes" />
+              ) : null}
             </div>
             <h1 className="truncate text-sm font-semibold">
               {detail?.title ?? "Carregando pull request..."}
@@ -1128,14 +1954,16 @@ export function GitHubPullRequestDetailsPage() {
                   document.getElementById("pr-editor")?.scrollIntoView({ behavior: "smooth" })
                 }
               >
-                Editar PR
+                <PencilLineIcon className="size-3.5" /> Editar PR
               </Button>
               <Button
-                size="xs"
+                size="icon-xs"
                 variant="outline"
                 onClick={() => window.open(detail.url, "_blank", "noopener,noreferrer")}
+                aria-label="Abrir no GitHub"
+                title="Abrir no GitHub"
               >
-                <ExternalLinkIcon className="size-3.5" /> GitHub
+                <ExternalLinkIcon />
               </Button>
             </div>
           ) : null}
@@ -1147,309 +1975,113 @@ export function GitHubPullRequestDetailsPage() {
         ) : null}
         {detail ? (
           <main className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">
-            <div className="flex flex-wrap gap-1.5 border-b border-border pb-3">
-              {(["overview", "conversation", "checks", "diff"] as const).map((value) => (
-                <Button
-                  key={value}
-                  size="xs"
-                  variant={tab === value ? "default" : "outline"}
-                  onClick={() => setTab(value)}
-                >
-                  {value === "overview"
-                    ? "Resumo"
-                    : value === "conversation"
-                      ? "Conversa"
-                      : value === "checks"
-                        ? "Checks"
-                        : "Diff"}
-                </Button>
-              ))}
+            <div
+              role="tablist"
+              aria-label="Seções da pull request"
+              className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-muted/30 p-0.5"
+            >
+              {(
+                [
+                  { value: "overview", label: "Resumo", Icon: FileTextIcon },
+                  { value: "conversation", label: "Conversa", Icon: MessageSquareIcon },
+                  { value: "checks", label: "Checks", Icon: CheckCheckIcon },
+                  { value: "diff", label: "Diff", Icon: GitMergeIcon },
+                ] as const
+              ).map(({ value, label, Icon }) => {
+                const isActive = tab === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    onClick={() => setTab(value)}
+                    className={cn(
+                      "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+                      isActive
+                        ? "bg-background text-foreground shadow-xs/5"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <Icon className="size-3.5" />
+                    {label}
+                  </button>
+                );
+              })}
             </div>
 
             {tab === "overview" ? (
               <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
                 <section className="space-y-4">
-                  <div className="flex flex-wrap gap-2">
-                    <ActionButton
-                      onClick={() =>
-                        void executeAction({
+                  <PullRequestActionsPanel
+                    detail={detail}
+                    localReviewAction={localReviewAction}
+                    onApprove={() =>
+                      void executeAction(
+                        {
                           repository: reference.repository,
                           number,
                           kind: "review",
                           decision: "approve",
-                        })
-                      }
-                    >
-                      Approve
-                    </ActionButton>
-                    <ActionButton
-                      onClick={() =>
-                        void executeAction({
+                        },
+                        { trackReview: "approve" },
+                      )
+                    }
+                    onRequestChanges={() =>
+                      void executeAction(
+                        {
                           repository: reference.repository,
                           number,
                           kind: "review",
                           decision: "request_changes",
                           body: "Please address the requested changes.",
-                        })
-                      }
-                    >
-                      Request changes
-                    </ActionButton>
-                    <ActionButton
-                      onClick={() =>
-                        void executeAction({
+                        },
+                        { trackReview: "request_changes" },
+                      )
+                    }
+                    onToggleDraft={() =>
+                      void executeAction({
+                        repository: reference.repository,
+                        number,
+                        kind: detail.isDraft ? "ready" : "draft",
+                      } as GitHubPullRequestAction)
+                    }
+                    onClose={() =>
+                      void executeAction(
+                        { repository: reference.repository, number, kind: "close" },
+                        { confirmation: "Fechar esta pull request?" },
+                      )
+                    }
+                    onReopen={() =>
+                      void executeAction(
+                        { repository: reference.repository, number, kind: "reopen" },
+                        { confirmation: "Reabrir esta pull request?" },
+                      )
+                    }
+                    onSquashMerge={() =>
+                      void executeAction(
+                        {
                           repository: reference.repository,
                           number,
-                          kind: detail.isDraft ? "ready" : "draft",
-                        } as GitHubPullRequestAction)
-                      }
-                    >
-                      {" "}
-                      {detail.isDraft ? "Mark ready" : "Mark draft"}
-                    </ActionButton>
-                    <ActionButton
-                      onClick={() =>
-                        void executeAction(
-                          { repository: reference.repository, number, kind: "close" },
-                          "Fechar esta pull request?",
-                        )
-                      }
-                    >
-                      Close
-                    </ActionButton>
-                    {detail.state === "closed" ? (
-                      <ActionButton
-                        onClick={() =>
-                          void executeAction(
-                            { repository: reference.repository, number, kind: "reopen" },
-                            "Reabrir esta pull request?",
-                          )
-                        }
-                      >
-                        Reopen
-                      </ActionButton>
-                    ) : null}
-                    <ActionButton
-                      onClick={() =>
-                        void executeAction(
-                          {
-                            repository: reference.repository,
-                            number,
-                            kind: "merge",
-                            strategy: "squash",
-                          },
-                          "Fazer squash e merge desta pull request?",
-                        )
-                      }
-                    >
-                      Squash merge
-                    </ActionButton>
-                    <ActionButton
-                      onClick={() =>
-                        void executeAction(
-                          {
-                            repository: reference.repository,
-                            number,
-                            kind: "merge",
-                            strategy: "merge",
-                            auto: true,
-                          },
-                          "Ativar auto-merge desta pull request?",
-                        )
-                      }
-                    >
-                      Auto-merge
-                    </ActionButton>
-                  </div>
-                  <div className="rounded-xl border border-border p-4">
-                    <PullRequestMarkdown text={detail.body || "Sem descrição."} />
-                  </div>
-                  <div id="pr-editor" className="space-y-3 rounded-xl border border-border p-4">
-                    <div>
-                      <h2 className="text-sm font-semibold">Editar pull request</h2>
-                      <p className="text-xs text-muted-foreground">
-                        Altere o título e a descrição Markdown e salve no GitHub.
-                      </p>
-                    </div>
-                    <div className="grid gap-2 sm:grid-cols-3">
-                      <Input
-                        value={editTitle}
-                        onChange={(event) => setEditTitle(event.target.value)}
-                        aria-label="PR title"
-                      />
-                      <Textarea
-                        value={editBody}
-                        onChange={(event) => setEditBody(event.target.value)}
-                        aria-label="PR body"
-                        className="min-h-32 sm:col-span-2"
-                      />
-                      <Button
-                        disabled={
-                          !editTitle.trim() ||
-                          (editTitle === detail.title && editBody === detail.body)
-                        }
-                        size="xs"
-                        onClick={() =>
-                          void executeAction({
-                            repository: reference.repository,
-                            number,
-                            kind: "edit",
-                            title: editTitle.trim(),
-                            body: editBody,
-                          })
-                        }
-                      >
-                        Salvar edição
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Input
-                      value={body}
-                      onChange={(event) => setBody(event.target.value)}
-                      placeholder="Adicionar comentário"
-                      aria-label="Comment body"
-                      className="min-w-64 flex-1"
-                    />
-                    <Button
-                      size="xs"
-                      disabled={!body.trim()}
-                      onClick={() =>
-                        void executeAction({
+                          kind: "merge",
+                          strategy: "squash",
+                        },
+                        { confirmation: "Fazer squash e merge desta pull request?" },
+                      )
+                    }
+                    onAutoMerge={() =>
+                      void executeAction(
+                        {
                           repository: reference.repository,
                           number,
-                          kind: "comment",
-                          body,
-                        })
-                      }
-                    >
-                      Comentar
-                    </Button>
-                  </div>
-                  <div className="grid gap-2 rounded-xl border border-border p-3 sm:grid-cols-3">
-                    <div className="space-y-1">
-                      <label className="text-xs text-muted-foreground" htmlFor="pr-labels">
-                        Labels (vírgula)
-                      </label>
-                      <Input
-                        id="pr-labels"
-                        value={labels}
-                        onChange={(event) => setLabels(event.target.value)}
-                        placeholder="bug, priority"
-                      />
-                      <div className="flex gap-1">
-                        <Button
-                          size="xs"
-                          onClick={() =>
-                            void executeAction({
-                              repository: reference.repository,
-                              number,
-                              kind: "labels",
-                              add: csvValues(labels),
-                            })
-                          }
-                        >
-                          Adicionar
-                        </Button>
-                        <Button
-                          size="xs"
-                          variant="ghost"
-                          onClick={() =>
-                            void executeAction({
-                              repository: reference.repository,
-                              number,
-                              kind: "labels",
-                              remove: csvValues(labels),
-                            })
-                          }
-                        >
-                          Remover
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs text-muted-foreground" htmlFor="pr-assignees">
-                        Assignees (vírgula)
-                      </label>
-                      <Input
-                        id="pr-assignees"
-                        value={assignees}
-                        onChange={(event) => setAssignees(event.target.value)}
-                        placeholder="@me, user"
-                      />
-                      <div className="flex gap-1">
-                        <Button
-                          size="xs"
-                          onClick={() =>
-                            void executeAction({
-                              repository: reference.repository,
-                              number,
-                              kind: "assignees",
-                              add: csvValues(assignees),
-                            })
-                          }
-                        >
-                          Adicionar
-                        </Button>
-                        <Button
-                          size="xs"
-                          variant="ghost"
-                          onClick={() =>
-                            void executeAction({
-                              repository: reference.repository,
-                              number,
-                              kind: "assignees",
-                              remove: csvValues(assignees),
-                            })
-                          }
-                        >
-                          Remover
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs text-muted-foreground" htmlFor="pr-reviewers">
-                        Reviewers (vírgula)
-                      </label>
-                      <Input
-                        id="pr-reviewers"
-                        value={reviewers}
-                        onChange={(event) => setReviewers(event.target.value)}
-                        placeholder="user, org/team"
-                      />
-                      <div className="flex gap-1">
-                        <Button
-                          size="xs"
-                          onClick={() =>
-                            void executeAction({
-                              repository: reference.repository,
-                              number,
-                              kind: "reviewers",
-                              add: csvValues(reviewers),
-                            })
-                          }
-                        >
-                          Adicionar
-                        </Button>
-                        <Button
-                          size="xs"
-                          variant="ghost"
-                          onClick={() =>
-                            void executeAction({
-                              repository: reference.repository,
-                              number,
-                              kind: "reviewers",
-                              remove: csvValues(reviewers),
-                            })
-                          }
-                        >
-                          Remover
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                  <ActionButton
-                    onClick={() =>
+                          kind: "merge",
+                          strategy: "merge",
+                          auto: true,
+                        },
+                        { confirmation: "Ativar auto-merge desta pull request?" },
+                      )
+                    }
+                    onUpdateBranch={() =>
                       void executeAction(
                         {
                           repository: reference.repository,
@@ -1457,105 +2089,198 @@ export function GitHubPullRequestDetailsPage() {
                           kind: "update_branch",
                           rebase: false,
                         },
-                        "Atualizar a branch desta pull request?",
+                        { confirmation: "Atualizar a branch desta pull request?" },
                       )
                     }
-                  >
-                    Update branch
-                  </ActionButton>
-                </section>
-                <aside className="space-y-3 rounded-xl border border-border p-4 text-xs text-muted-foreground">
-                  <div>
-                    <strong className="text-foreground">Autor:</strong>{" "}
-                    {detail.author?.login ?? "—"}
-                  </div>
-                  <div>
-                    <strong className="text-foreground">Branch:</strong> {detail.headRefName} →{" "}
-                    {detail.baseRefName}
-                  </div>
-                  <div>
-                    <strong className="text-foreground">Alterações:</strong> +{detail.additions} / -
-                    {detail.deletions} em {detail.changedFiles} arquivos
-                  </div>
-                  <div>
-                    <strong className="text-foreground">Review:</strong>{" "}
-                    {detail.reviewDecision ?? "—"}
-                  </div>
-                  <div>
-                    <strong className="text-foreground">Labels:</strong>{" "}
-                    {detail.labels.map((label) => label.name).join(", ") || "—"}
-                  </div>
-                  <div className="border-t border-border pt-3">
-                    <div className="mb-2 font-medium text-foreground">
-                      Checkout em projeto/worktree
-                    </div>
-                    <select
-                      className="h-8 w-full rounded-md border border-input bg-background px-2"
-                      value={targetCwd}
-                      onChange={(event) => setTargetCwd(event.target.value)}
-                    >
-                      <option value="">Escolher destino...</option>
-                      {projects.map((project) => (
-                        <option
-                          key={`${project.environmentId}:${project.id}`}
-                          value={`${project.environmentId}\u0000${project.workspaceRoot}`}
-                        >
-                          {project.title} — {project.workspaceRoot}
-                        </option>
-                      ))}
-                    </select>
-                    <Button
-                      size="xs"
-                      className="mt-2 w-full"
-                      disabled={!targetCwd}
-                      onClick={async () => {
-                        const [targetEnvironmentId, cwd] = targetCwd.split("\u0000");
-                        if (
-                          !targetEnvironmentId ||
-                          !cwd ||
-                          !window.confirm("Fazer checkout desta PR no destino escolhido?")
-                        )
-                          return;
-                        const result = await checkout({
-                          environmentId: targetEnvironmentId as EnvironmentId,
-                          input: { repository: reference.repository, number, cwd },
+                  />
+                  <PullRequestDescriptionCard detail={detail} />
+                  <PullRequestEditor
+                    detail={detail}
+                    editTitle={editTitle}
+                    editBody={editBody}
+                    showMarkdownPreview={showMarkdownPreview}
+                    onEditTitleChange={setEditTitle}
+                    onEditBodyChange={setEditBody}
+                    onTogglePreview={setShowMarkdownPreview}
+                    onSave={() =>
+                      void executeAction({
+                        repository: reference.repository,
+                        number,
+                        kind: "edit",
+                        title: editTitle.trim(),
+                        body: editBody,
+                      })
+                    }
+                    onDiscard={() => {
+                      setEditTitle(detail.title);
+                      setEditBody(detail.body);
+                    }}
+                  />
+                  <PullRequestCommentComposer
+                    body={body}
+                    onBodyChange={setBody}
+                    asReview={commentAsReview}
+                    onAsReviewChange={setCommentAsReview}
+                    onSubmit={() => {
+                      if (!body.trim()) return;
+                      if (commentAsReview) {
+                        void executeAction({
+                          repository: reference.repository,
+                          number,
+                          kind: "review",
+                          decision: "comment",
+                          body,
                         });
-                        notify(
-                          result._tag === "Success" ? "Checkout concluído" : "Checkout falhou",
-                          result._tag === "Success" ? "success" : "error",
-                        );
-                      }}
-                    >
-                      Fazer checkout
-                    </Button>
-                  </div>
-                </aside>
+                      } else {
+                        void executeAction({
+                          repository: reference.repository,
+                          number,
+                          kind: "comment",
+                          body,
+                        });
+                      }
+                    }}
+                  />
+                  <PullRequestMetadataPanel
+                    detail={detail}
+                    labels={labels}
+                    assignees={assignees}
+                    reviewers={reviewers}
+                    onLabelsChange={setLabels}
+                    onAssigneesChange={setAssignees}
+                    onReviewersChange={setReviewers}
+                    onAddLabels={(values) =>
+                      void executeAction({
+                        repository: reference.repository,
+                        number,
+                        kind: "labels",
+                        add: values,
+                      })
+                    }
+                    onRemoveLabel={(name) =>
+                      void executeAction({
+                        repository: reference.repository,
+                        number,
+                        kind: "labels",
+                        remove: [name],
+                      })
+                    }
+                    onAddAssignees={(values) =>
+                      void executeAction({
+                        repository: reference.repository,
+                        number,
+                        kind: "assignees",
+                        add: values,
+                      })
+                    }
+                    onRemoveAssignee={(login) =>
+                      void executeAction({
+                        repository: reference.repository,
+                        number,
+                        kind: "assignees",
+                        remove: [login],
+                      })
+                    }
+                    onAddReviewers={(values) =>
+                      void executeAction({
+                        repository: reference.repository,
+                        number,
+                        kind: "reviewers",
+                        add: values,
+                      })
+                    }
+                    onRemoveReviewer={(login) =>
+                      void executeAction({
+                        repository: reference.repository,
+                        number,
+                        kind: "reviewers",
+                        remove: [login],
+                      })
+                    }
+                  />
+                </section>
+                <PullRequestSidebar
+                  detail={detail}
+                  projects={projects}
+                  targetCwd={targetCwd}
+                  onTargetCwdChange={setTargetCwd}
+                  onCheckout={async () => {
+                    const [targetEnvironmentId, cwd] = targetCwd.split("\u0000");
+                    if (
+                      !targetEnvironmentId ||
+                      !cwd ||
+                      !window.confirm("Fazer checkout desta PR no destino escolhido?")
+                    )
+                      return;
+                    const result = await checkout({
+                      environmentId: targetEnvironmentId as EnvironmentId,
+                      input: { repository: reference.repository, number, cwd },
+                    });
+                    notify(
+                      result._tag === "Success" ? "Checkout concluído" : "Checkout falhou",
+                      result._tag === "Success" ? "success" : "error",
+                    );
+                  }}
+                />
               </div>
             ) : null}
             {tab === "conversation" ? (
               <div className="mt-4 space-y-3">
-                {detail.reviews.map((review) => (
-                  <article
-                    key={`review-${review.author?.login ?? "unknown"}-${review.submittedAt ?? review.state}-${review.body}`}
-                    className="rounded-xl border border-border p-4"
-                  >
-                    <div className="text-xs font-medium">
-                      {review.author?.login ?? "Usuário"} — {review.state}
-                    </div>
-                    <PullRequestMarkdown text={review.body || "Sem comentário."} className="mt-2" />
-                  </article>
-                ))}
+                {detail.reviews.map((review) => {
+                  const presentation = reviewStatePresentation(review.state);
+                  const PresentationIcon = presentation.Icon;
+                  return (
+                    <article
+                      key={`review-${review.author?.login ?? "unknown"}-${review.submittedAt ?? review.state}-${review.body}`}
+                      className="rounded-xl border border-border p-4"
+                    >
+                      <header className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                          <span className="font-medium text-foreground">
+                            {review.author?.login ?? "Usuário"}
+                          </span>
+                          <Badge
+                            size="sm"
+                            className={cn("gap-1", presentation.className)}
+                            title={presentation.label}
+                          >
+                            <PresentationIcon className="size-3" />
+                            {presentation.label}
+                          </Badge>
+                        </div>
+                        {review.submittedAt ? (
+                          <span className="text-xs text-muted-foreground">
+                            {formatDate(review.submittedAt)}
+                          </span>
+                        ) : null}
+                      </header>
+                      <PullRequestMarkdown
+                        text={review.body || "Sem comentário."}
+                        className="mt-2"
+                      />
+                    </article>
+                  );
+                })}
                 {detail.comments.map((comment) => (
                   <article
                     key={`comment-${comment.author?.login ?? "unknown"}-${comment.createdAt ?? comment.body}`}
                     className="rounded-xl border border-border p-4"
                   >
-                    <div className="text-xs font-medium">{comment.author?.login ?? "Usuário"}</div>
+                    <header className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <span className="font-medium text-foreground">
+                        {comment.author?.login ?? "Usuário"}
+                      </span>
+                      {comment.createdAt ? (
+                        <span className="text-muted-foreground">
+                          {formatDate(comment.createdAt)}
+                        </span>
+                      ) : null}
+                    </header>
                     <PullRequestMarkdown text={comment.body} className="mt-2" />
                   </article>
                 ))}
                 {detail.reviews.length === 0 && detail.comments.length === 0 ? (
-                  <div className="p-8 text-center text-sm text-muted-foreground">
+                  <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
                     Nenhuma conversa encontrada.
                   </div>
                 ) : null}
@@ -1563,34 +2288,63 @@ export function GitHubPullRequestDetailsPage() {
             ) : null}
             {tab === "checks" ? (
               <div className="mt-4 space-y-2">
-                {(checksQuery.data?.checks ?? detail.checks).map((check) => (
-                  <div
-                    key={`${check.name}-${check.link ?? ""}`}
-                    className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-3 text-sm"
-                  >
-                    <span className="font-medium">{check.name}</span>
-                    <span className="text-muted-foreground">{check.bucket || check.state}</span>
-                    {check.link ? (
-                      <a
-                        className="ms-auto text-primary underline"
-                        href={check.link}
-                        target="_blank"
-                        rel="noreferrer"
+                {(() => {
+                  const checks = checksQuery.data?.checks ?? detail.checks;
+                  if (checks.length === 0) {
+                    return (
+                      <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+                        Nenhum check encontrado.
+                      </div>
+                    );
+                  }
+                  return checks.map((check) => {
+                    const haystack = `${check.bucket} ${check.state}`.toLowerCase();
+                    const isFailure = ["fail", "failure", "error", "cancel"].some((value) =>
+                      haystack.includes(value),
+                    );
+                    const isPending = ["pending", "queue", "progress"].some((value) =>
+                      haystack.includes(value),
+                    );
+                    const ciStatus: GitHubPullRequestCiStatus = isFailure
+                      ? "failure"
+                      : isPending
+                        ? "pending"
+                        : check.state
+                          ? "success"
+                          : "none";
+                    return (
+                      <div
+                        key={`${check.name}-${check.link ?? ""}`}
+                        className="flex flex-wrap items-center gap-3 rounded-lg border border-border p-3 text-sm"
                       >
-                        Abrir
-                      </a>
-                    ) : null}
-                  </div>
-                ))}
-                {!checksQuery.data?.checks.length && !detail.checks.length ? (
-                  <div className="p-8 text-center text-sm text-muted-foreground">
-                    Nenhum check encontrado.
-                  </div>
-                ) : null}
+                        <PullRequestStatusIndicator kind="ci" status={ciStatus} />
+                        <span className="font-medium text-foreground">{check.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {check.bucket || check.state}
+                        </span>
+                        {check.completedAt ? (
+                          <span className="text-xs text-muted-foreground">
+                            · {formatDate(check.completedAt)}
+                          </span>
+                        ) : null}
+                        {check.link ? (
+                          <a
+                            className="ms-auto inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline"
+                            href={check.link}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Abrir <ExternalLinkIcon className="size-3" />
+                          </a>
+                        ) : null}
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             ) : null}
             {tab === "diff" ? (
-              <pre className="mt-4 overflow-auto rounded-xl border border-border bg-muted/20 p-4 text-xs leading-5">
+              <pre className="mt-4 max-h-[calc(100dvh-14rem)] overflow-auto rounded-xl border border-border bg-zinc-950 p-4 font-mono text-xs leading-5 text-zinc-100 shadow-inner dark:bg-zinc-950/95">
                 {diffQuery.data?.diff ?? "Carregando diff..."}
               </pre>
             ) : null}
