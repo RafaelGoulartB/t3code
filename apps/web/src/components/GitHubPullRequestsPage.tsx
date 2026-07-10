@@ -13,6 +13,7 @@ import type {
   GitHubPullRequestStateFilter,
 } from "@t3tools/contracts";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { FileDiff } from "@pierre/diffs/react";
 import {
   AlertCircleIcon,
   CheckCheckIcon,
@@ -46,8 +47,14 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
+import { useTheme } from "../hooks/useTheme";
 import { usePreparePullRequestThreadAction } from "../lib/sourceControlActions";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
+import {
+  buildFileDiffRenderKey,
+  getRenderablePatch,
+  resolveDiffThemeName,
+} from "../lib/diffRendering";
 import { useAtomCommand } from "../state/use-atom-command";
 import { githubPullRequestEnvironment } from "../state/githubPullRequests";
 import { useEnvironmentQuery } from "../state/query";
@@ -72,6 +79,7 @@ import { Badge } from "./ui/badge";
 import { Switch } from "./ui/switch";
 import { Toggle } from "./ui/toggle";
 import { cn } from "../lib/utils";
+import { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 import {
   clearPullRequestFilters,
   pullRequestSearchToInput,
@@ -1365,6 +1373,57 @@ function PullRequestDescriptionCard({ detail }: { readonly detail: GitHubPullReq
   );
 }
 
+function PullRequestDiff({
+  patch,
+  isLoading,
+}: {
+  readonly patch: string | undefined;
+  readonly isLoading: boolean;
+}) {
+  const { resolvedTheme } = useTheme();
+  const renderablePatch = useMemo(() => getRenderablePatch(patch, "pull-request"), [patch]);
+
+  return (
+    <DiffWorkerPoolProvider>
+      <div className="diff-render-surface mt-4 min-w-0 space-y-3">
+        {isLoading && !renderablePatch ? (
+          <div className="rounded-xl border border-border p-8 text-center text-sm text-muted-foreground">
+            Carregando diff...
+          </div>
+        ) : renderablePatch?.kind === "files" ? (
+          renderablePatch.files.map((fileDiff) => (
+            <FileDiff
+              key={buildFileDiffRenderKey(fileDiff)}
+              className="diff-render-file"
+              fileDiff={fileDiff}
+              options={{
+                collapsed: false,
+                diffStyle: "unified",
+                lineDiffType: "none",
+                overflow: "scroll",
+                stickyHeader: true,
+                theme: resolveDiffThemeName(resolvedTheme),
+                themeType: resolvedTheme,
+              }}
+            />
+          ))
+        ) : renderablePatch?.kind === "raw" ? (
+          <div className="space-y-2 rounded-xl border border-border bg-background p-4">
+            <p className="text-xs text-muted-foreground">{renderablePatch.reason}</p>
+            <pre className="overflow-auto whitespace-pre-wrap wrap-break-word font-mono text-xs leading-5 text-muted-foreground">
+              {renderablePatch.text}
+            </pre>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+            Nenhum diff encontrado.
+          </div>
+        )}
+      </div>
+    </DiffWorkerPoolProvider>
+  );
+}
+
 function PullRequestEditor({
   detail,
   editTitle,
@@ -1491,8 +1550,9 @@ function PullRequestEditor({
         )}
       </div>
       <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
-        <Button size="xs" variant="ghost" disabled={!isDirty} onClick={onDiscard}>
-          <Trash2Icon className="size-3.5" /> Descartar
+        <Button size="xs" variant="ghost" onClick={onDiscard}>
+          {isDirty ? <Trash2Icon className="size-3.5" /> : <XIcon className="size-3.5" />}
+          {isDirty ? "Descartar" : "Cancelar"}
         </Button>
         <Button size="xs" disabled={isTitleInvalid || !isDirty} onClick={onSave}>
           <PencilLineIcon className="size-3.5" /> Salvar edição
@@ -1876,6 +1936,7 @@ export function GitHubPullRequestDetailsPage() {
   const [commentAsReview, setCommentAsReview] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const [editBody, setEditBody] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
   const [showMarkdownPreview, setShowMarkdownPreview] = useState(false);
   const [targetCwd, setTargetCwd] = useState("");
   const [labels, setLabels] = useState("");
@@ -1908,6 +1969,10 @@ export function GitHubPullRequestDetailsPage() {
     }
     if (trackReview) setLocalReviewAction(trackReview);
     if (action.kind === "comment") setBody("");
+    if (action.kind === "edit") {
+      setIsEditing(false);
+      setShowMarkdownPreview(false);
+    }
     notify("Ação concluída", "success", result.value.message);
     detailQuery.refresh();
     checksQuery.refresh();
@@ -1948,13 +2013,22 @@ export function GitHubPullRequestDetailsPage() {
           {detail ? (
             <div className="flex items-center gap-2">
               <Button
-                size="xs"
+                size="icon-xs"
                 variant="outline"
-                onClick={() =>
-                  document.getElementById("pr-editor")?.scrollIntoView({ behavior: "smooth" })
-                }
+                aria-label="Editar pull request"
+                title="Editar pull request"
+                onClick={() => {
+                  setTab("overview");
+                  setIsEditing(true);
+                  requestAnimationFrame(() =>
+                    document.getElementById("pr-editor")?.scrollIntoView({
+                      behavior: "smooth",
+                      block: "start",
+                    }),
+                  );
+                }}
               >
-                <PencilLineIcon className="size-3.5" /> Editar PR
+                <PencilLineIcon className="size-3.5" />
               </Button>
               <Button
                 size="icon-xs"
@@ -2093,29 +2167,34 @@ export function GitHubPullRequestDetailsPage() {
                       )
                     }
                   />
-                  <PullRequestDescriptionCard detail={detail} />
-                  <PullRequestEditor
-                    detail={detail}
-                    editTitle={editTitle}
-                    editBody={editBody}
-                    showMarkdownPreview={showMarkdownPreview}
-                    onEditTitleChange={setEditTitle}
-                    onEditBodyChange={setEditBody}
-                    onTogglePreview={setShowMarkdownPreview}
-                    onSave={() =>
-                      void executeAction({
-                        repository: reference.repository,
-                        number,
-                        kind: "edit",
-                        title: editTitle.trim(),
-                        body: editBody,
-                      })
-                    }
-                    onDiscard={() => {
-                      setEditTitle(detail.title);
-                      setEditBody(detail.body);
-                    }}
-                  />
+                  {isEditing ? (
+                    <PullRequestEditor
+                      detail={detail}
+                      editTitle={editTitle}
+                      editBody={editBody}
+                      showMarkdownPreview={showMarkdownPreview}
+                      onEditTitleChange={setEditTitle}
+                      onEditBodyChange={setEditBody}
+                      onTogglePreview={setShowMarkdownPreview}
+                      onSave={() =>
+                        void executeAction({
+                          repository: reference.repository,
+                          number,
+                          kind: "edit",
+                          title: editTitle.trim(),
+                          body: editBody,
+                        })
+                      }
+                      onDiscard={() => {
+                        setEditTitle(detail.title);
+                        setEditBody(detail.body);
+                        setShowMarkdownPreview(false);
+                        setIsEditing(false);
+                      }}
+                    />
+                  ) : (
+                    <PullRequestDescriptionCard detail={detail} />
+                  )}
                   <PullRequestCommentComposer
                     body={body}
                     onBodyChange={setBody}
@@ -2344,9 +2423,7 @@ export function GitHubPullRequestDetailsPage() {
               </div>
             ) : null}
             {tab === "diff" ? (
-              <pre className="mt-4 max-h-[calc(100dvh-14rem)] overflow-auto rounded-xl border border-border bg-zinc-950 p-4 font-mono text-xs leading-5 text-zinc-100 shadow-inner dark:bg-zinc-950/95">
-                {diffQuery.data?.diff ?? "Carregando diff..."}
-              </pre>
+              <PullRequestDiff patch={diffQuery.data?.diff} isLoading={diffQuery.isPending} />
             ) : null}
           </main>
         ) : null}
