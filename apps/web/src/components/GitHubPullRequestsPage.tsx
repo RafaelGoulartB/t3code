@@ -540,6 +540,12 @@ function PullRequestCardDetails({
   const detail = query.data;
   const checks = detail?.checks ?? [];
   const reviewComments = detail?.reviews.filter((review) => review.body.trim()) ?? [];
+  const inlineReviewComments =
+    detail?.reviewThreads.flatMap((thread) =>
+      thread.comments
+        .filter((comment) => comment.body.trim())
+        .map((comment) => ({ thread, comment })),
+    ) ?? [];
 
   return (
     <div id={id} className="mt-4 border-t border-border pt-4">
@@ -613,6 +619,66 @@ function PullRequestCardDetails({
               ) : (
                 <p className="mt-2 text-xs text-muted-foreground">
                   Nenhum comentário foi deixado nas revisões desta PR.
+                </p>
+              )}
+            </section>
+            <section
+              className="rounded-lg border border-primary/30 bg-primary/5 p-3"
+              aria-label="Comentários no código"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  <GitPullRequestIcon className="size-4 text-primary" aria-hidden="true" />
+                  Comentários no código
+                </div>
+                <span className="rounded-full bg-background px-2 py-0.5 text-xs text-muted-foreground">
+                  {inlineReviewComments.length}
+                </span>
+              </div>
+              {inlineReviewComments.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  {inlineReviewComments.map(({ thread, comment }) => {
+                    const line = thread.line ?? thread.originalLine;
+                    return (
+                      <article
+                        key={`${thread.path}-${line ?? "unknown"}-${comment.author?.login ?? "unknown"}-${comment.createdAt ?? comment.body}`}
+                        className="rounded-md border border-border/70 bg-background/70 p-3"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                          <code className="min-w-0 truncate font-medium text-foreground">
+                            {thread.path}
+                            {line ? `:${line}` : ""}
+                          </code>
+                          <span
+                            className={
+                              thread.isResolved
+                                ? "text-emerald-700 dark:text-emerald-300"
+                                : thread.isOutdated
+                                  ? "text-muted-foreground"
+                                  : "text-amber-700 dark:text-amber-300"
+                            }
+                          >
+                            {thread.isResolved
+                              ? "Resolvido"
+                              : thread.isOutdated
+                                ? "Desatualizado"
+                                : "Aberto"}
+                          </span>
+                        </div>
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          {comment.author?.login ?? "Usuário"}
+                          {comment.createdAt ? ` - ${formatDate(comment.createdAt)}` : ""}
+                        </div>
+                        <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">
+                          {comment.body}
+                        </p>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Nenhum comentário linha a linha foi deixado nesta PR.
                 </p>
               )}
             </section>

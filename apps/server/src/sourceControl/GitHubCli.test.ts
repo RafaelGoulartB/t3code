@@ -184,6 +184,26 @@ describe("GitHubCli.layer", () => {
                     assignees: { nodes: [] },
                     reviewRequests: { nodes: [] },
                     reviews: { nodes: [] },
+                    reviewThreads: {
+                      nodes: [
+                        {
+                          path: "src/main.ts",
+                          line: 42,
+                          originalLine: 40,
+                          isResolved: false,
+                          isOutdated: false,
+                          comments: {
+                            nodes: [
+                              {
+                                author: { login: "reviewer" },
+                                body: "Please extract this helper.",
+                                createdAt: "2026-07-10T01:30:00Z",
+                              },
+                            ],
+                          },
+                        },
+                      ],
+                    },
                     comments: { nodes: [] },
                     statusCheckRollup: {
                       contexts: {
@@ -215,6 +235,8 @@ describe("GitHubCli.layer", () => {
       assert.equal(result.title, "Detailed PR");
       assert.equal(result.reviewDecision, "REVIEW_REQUIRED");
       assert.equal(result.checks[0]?.bucket, "pass");
+      assert.equal(result.reviewThreads[0]?.path, "src/main.ts");
+      assert.equal(result.reviewThreads[0]?.comments[0]?.body, "Please extract this helper.");
       expect(mockRun.mock.calls[0]?.[0].args).toEqual(
         expect.arrayContaining(["api", "graphql", "-F", "number=10"]),
       );

@@ -10,12 +10,14 @@ import {
   type GitHubPullRequestAction,
   type GitHubPullRequestActionResult,
   type GitHubPullRequestCheck,
+  type GitHubPullRequestComment,
   type GitHubPullRequestChecksResult,
   type GitHubPullRequestDetails,
   type GitHubPullRequestDetailsInput,
   type GitHubPullRequestDiffResult,
   type GitHubPullRequestListInput,
   type GitHubPullRequestListResult,
+  type GitHubPullRequestReviewThread,
   type SourceControlRepositoryVisibility,
   type VcsError,
 } from "@t3tools/contracts";
@@ -373,6 +375,38 @@ function labelValues(value: unknown): ReadonlyArray<{ name: string; color?: stri
     .filter((label): label is { name: string; color?: string } => label !== null);
 }
 
+function commentValues(value: unknown): ReadonlyArray<GitHubPullRequestComment> {
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => {
+    const record = asRecord(entry);
+    return {
+      author: actorValue(record.author),
+      body: typeof record.body === "string" ? record.body : "",
+      createdAt: nullableStringValue(record.createdAt),
+    };
+  });
+}
+
+function reviewThreadValues(value: unknown): ReadonlyArray<GitHubPullRequestReviewThread> {
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => {
+    const record = asRecord(entry);
+    const line = typeof record.line === "number" && record.line > 0 ? record.line : null;
+    const originalLine =
+      typeof record.originalLine === "number" && record.originalLine > 0
+        ? record.originalLine
+        : null;
+    return {
+      path: stringValue(record.path) ?? "unknown",
+      line,
+      originalLine,
+      isResolved: record.isResolved === true,
+      isOutdated: record.isOutdated === true,
+      comments: commentValues(record.comments),
+    };
+  });
+}
+
 function pullRequestState(value: unknown, mergedAt: unknown): "open" | "closed" | "merged" {
   if (stringValue(mergedAt) || String(value ?? "").toUpperCase() === "MERGED") return "merged";
   return String(value ?? "OPEN").toUpperCase() === "CLOSED" ? "closed" : "open";
@@ -563,6 +597,18 @@ const GRAPHQL_PULL_REQUEST_DETAILS_QUERY = `query($owner: String!, $repo: String
       reviews(first: 100) {
         nodes { author { login } state body submittedAt }
       }
+      reviewThreads(first: 100) {
+        nodes {
+          isResolved
+          isOutdated
+          path
+          line
+          originalLine
+          comments(first: 100) {
+            nodes { author { login } body createdAt }
+          }
+        }
+      }
       comments(first: 100) {
         nodes { author { login } body createdAt }
       }
@@ -661,6 +707,7 @@ function normalizeGraphqlDetails(raw: unknown, repository: string): GitHubPullRe
   const assignees = asRecord(pullRequest.assignees);
   const reviewRequests = asRecord(pullRequest.reviewRequests);
   const reviews = asRecord(pullRequest.reviews);
+  const reviewThreads = asRecord(pullRequest.reviewThreads);
   const comments = asRecord(pullRequest.comments);
   const rollup = asRecord(pullRequest.statusCheckRollup);
   const contexts = asRecord(rollup.contexts);
@@ -703,6 +750,16 @@ function normalizeGraphqlDetails(raw: unknown, repository: string): GitHubPullRe
         .map((entry) => asRecord(asRecord(entry).requestedReviewer))
         .filter((entry) => Object.keys(entry).length > 0),
       reviews: Array.isArray(reviews.nodes) ? reviews.nodes : [],
+      reviewThreads: Array.isArray(reviewThreads.nodes)
+        ? reviewThreads.nodes.map((entry) => {
+            const thread = asRecord(entry);
+            const threadComments = asRecord(thread.comments);
+            return {
+              ...thread,
+              comments: Array.isArray(threadComments.nodes) ? threadComments.nodes : [],
+            };
+          })
+        : [],
       comments: Array.isArray(comments.nodes) ? comments.nodes : [],
       statusCheckRollup: checks,
     },
@@ -747,16 +804,8 @@ function normalizeDetails(raw: unknown, repository: string): GitHubPullRequestDe
           };
         })
       : [],
-    comments: Array.isArray(record.comments)
-      ? record.comments.map((entry) => {
-          const value = asRecord(entry);
-          return {
-            author: actorValue(value.author),
-            body: typeof value.body === "string" ? value.body : "",
-            createdAt: nullableStringValue(value.createdAt),
-          };
-        })
-      : [],
+    comments: commentValues(record.comments),
+    reviewThreads: reviewThreadValues(record.reviewThreads),
     checks: checkValues(record.statusCheckRollup),
   };
 }

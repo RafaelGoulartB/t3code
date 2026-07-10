@@ -116,6 +116,16 @@ export const GitHubPullRequestComment = Schema.Struct({
 });
 export type GitHubPullRequestComment = typeof GitHubPullRequestComment.Type;
 
+export const GitHubPullRequestReviewThread = Schema.Struct({
+  path: TrimmedNonEmptyString,
+  line: Schema.NullOr(PositiveInt),
+  originalLine: Schema.NullOr(PositiveInt),
+  isResolved: Schema.Boolean,
+  isOutdated: Schema.Boolean,
+  comments: Schema.Array(GitHubPullRequestComment),
+});
+export type GitHubPullRequestReviewThread = typeof GitHubPullRequestReviewThread.Type;
+
 export const GitHubPullRequestCheck = Schema.Struct({
   name: TrimmedNonEmptyString,
   state: Schema.String,
@@ -153,6 +163,7 @@ export const GitHubPullRequestDetails = Schema.Struct({
   reviewRequests: Schema.Array(GitHubActor),
   reviews: Schema.Array(GitHubPullRequestReview),
   comments: Schema.Array(GitHubPullRequestComment),
+  reviewThreads: Schema.Array(GitHubPullRequestReviewThread),
   checks: Schema.Array(GitHubPullRequestCheck),
 });
 export type GitHubPullRequestDetails = typeof GitHubPullRequestDetails.Type;
