@@ -33,6 +33,7 @@ import { githubPullRequestEnvironment } from "../state/githubPullRequests";
 import { useEnvironmentQuery } from "../state/query";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { useProjects } from "../state/entities";
+import ChatMarkdown from "./ChatMarkdown";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { SidebarInset } from "./ui/sidebar";
 import { Button } from "./ui/button";
@@ -162,6 +163,50 @@ function PullRequestStatusIndicator({
       <Icon className="size-3.5" aria-hidden="true" />
       <span className="sr-only">{label}</span>
     </span>
+  );
+}
+
+function PullRequestMarkdown({ text, className }: { readonly text: string; readonly className?: string }) {
+  return (
+    <ChatMarkdown
+      text={text}
+      cwd={undefined}
+      isStreaming={false}
+      className={cn(
+        "text-sm [&_h1]:mt-4 [&_h1]:text-lg [&_h2]:mt-4 [&_h2]:text-base [&_h3]:text-sm [&_ol]:my-3 [&_p]:my-3 [&_pre]:my-3 [&_pre]:max-h-80 [&_ul]:my-3",
+        className,
+      )}
+    />
+  );
+}
+
+function PullRequestDescription({ body }: { readonly body: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const canCollapse = body.length > 1_200;
+
+  if (!body.trim()) {
+    return <p className="text-sm text-muted-foreground">Esta PR não possui descrição.</p>;
+  }
+
+  return (
+    <div>
+      <div className={cn("relative", canCollapse && !expanded && "max-h-80 overflow-hidden")}>
+        <PullRequestMarkdown text={body} />
+        {canCollapse && !expanded ? (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-linear-to-t from-card via-card/90 to-transparent" />
+        ) : null}
+      </div>
+      {canCollapse ? (
+        <Button
+          size="xs"
+          variant="ghost"
+          className="mt-1"
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? "Mostrar menos" : "Mostrar descrição completa"}
+        </Button>
+      ) : null}
+    </div>
   );
 }
 
@@ -586,9 +631,7 @@ function PullRequestCardDetails({
                 arquivos
               </span>
             </div>
-            <p className="whitespace-pre-wrap text-sm text-foreground">
-              {detail.body.trim() || "Esta PR não possui descrição."}
-            </p>
+            <PullRequestDescription body={detail.body} />
             <Link
               to="/pull-requests/$owner/$repo/$number"
               params={{
@@ -641,9 +684,7 @@ function PullRequestCardDetails({
                             {reviewStateLabel(review.state)}
                             {review.submittedAt ? ` · ${formatDate(review.submittedAt)}` : ""}
                           </div>
-                          <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">
-                            {review.body}
-                          </p>
+                          <PullRequestMarkdown text={review.body} className="mt-2" />
                         </div>
                       ))}
                       {activity.inlineComments.length > 0 ? (
@@ -685,9 +726,7 @@ function PullRequestCardDetails({
                                           : "Aberto"}
                                     </span>
                                   </div>
-                                  <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">
-                                    {comment.body}
-                                  </p>
+                                  <PullRequestMarkdown text={comment.body} className="mt-2" />
                                 </div>
                               );
                             })}
@@ -1187,8 +1226,8 @@ export function GitHubPullRequestDetailsPage() {
                       Auto-merge
                     </ActionButton>
                   </div>
-                  <div className="rounded-xl border border-border p-4 text-sm leading-6 whitespace-pre-wrap">
-                    {detail.body || "Sem descrição."}
+                  <div className="rounded-xl border border-border p-4">
+                    <PullRequestMarkdown text={detail.body || "Sem descrição."} />
                   </div>
                   <div className="grid gap-2 sm:grid-cols-3">
                     <Input
@@ -1456,9 +1495,7 @@ export function GitHubPullRequestDetailsPage() {
                     <div className="text-xs font-medium">
                       {review.author?.login ?? "Usuário"} — {review.state}
                     </div>
-                    <div className="mt-2 whitespace-pre-wrap text-sm">
-                      {review.body || "Sem comentário."}
-                    </div>
+                    <PullRequestMarkdown text={review.body || "Sem comentário."} className="mt-2" />
                   </article>
                 ))}
                 {detail.comments.map((comment) => (
@@ -1467,7 +1504,7 @@ export function GitHubPullRequestDetailsPage() {
                     className="rounded-xl border border-border p-4"
                   >
                     <div className="text-xs font-medium">{comment.author?.login ?? "Usuário"}</div>
-                    <div className="mt-2 whitespace-pre-wrap text-sm">{comment.body}</div>
+                    <PullRequestMarkdown text={comment.body} className="mt-2" />
                   </article>
                 ))}
                 {detail.reviews.length === 0 && detail.comments.length === 0 ? (
