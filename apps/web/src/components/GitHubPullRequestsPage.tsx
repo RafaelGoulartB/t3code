@@ -166,7 +166,13 @@ function PullRequestStatusIndicator({
   );
 }
 
-function PullRequestMarkdown({ text, className }: { readonly text: string; readonly className?: string }) {
+function PullRequestMarkdown({
+  text,
+  className,
+}: {
+  readonly text: string;
+  readonly className?: string;
+}) {
   return (
     <ChatMarkdown
       text={text}
