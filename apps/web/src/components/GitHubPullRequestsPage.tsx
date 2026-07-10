@@ -400,8 +400,22 @@ function PullRequestCard({
   const [expanded, setExpanded] = useState(false);
   const [owner, repo] = item.repository.split("/");
   const detailsId = `pull-request-${owner ?? "repo"}-${repo ?? "repository"}-${item.number}`;
+  const statePresentation =
+    item.state === "open"
+      ? {
+          label: "Aberta",
+          className:
+            "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+        }
+      : item.state === "merged"
+        ? {
+            label: "Mesclada",
+            className: "border-violet-500/25 bg-violet-500/10 text-violet-700 dark:text-violet-300",
+          }
+        : { label: "Fechada", className: "border-border bg-muted text-muted-foreground" };
+
   return (
-    <article className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-ring hover:bg-accent/30">
+    <article className="rounded-xl border border-border bg-card p-4 shadow-xs transition-colors hover:border-ring hover:bg-accent/20">
       <button
         type="button"
         className="w-full cursor-pointer rounded-lg border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -409,56 +423,77 @@ function PullRequestCard({
         aria-controls={detailsId}
         onClick={() => setExpanded((current) => !current)}
       >
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground">{item.repository}</span>
-          <span>#{item.number}</span>
-          <span>{item.state}</span>
-          {item.isDraft ? <span className="rounded bg-muted px-1.5 py-0.5">Draft</span> : null}
-          <span className="ms-auto">Atualizada {formatDate(item.updatedAt)}</span>
-          <ChevronDownIcon
-            className={`size-4 transition-transform ${expanded ? "rotate-180" : ""}`}
-            aria-hidden="true"
-          />
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
+            <span className="truncate font-medium text-foreground">{item.repository}</span>
+            <span className="font-mono text-muted-foreground">#{item.number}</span>
+            <span
+              className={`rounded-full border px-2 py-0.5 font-medium ${statePresentation.className}`}
+            >
+              {statePresentation.label}
+            </span>
+            {item.isDraft ? (
+              <span className="rounded-full border border-border bg-muted px-2 py-0.5 font-medium text-muted-foreground">
+                Rascunho
+              </span>
+            ) : null}
+          </div>
+          <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+            Atualizada {formatDate(item.updatedAt)}
+            <ChevronDownIcon
+              className={`size-4 transition-transform ${expanded ? "rotate-180" : ""}`}
+              aria-hidden="true"
+            />
+          </span>
         </div>
-        <div className="mt-1 text-sm font-medium text-foreground">{item.title}</div>
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <h2 className="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-foreground">
+          {item.title}
+        </h2>
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
           <span>{item.author ? `por ${item.author}` : "Autor desconhecido"}</span>
+          {item.labels.length > 0 ? (
+            <span className="h-3 w-px bg-border" aria-hidden="true" />
+          ) : null}
           {item.labels.map((label) => (
-            <span key={label.name} className="rounded-full bg-muted px-2 py-0.5">
+            <span
+              key={label.name}
+              className="rounded-full border border-border/70 bg-muted/50 px-2 py-0.5 text-foreground/80"
+            >
               {label.name}
             </span>
           ))}
         </div>
-        <div className="mt-3 flex items-center gap-3 text-xs" aria-label="Status da pull request">
-          <span className="inline-flex items-center gap-1.5">
+      </button>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-3">
+        <div className="flex flex-wrap items-center gap-2" aria-label="Status da pull request">
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-muted/30 px-2 py-1 text-xs">
             <PullRequestStatusIndicator kind="ci" status={item.ciStatus} />
-            <span className="text-muted-foreground">
-              CI: {CI_STATUS_SHORT_LABELS[item.ciStatus]}
+            <span className="text-muted-foreground">CI</span>
+            <span className="font-medium text-foreground">
+              {CI_STATUS_SHORT_LABELS[item.ciStatus]}
             </span>
           </span>
-          <span className="inline-flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-muted/30 px-2 py-1 text-xs">
             <PullRequestStatusIndicator kind="review" status={item.reviewStatus} />
-            <span className="text-muted-foreground">
-              Review: {REVIEW_STATUS_SHORT_LABELS[item.reviewStatus]}
+            <span className="text-muted-foreground">Review</span>
+            <span className="font-medium text-foreground">
+              {REVIEW_STATUS_SHORT_LABELS[item.reviewStatus]}
             </span>
-          </span>
-          <span className="ms-auto text-muted-foreground">
-            {expanded ? "Ocultar detalhes" : "Mostrar detalhes"}
           </span>
         </div>
-      </button>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <Button size="xs" onClick={() => onOpenChat(item)}>
-          <GitPullRequestIcon className="size-3.5" /> Abrir chat
-        </Button>
-        <Button
-          size="xs"
-          variant="outline"
-          onClick={(event) => openPrLink(event, item.url)}
-          aria-label={`Abrir ${item.repository} #${item.number} no navegador`}
-        >
-          <ExternalLinkIcon className="size-3.5" /> Abrir na web
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="xs" onClick={() => onOpenChat(item)}>
+            <GitPullRequestIcon className="size-3.5" /> Abrir chat
+          </Button>
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={(event) => openPrLink(event, item.url)}
+            aria-label={`Abrir ${item.repository} #${item.number} no navegador`}
+          >
+            <ExternalLinkIcon className="size-3.5" /> Abrir na web
+          </Button>
+        </div>
       </div>
       {expanded ? (
         <PullRequestCardDetails
