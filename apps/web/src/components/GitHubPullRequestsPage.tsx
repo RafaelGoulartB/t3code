@@ -109,19 +109,16 @@ const PR_STATE_PRESENTATION = {
   open: {
     label: "Aberta",
     className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-    accentClass: "bg-emerald-500",
     Icon: GitPullRequestArrowIcon,
   },
   closed: {
     label: "Fechada",
     className: "border-border bg-muted text-muted-foreground",
-    accentClass: "bg-zinc-500",
     Icon: GitPullRequestClosedIcon,
   },
   merged: {
     label: "Mesclada",
     className: "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300",
-    accentClass: "bg-violet-500",
     Icon: GitMergeIcon,
   },
 } as const;
@@ -736,7 +733,7 @@ function PullRequestCard({
               />
             }
           >
-            Editar PR
+            Detalhes da PR
           </Button>
           <Button
             size="icon-xs"
@@ -1353,12 +1350,8 @@ function ActionGroup({
 }
 
 function PullRequestDescriptionCard({ detail }: { readonly detail: GitHubPullRequestDetails }) {
-  const statePresentation = prStatePresentation(detail.state);
   return (
     <article className="relative overflow-hidden rounded-xl border border-border">
-      {statePresentation ? (
-        <div aria-hidden="true" className={cn("h-1 w-full", statePresentation.accentClass)} />
-      ) : null}
       <div className="space-y-3 p-4">
         {detail.body.trim() ? (
           <PullRequestMarkdown text={detail.body} />
