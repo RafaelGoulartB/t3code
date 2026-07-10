@@ -58,6 +58,7 @@ import {
   type TerminalMetadataStreamEvent,
   WS_METHODS,
   WsRpcGroup,
+  GitHubPullRequestError,
 } from "@t3tools/contracts";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest, HttpServerRespondable } from "effect/unstable/http";
@@ -301,6 +302,12 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.sourceControlLookupRepository, AuthOrchestrationReadScope],
   [WS_METHODS.sourceControlCloneRepository, AuthOrchestrationOperateScope],
   [WS_METHODS.sourceControlPublishRepository, AuthOrchestrationOperateScope],
+  [WS_METHODS.githubPullRequestsList, AuthOrchestrationReadScope],
+  [WS_METHODS.githubPullRequestsGet, AuthOrchestrationReadScope],
+  [WS_METHODS.githubPullRequestsChecks, AuthOrchestrationReadScope],
+  [WS_METHODS.githubPullRequestsDiff, AuthOrchestrationReadScope],
+  [WS_METHODS.githubPullRequestsAction, AuthOrchestrationOperateScope],
+  [WS_METHODS.githubPullRequestsCheckout, AuthOrchestrationOperateScope],
   [WS_METHODS.projectsListEntries, AuthOrchestrationReadScope],
   [WS_METHODS.projectsReadFile, AuthOrchestrationReadScope],
   [WS_METHODS.projectsSearchEntries, AuthOrchestrationReadScope],
@@ -409,6 +416,7 @@ const makeWsRpcLayer = (
       const keybindings = yield* Keybindings.Keybindings;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
+      const githubCli = yield* GitHubCli.GitHubCli;
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
@@ -463,6 +471,17 @@ const makeWsRpcLayer = (
         currentSession.scopes.includes(requiredScope)
           ? stream
           : Stream.fail(authorizationError(requiredScope));
+      const githubPullRequestError = (
+        operation: string,
+        error: GitHubCli.GitHubCliError,
+        target?: { readonly repository?: string; readonly number?: number },
+      ) =>
+        new GitHubPullRequestError({
+          operation,
+          detail: error.detail,
+          ...(target?.repository ? { repository: target.repository } : {}),
+          ...(target?.number ? { number: target.number } : {}),
+        });
       const requiredScopeForMethod = (method: string): AuthEnvironmentScope => {
         const requiredScope = RPC_REQUIRED_SCOPE.get(method);
         if (requiredScope === undefined) {
@@ -1390,6 +1409,90 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "source-control",
             },
           ),
+        [WS_METHODS.githubPullRequestsList]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubPullRequestsList,
+            githubCli
+              .searchPullRequests({ cwd: config.cwd, filters: input })
+              .pipe(Effect.mapError((error) => githubPullRequestError("list", error))),
+            { "rpc.aggregate": "github" },
+          ),
+        [WS_METHODS.githubPullRequestsGet]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubPullRequestsGet,
+            githubCli.getPullRequestDetails({ cwd: config.cwd, reference: input }).pipe(
+              Effect.mapError((error) =>
+                githubPullRequestError("get", error, {
+                  repository: input.repository,
+                  number: input.number,
+                }),
+              ),
+            ),
+            { "rpc.aggregate": "github" },
+          ),
+        [WS_METHODS.githubPullRequestsChecks]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubPullRequestsChecks,
+            githubCli.getPullRequestChecks({ cwd: config.cwd, reference: input }).pipe(
+              Effect.mapError((error) =>
+                githubPullRequestError("checks", error, {
+                  repository: input.repository,
+                  number: input.number,
+                }),
+              ),
+            ),
+            { "rpc.aggregate": "github" },
+          ),
+        [WS_METHODS.githubPullRequestsDiff]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubPullRequestsDiff,
+            githubCli.getPullRequestDiff({ cwd: config.cwd, reference: input }).pipe(
+              Effect.mapError((error) =>
+                githubPullRequestError("diff", error, {
+                  repository: input.repository,
+                  number: input.number,
+                }),
+              ),
+            ),
+            { "rpc.aggregate": "github" },
+          ),
+        [WS_METHODS.githubPullRequestsAction]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubPullRequestsAction,
+            githubCli.runPullRequestAction({ cwd: config.cwd, action: input }).pipe(
+              Effect.mapError((error) =>
+                githubPullRequestError(input.kind, error, {
+                  repository: input.repository,
+                  number: input.number,
+                }),
+              ),
+            ),
+            { "rpc.aggregate": "github" },
+          ),
+        [WS_METHODS.githubPullRequestsCheckout]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubPullRequestsCheckout,
+            githubCli
+              .checkoutPullRequest({
+                cwd: input.cwd,
+                reference: `${input.repository}#${input.number}`,
+                ...(input.force === undefined ? {} : { force: input.force }),
+              })
+              .pipe(
+                Effect.map(() => ({
+                  repository: input.repository,
+                  number: input.number,
+                  cwd: input.cwd,
+                })),
+                Effect.mapError((error) =>
+                  githubPullRequestError("checkout", error, {
+                    repository: input.repository,
+                    number: input.number,
+                  }),
+                ),
+              ),
+            { "rpc.aggregate": "github" },
+          ),
         [WS_METHODS.projectsSearchEntries]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsSearchEntries,
@@ -1935,6 +2038,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
             makeWsRpcLayer(session, previewAutomationBroker).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               Layer.provide(ProviderMaintenanceRunner.layer),
+              Layer.provide(GitHubCli.layer.pipe(Layer.provide(VcsProcess.layer))),
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(
                   Layer.provide(

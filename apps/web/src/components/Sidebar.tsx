@@ -6,6 +6,7 @@ import {
   ContainerIcon,
   FolderIcon,
   FolderPlusIcon,
+  GitPullRequestIcon,
   Globe2Icon,
   LoaderIcon,
   SearchIcon,
@@ -3247,6 +3248,13 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     attachProjectListAutoAnimateRef,
     projectsLength,
   } = props;
+  const navigate = useNavigate();
+  const { isMobile, setOpenMobile } = useSidebar();
+  const sidebarPathname = useLocation({ select: (location) => location.pathname });
+  const openPullRequests = useCallback(() => {
+    if (isMobile) setOpenMobile(false);
+    void navigate({ to: "/pull-requests" });
+  }, [isMobile, navigate, setOpenMobile]);
 
   const handleProjectSortOrderChange = useCallback(
     (sortOrder: SidebarProjectSortOrder) => {
@@ -3418,6 +3426,21 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
         </SidebarGroup>
       ) : null}
       <LocalSecondaryStatus />
+      <SidebarGroup className="px-2 pt-1 pb-0">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              size="sm"
+              isActive={sidebarPathname.startsWith("/pull-requests")}
+              className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+              onClick={openPullRequests}
+            >
+              <GitPullRequestIcon className="size-3.5" />
+              <span className="truncate text-xs">Pull Requests</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarGroup>
       <SidebarGroup className="px-2 py-2">
         <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
           <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">

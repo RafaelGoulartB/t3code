@@ -31,6 +31,106 @@ afterEach(() => {
 });
 
 describe("GitHubCli.layer", () => {
+  it.effect("searches global pull requests with preset and organization filters", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(
+        Effect.succeed(
+          processOutput(
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify([
+              {
+                number: 7,
+                title: "Fix CI",
+                url: "https://github.com/octo/repo/pull/7",
+                repository: { nameWithOwner: "octo/repo" },
+                author: { login: "octocat" },
+                state: "OPEN",
+                isDraft: false,
+                createdAt: "2026-07-09T00:00:00Z",
+                updatedAt: "2026-07-10T00:00:00Z",
+                labels: [],
+              },
+            ]),
+          ),
+        ),
+      );
+
+      const gh = yield* GitHubCli.GitHubCli;
+      const result = yield* gh.searchPullRequests({
+        cwd: "/repo",
+        filters: {
+          preset: "checks_failed",
+          state: "open",
+          organization: "octo",
+          limit: 25,
+          sort: "updated",
+        },
+      });
+
+      assert.equal(result.items[0]?.repository, "octo/repo");
+      expect(mockRun).toHaveBeenCalledWith({
+        operation: "GitHubCli.execute",
+        command: "gh",
+        args: [
+          "search",
+          "prs",
+          "--state",
+          "open",
+          "--limit",
+          "25",
+          "--sort",
+          "updated",
+          "--json",
+          "number,title,url,author,repository,state,createdAt,updatedAt,isDraft,labels",
+          "--checks",
+          "failure",
+          "--owner",
+          "octo",
+        ],
+        cwd: "/repo",
+        timeoutMs: 30_000,
+      });
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("maps pull request management actions to safe gh arguments", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(Effect.succeed(processOutput("")));
+      const gh = yield* GitHubCli.GitHubCli;
+
+      const result = yield* gh.runPullRequestAction({
+        cwd: "/repo",
+        action: {
+          repository: "octo/repo",
+          number: 7,
+          kind: "merge",
+          strategy: "squash",
+          auto: true,
+          matchHeadCommit: "abc123",
+        },
+      });
+
+      assert.equal(result.kind, "merge");
+      expect(mockRun).toHaveBeenCalledWith({
+        operation: "GitHubCli.execute",
+        command: "gh",
+        args: [
+          "pr",
+          "merge",
+          "7",
+          "--repo",
+          "octo/repo",
+          "--squash",
+          "--auto",
+          "--match-head-commit",
+          "abc123",
+        ],
+        cwd: "/repo",
+        timeoutMs: 30_000,
+      });
+    }).pipe(Effect.provide(layer)),
+  );
+
   it("does not classify a missing cwd as an unavailable gh executable", () => {
     const context = { command: "gh", cwd: "/repo" } as const;
     const missingCwd = new VcsProcessSpawnError({

@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as PullRequestsRouteImport } from './routes/pull-requests'
 import { Route as PairRouteImport } from './routes/pair'
 import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
@@ -22,10 +23,16 @@ import { Route as SettingsConnectionsRouteImport } from './routes/settings.conne
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
+import { Route as PullRequestsOwnerRepoNumberRouteImport } from './routes/pull-requests.$owner.$repo.$number'
 
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PullRequestsRoute = PullRequestsRouteImport.update({
+  id: '/pull-requests',
+  path: '/pull-requests',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PairRoute = PairRouteImport.update({
@@ -88,10 +95,17 @@ const ChatEnvironmentIdThreadIdRoute =
     path: '/$environmentId/$threadId',
     getParentRoute: () => ChatRoute,
   } as any)
+const PullRequestsOwnerRepoNumberRoute =
+  PullRequestsOwnerRepoNumberRouteImport.update({
+    id: '/$owner/$repo/$number',
+    path: '/$owner/$repo/$number',
+    getParentRoute: () => PullRequestsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
   '/pair': typeof PairRoute
+  '/pull-requests': typeof PullRequestsRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/connections': typeof SettingsConnectionsRoute
@@ -102,9 +116,11 @@ export interface FileRoutesByFullPath {
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/pull-requests/$owner/$repo/$number': typeof PullRequestsOwnerRepoNumberRoute
 }
 export interface FileRoutesByTo {
   '/pair': typeof PairRoute
+  '/pull-requests': typeof PullRequestsRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/connections': typeof SettingsConnectionsRoute
@@ -116,11 +132,13 @@ export interface FileRoutesByTo {
   '/': typeof ChatIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/pull-requests/$owner/$repo/$number': typeof PullRequestsOwnerRepoNumberRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_chat': typeof ChatRouteWithChildren
   '/pair': typeof PairRoute
+  '/pull-requests': typeof PullRequestsRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/connections': typeof SettingsConnectionsRoute
@@ -132,12 +150,14 @@ export interface FileRoutesById {
   '/_chat/': typeof ChatIndexRoute
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/pull-requests/$owner/$repo/$number': typeof PullRequestsOwnerRepoNumberRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/pair'
+    | '/pull-requests'
     | '/settings'
     | '/settings/archived'
     | '/settings/connections'
@@ -148,9 +168,11 @@ export interface FileRouteTypes {
     | '/settings/source-control'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
+    | '/pull-requests/$owner/$repo/$number'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/pair'
+    | '/pull-requests'
     | '/settings'
     | '/settings/archived'
     | '/settings/connections'
@@ -162,10 +184,12 @@ export interface FileRouteTypes {
     | '/'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
+    | '/pull-requests/$owner/$repo/$number'
   id:
     | '__root__'
     | '/_chat'
     | '/pair'
+    | '/pull-requests'
     | '/settings'
     | '/settings/archived'
     | '/settings/connections'
@@ -177,11 +201,13 @@ export interface FileRouteTypes {
     | '/_chat/'
     | '/_chat/$environmentId/$threadId'
     | '/_chat/draft/$draftId'
+    | '/pull-requests/$owner/$repo/$number'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   ChatRoute: typeof ChatRouteWithChildren
   PairRoute: typeof PairRoute
+  PullRequestsRoute: typeof PullRequestsRouteWithChildren
   SettingsRoute: typeof SettingsRouteWithChildren
 }
 
@@ -192,6 +218,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pull-requests': {
+      id: '/pull-requests'
+      path: '/pull-requests'
+      fullPath: '/pull-requests'
+      preLoaderRoute: typeof PullRequestsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pair': {
@@ -278,6 +311,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatEnvironmentIdThreadIdRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/pull-requests/$owner/$repo/$number': {
+      id: '/pull-requests/$owner/$repo/$number'
+      path: '/$owner/$repo/$number'
+      fullPath: '/pull-requests/$owner/$repo/$number'
+      preLoaderRoute: typeof PullRequestsOwnerRepoNumberRouteImport
+      parentRoute: typeof PullRequestsRoute
+    }
   }
 }
 
@@ -294,6 +334,18 @@ const ChatRouteChildren: ChatRouteChildren = {
 }
 
 const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)
+
+interface PullRequestsRouteChildren {
+  PullRequestsOwnerRepoNumberRoute: typeof PullRequestsOwnerRepoNumberRoute
+}
+
+const PullRequestsRouteChildren: PullRequestsRouteChildren = {
+  PullRequestsOwnerRepoNumberRoute: PullRequestsOwnerRepoNumberRoute,
+}
+
+const PullRequestsRouteWithChildren = PullRequestsRoute._addFileChildren(
+  PullRequestsRouteChildren,
+)
 
 interface SettingsRouteChildren {
   SettingsArchivedRoute: typeof SettingsArchivedRoute
@@ -322,6 +374,7 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRouteWithChildren,
   PairRoute: PairRoute,
+  PullRequestsRoute: PullRequestsRouteWithChildren,
   SettingsRoute: SettingsRouteWithChildren,
 }
 export const routeTree = rootRouteImport

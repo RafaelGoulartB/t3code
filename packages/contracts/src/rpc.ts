@@ -155,6 +155,19 @@ import {
   SourceControlRepositoryInfo,
   SourceControlRepositoryLookupInput,
 } from "./sourceControl.ts";
+import {
+  GitHubPullRequestAction,
+  GitHubPullRequestActionResult,
+  GitHubPullRequestChecksResult,
+  GitHubPullRequestCheckoutInput,
+  GitHubPullRequestCheckoutResult,
+  GitHubPullRequestDetails,
+  GitHubPullRequestDetailsInput,
+  GitHubPullRequestDiffResult,
+  GitHubPullRequestError,
+  GitHubPullRequestListInput,
+  GitHubPullRequestListResult,
+} from "./githubPullRequests.ts";
 import { VcsError } from "./vcs.ts";
 
 export const WS_METHODS = {
@@ -243,6 +256,12 @@ export const WS_METHODS = {
   sourceControlLookupRepository: "sourceControl.lookupRepository",
   sourceControlCloneRepository: "sourceControl.cloneRepository",
   sourceControlPublishRepository: "sourceControl.publishRepository",
+  githubPullRequestsList: "github.pullRequests.list",
+  githubPullRequestsGet: "github.pullRequests.get",
+  githubPullRequestsChecks: "github.pullRequests.checks",
+  githubPullRequestsDiff: "github.pullRequests.diff",
+  githubPullRequestsAction: "github.pullRequests.action",
+  githubPullRequestsCheckout: "github.pullRequests.checkout",
 
   // Streaming subscriptions
   subscribeVcsStatus: "subscribeVcsStatus",
@@ -374,6 +393,42 @@ export const WsSourceControlPublishRepositoryRpc = Rpc.make(
     error: Schema.Union([SourceControlRepositoryError, EnvironmentAuthorizationError]),
   },
 );
+
+export const WsGitHubPullRequestsListRpc = Rpc.make(WS_METHODS.githubPullRequestsList, {
+  payload: GitHubPullRequestListInput,
+  success: GitHubPullRequestListResult,
+  error: Schema.Union([GitHubPullRequestError, EnvironmentAuthorizationError]),
+});
+
+export const WsGitHubPullRequestsGetRpc = Rpc.make(WS_METHODS.githubPullRequestsGet, {
+  payload: GitHubPullRequestDetailsInput,
+  success: GitHubPullRequestDetails,
+  error: Schema.Union([GitHubPullRequestError, EnvironmentAuthorizationError]),
+});
+
+export const WsGitHubPullRequestsChecksRpc = Rpc.make(WS_METHODS.githubPullRequestsChecks, {
+  payload: GitHubPullRequestDetailsInput,
+  success: GitHubPullRequestChecksResult,
+  error: Schema.Union([GitHubPullRequestError, EnvironmentAuthorizationError]),
+});
+
+export const WsGitHubPullRequestsDiffRpc = Rpc.make(WS_METHODS.githubPullRequestsDiff, {
+  payload: GitHubPullRequestDetailsInput,
+  success: GitHubPullRequestDiffResult,
+  error: Schema.Union([GitHubPullRequestError, EnvironmentAuthorizationError]),
+});
+
+export const WsGitHubPullRequestsActionRpc = Rpc.make(WS_METHODS.githubPullRequestsAction, {
+  payload: GitHubPullRequestAction,
+  success: GitHubPullRequestActionResult,
+  error: Schema.Union([GitHubPullRequestError, EnvironmentAuthorizationError]),
+});
+
+export const WsGitHubPullRequestsCheckoutRpc = Rpc.make(WS_METHODS.githubPullRequestsCheckout, {
+  payload: GitHubPullRequestCheckoutInput,
+  success: GitHubPullRequestCheckoutResult,
+  error: Schema.Union([GitHubPullRequestError, EnvironmentAuthorizationError]),
+});
 
 export const WsProjectsSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntries, {
   payload: ProjectSearchEntriesInput,
@@ -764,6 +819,12 @@ export const WsRpcGroup = RpcGroup.make(
   WsSourceControlLookupRepositoryRpc,
   WsSourceControlCloneRepositoryRpc,
   WsSourceControlPublishRepositoryRpc,
+  WsGitHubPullRequestsListRpc,
+  WsGitHubPullRequestsGetRpc,
+  WsGitHubPullRequestsChecksRpc,
+  WsGitHubPullRequestsDiffRpc,
+  WsGitHubPullRequestsActionRpc,
+  WsGitHubPullRequestsCheckoutRpc,
   WsProjectsListEntriesRpc,
   WsProjectsReadFileRpc,
   WsProjectsSearchEntriesRpc,
