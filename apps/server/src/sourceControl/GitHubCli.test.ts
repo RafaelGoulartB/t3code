@@ -284,6 +284,43 @@ describe("GitHubCli.layer", () => {
     }).pipe(Effect.provide(layer)),
   );
 
+  it.effect("maps pull request title and Markdown body edits to gh pr edit", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(Effect.succeed(processOutput("")));
+      const gh = yield* GitHubCli.GitHubCli;
+
+      const result = yield* gh.runPullRequestAction({
+        cwd: "/repo",
+        action: {
+          repository: "octo/repo",
+          number: 7,
+          kind: "edit",
+          title: "Updated title",
+          body: "Summary\n\n## Changes\n- Keeps Markdown intact",
+        },
+      });
+
+      assert.equal(result.kind, "edit");
+      expect(mockRun).toHaveBeenCalledWith({
+        operation: "GitHubCli.execute",
+        command: "gh",
+        args: [
+          "pr",
+          "edit",
+          "7",
+          "--repo",
+          "octo/repo",
+          "--title",
+          "Updated title",
+          "--body",
+          "Summary\n\n## Changes\n- Keeps Markdown intact",
+        ],
+        cwd: "/repo",
+        timeoutMs: 30_000,
+      });
+    }).pipe(Effect.provide(layer)),
+  );
+
   it("does not classify a missing cwd as an unavailable gh executable", () => {
     const context = { command: "gh", cwd: "/repo" } as const;
     const missingCwd = new VcsProcessSpawnError({

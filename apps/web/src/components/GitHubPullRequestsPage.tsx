@@ -47,6 +47,7 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { Input } from "./ui/input";
+import { Textarea } from "./ui/textarea";
 import { cn } from "../lib/utils";
 import {
   clearPullRequestFilters,
@@ -555,6 +556,23 @@ function PullRequestCard({
           >
             <ExternalLinkIcon className="size-3.5" /> Abrir na web
           </Button>
+          <Button
+            size="xs"
+            variant="outline"
+            render={
+              <Link
+                to="/pull-requests/$owner/$repo/$number"
+                params={{
+                  owner: owner ?? "",
+                  repo: repo ?? "",
+                  number: String(item.number),
+                }}
+                search={search}
+              />
+            }
+          >
+            Editar PR
+          </Button>
         </div>
       </div>
       {expanded ? (
@@ -1010,8 +1028,8 @@ export function GitHubPullRequestDetailsPage() {
     owner,
     repo,
     number: numberParam,
-  } = useParams({ from: "/pull-requests/$owner/$repo/$number" });
-  const routeSearch = useSearch({ from: "/pull-requests/$owner/$repo/$number" });
+  } = useParams({ from: "/pull-requests_/$owner/$repo/$number" });
+  const routeSearch = useSearch({ from: "/pull-requests_/$owner/$repo/$number" });
   const search = resolvePullRequestSearch(routeSearch);
   const navigate = useNavigate();
   const { environments } = useEnvironments();
@@ -1102,13 +1120,24 @@ export function GitHubPullRequestDetailsPage() {
             </h1>
           </div>
           {detail ? (
-            <Button
-              size="xs"
-              variant="outline"
-              onClick={() => window.open(detail.url, "_blank", "noopener,noreferrer")}
-            >
-              <ExternalLinkIcon className="size-3.5" /> GitHub
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() =>
+                  document.getElementById("pr-editor")?.scrollIntoView({ behavior: "smooth" })
+                }
+              >
+                Editar PR
+              </Button>
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() => window.open(detail.url, "_blank", "noopener,noreferrer")}
+              >
+                <ExternalLinkIcon className="size-3.5" /> GitHub
+              </Button>
+            </div>
           ) : null}
         </header>
         {detailQuery.isPending && !detail ? (
@@ -1235,32 +1264,44 @@ export function GitHubPullRequestDetailsPage() {
                   <div className="rounded-xl border border-border p-4">
                     <PullRequestMarkdown text={detail.body || "Sem descrição."} />
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    <Input
-                      value={editTitle}
-                      onChange={(event) => setEditTitle(event.target.value)}
-                      aria-label="PR title"
-                    />
-                    <Input
-                      value={editBody}
-                      onChange={(event) => setEditBody(event.target.value)}
-                      aria-label="PR body"
-                      className="sm:col-span-2"
-                    />
-                    <Button
-                      size="xs"
-                      onClick={() =>
-                        void executeAction({
-                          repository: reference.repository,
-                          number,
-                          kind: "edit",
-                          title: editTitle,
-                          body: editBody,
-                        })
-                      }
-                    >
-                      Salvar edição
-                    </Button>
+                  <div id="pr-editor" className="space-y-3 rounded-xl border border-border p-4">
+                    <div>
+                      <h2 className="text-sm font-semibold">Editar pull request</h2>
+                      <p className="text-xs text-muted-foreground">
+                        Altere o título e a descrição Markdown e salve no GitHub.
+                      </p>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <Input
+                        value={editTitle}
+                        onChange={(event) => setEditTitle(event.target.value)}
+                        aria-label="PR title"
+                      />
+                      <Textarea
+                        value={editBody}
+                        onChange={(event) => setEditBody(event.target.value)}
+                        aria-label="PR body"
+                        className="min-h-32 sm:col-span-2"
+                      />
+                      <Button
+                        disabled={
+                          !editTitle.trim() ||
+                          (editTitle === detail.title && editBody === detail.body)
+                        }
+                        size="xs"
+                        onClick={() =>
+                          void executeAction({
+                            repository: reference.repository,
+                            number,
+                            kind: "edit",
+                            title: editTitle.trim(),
+                            body: editBody,
+                          })
+                        }
+                      >
+                        Salvar edição
+                      </Button>
+                    </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Input
