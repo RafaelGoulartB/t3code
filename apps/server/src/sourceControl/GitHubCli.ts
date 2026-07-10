@@ -600,14 +600,18 @@ export const make = Effect.gen(function* () {
         "--json",
         "number,title,url,author,repository,state,createdAt,updatedAt,isDraft,labels",
       ];
-      const preset = filters.preset ?? "all";
+      const preset = filters.preset ?? "mine";
       if (preset === "mine") args.push("--author", "@me");
+      if (preset === "involvement") args.push("--involves", "@me");
       if (preset === "review_requested") args.push("--review-requested", "@me");
-      if (preset === "checks_failed") args.push("--checks", "failure");
+      if (preset === "checks_failed") args.push("--author", "@me", "--checks", "failure");
       if (preset === "changes_requested") {
         args.push("--author", "@me", "--review", "changes_requested");
       }
       if (filters.organization) args.push("--owner", filters.organization);
+      if (filters.organization && !filters.author && preset === "all") {
+        args.push("--author", "@me");
+      }
       if (filters.repository) args.push("--repo", filters.repository);
       if (filters.author) args.push("--author", filters.author);
       if (filters.reviewRequested) args.push("--review-requested", filters.reviewRequested);

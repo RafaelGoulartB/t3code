@@ -82,6 +82,8 @@ describe("GitHubCli.layer", () => {
           "updated",
           "--json",
           "number,title,url,author,repository,state,createdAt,updatedAt,isDraft,labels",
+          "--author",
+          "@me",
           "--checks",
           "failure",
           "--owner",

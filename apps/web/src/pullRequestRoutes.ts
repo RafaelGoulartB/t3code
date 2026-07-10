@@ -40,11 +40,12 @@ export interface ResolvedPullRequestSearch {
 }
 
 const presets = new Set<GitHubPullRequestPreset>([
-  "all",
   "mine",
+  "involvement",
   "review_requested",
   "checks_failed",
   "changes_requested",
+  "all",
 ]);
 const states = new Set<GitHubPullRequestStateFilter>(["open", "closed", "merged", "all"]);
 const reviews = new Set<GitHubPullRequestReviewFilter>([
@@ -87,7 +88,7 @@ export function parsePullRequestSearch(input: Record<string, unknown>): PullRequ
       ? (input.checks as GitHubPullRequestChecksFilter)
       : undefined;
   return {
-    preset: enumParam(input.preset, presets, "all"),
+    preset: enumParam(input.preset, presets, "mine"),
     state: enumParam(input.state, states, "open"),
     sort: enumParam(input.sort, sorts, "updated"),
     limit,
@@ -106,7 +107,7 @@ export function parsePullRequestSearch(input: Record<string, unknown>): PullRequ
 export function resolvePullRequestSearch(search: PullRequestSearch): ResolvedPullRequestSearch {
   return {
     ...search,
-    preset: search.preset ?? "all",
+    preset: search.preset ?? "mine",
     state: search.state ?? "open",
     sort: search.sort ?? "updated",
     limit: search.limit ?? 50,
@@ -134,7 +135,7 @@ export function pullRequestSearchToInput(search: PullRequestSearch): GitHubPullR
 export function clearPullRequestFilters(search: PullRequestSearch): PullRequestSearch {
   return {
     ...search,
-    preset: "all",
+    preset: "mine",
     state: "open",
   };
 }

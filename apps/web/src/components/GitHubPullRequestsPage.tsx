@@ -2,6 +2,7 @@ import type {
   EnvironmentId,
   GitHubPullRequestAction,
   GitHubPullRequestChecksFilter,
+  GitHubPullRequestPreset,
   GitHubPullRequestReviewFilter,
   GitHubPullRequestStateFilter,
 } from "@t3tools/contracts";
@@ -26,13 +27,16 @@ import {
   type PullRequestSearch,
 } from "../pullRequestRoutes";
 
-const PRESETS = [
-  ["all", "Todas"],
+const PRESETS: ReadonlyArray<readonly [GitHubPullRequestPreset, string]> = [
   ["mine", "Minhas PRs"],
+  ["involvement", "Meu envolvimento"],
   ["review_requested", "Minha revisão"],
   ["checks_failed", "Checks falhando"],
   ["changes_requested", "Alterações pedidas"],
+  ["all", "Todas acessíveis"],
 ] as const;
+
+const presetLabels = new Map(PRESETS);
 
 const stateLabels: Record<GitHubPullRequestStateFilter, string> = {
   open: "Abertas",
@@ -119,6 +123,16 @@ export function GitHubPullRequestsPage() {
   );
 
   const clear = () => updateSearch(navigate, search, clearPullRequestFilters(search));
+  const selectPreset = (preset: PullRequestSearch["preset"]) => {
+    if (!preset) return;
+    if (preset === "all" && search.preset !== "all") {
+      const confirmed = window.confirm(
+        "Mostrar todas as PRs acessíveis, incluindo projetos sem relação direta com você?",
+      );
+      if (!confirmed) return;
+    }
+    updateSearch(navigate, search, { preset });
+  };
   const list = query.data;
 
   return (
@@ -128,7 +142,9 @@ export function GitHubPullRequestsPage() {
           <GitPullRequestIcon className="size-5 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <h1 className="text-sm font-semibold">Pull Requests</h1>
-            <p className="text-xs text-muted-foreground">Gerenciamento global via GitHub CLI</p>
+            <p className="text-xs text-muted-foreground">
+              Escopo: {presetLabels.get(search.preset) ?? "Minhas PRs"} · via GitHub CLI
+            </p>
           </div>
           <EnvironmentPicker
             environmentId={environmentId}
@@ -147,7 +163,7 @@ export function GitHubPullRequestsPage() {
                 key={preset}
                 size="xs"
                 variant={search.preset === preset ? "default" : "outline"}
-                onClick={() => updateSearch(navigate, search, { preset })}
+                onClick={() => selectPreset(preset)}
               >
                 {label}
               </Button>

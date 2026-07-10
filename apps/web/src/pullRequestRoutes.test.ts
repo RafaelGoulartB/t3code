@@ -8,6 +8,10 @@ import {
 } from "./pullRequestRoutes";
 
 describe("pullRequestRoutes", () => {
+  it("defaults to PRs authored by the current user", () => {
+    expect(resolvePullRequestSearch(parsePullRequestSearch({})).preset).toBe("mine");
+  });
+
   it("normalizes advanced filters and preserves them as gh input", () => {
     const search = resolvePullRequestSearch(
       parsePullRequestSearch({
@@ -40,7 +44,7 @@ describe("pullRequestRoutes", () => {
 
     expect(clearPullRequestFilters(search)).toMatchObject({
       environment: "environment-1",
-      preset: "all",
+      preset: "mine",
       state: "open",
     });
   });

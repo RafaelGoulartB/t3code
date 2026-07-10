@@ -3,11 +3,12 @@ import * as Schema from "effect/Schema";
 import { NonNegativeInt, PositiveInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 export const GitHubPullRequestPreset = Schema.Literals([
-  "all",
   "mine",
+  "involvement",
   "review_requested",
   "checks_failed",
   "changes_requested",
+  "all",
 ]);
 export type GitHubPullRequestPreset = typeof GitHubPullRequestPreset.Type;
 
