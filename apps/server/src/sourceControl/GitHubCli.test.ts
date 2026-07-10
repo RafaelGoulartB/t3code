@@ -218,6 +218,9 @@ describe("GitHubCli.layer", () => {
       expect(mockRun.mock.calls[0]?.[0].args).toEqual(
         expect.arrayContaining(["api", "graphql", "-F", "number=10"]),
       );
+      expect(
+        mockRun.mock.calls[0]?.[0].args.find((argument) => argument.startsWith("query=")),
+      ).not.toContain("workflowName");
     }).pipe(Effect.provide(layer)),
   );
 

@@ -575,7 +575,6 @@ const GRAPHQL_PULL_REQUEST_DETAILS_QUERY = `query($owner: String!, $repo: String
               status
               conclusion
               detailsUrl
-              workflowName
               startedAt
               completedAt
             }
