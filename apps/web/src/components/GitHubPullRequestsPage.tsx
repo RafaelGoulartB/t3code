@@ -539,13 +539,33 @@ function PullRequestCardDetails({
   );
   const detail = query.data;
   const checks = detail?.checks ?? [];
-  const reviewComments = detail?.reviews.filter((review) => review.body.trim()) ?? [];
-  const inlineReviewComments =
-    detail?.reviewThreads.flatMap((thread) =>
-      thread.comments
-        .filter((comment) => comment.body.trim())
-        .map((comment) => ({ thread, comment })),
-    ) ?? [];
+  type ReviewerActivity = {
+    author: string;
+    reviews: Array<NonNullable<typeof detail>["reviews"][number]>;
+    inlineComments: Array<{
+      thread: NonNullable<typeof detail>["reviewThreads"][number];
+      comment: NonNullable<typeof detail>["reviewThreads"][number]["comments"][number];
+    }>;
+  };
+  const reviewerActivity = new Map<string, ReviewerActivity>();
+  const reviewerFor = (author: string | null): ReviewerActivity => {
+    const name = author ?? "Usuário desconhecido";
+    const existing = reviewerActivity.get(name);
+    if (existing) return existing;
+    const activity: ReviewerActivity = { author: name, reviews: [], inlineComments: [] };
+    reviewerActivity.set(name, activity);
+    return activity;
+  };
+  for (const review of detail?.reviews ?? []) {
+    if (review.body.trim()) reviewerFor(review.author?.login ?? null).reviews.push(review);
+  }
+  for (const thread of detail?.reviewThreads ?? []) {
+    for (const comment of thread.comments) {
+      if (comment.body.trim()) {
+        reviewerFor(comment.author?.login ?? null).inlineComments.push({ thread, comment });
+      }
+    }
+  }
 
   return (
     <div id={id} className="mt-4 border-t border-border pt-4">
@@ -582,103 +602,104 @@ function PullRequestCardDetails({
               Abrir página completa da PR
             </Link>
             <section
-              className="rounded-lg border border-border/70 bg-muted/20 p-3"
-              aria-label="Comentários de revisão"
+              className="rounded-lg border border-primary/30 bg-primary/5 p-3"
+              aria-label="Revisões"
             >
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                   <MessageCircleWarningIcon className="size-4 text-primary" aria-hidden="true" />
-                  Comentários de revisão
+                  Revisões
                 </div>
                 <span className="rounded-full bg-background px-2 py-0.5 text-xs text-muted-foreground">
-                  {reviewComments.length}
+                  {reviewerActivity.size} {reviewerActivity.size === 1 ? "revisor" : "revisores"}
                 </span>
               </div>
-              {reviewComments.length > 0 ? (
-                <div className="mt-3 space-y-2">
-                  {reviewComments.map((review) => (
+              {reviewerActivity.size > 0 ? (
+                <div className="mt-3 space-y-3">
+                  {Array.from(reviewerActivity.values()).map((activity) => (
                     <article
-                      key={`review-${review.author?.login ?? "unknown"}-${review.submittedAt ?? review.state}-${review.body}`}
+                      key={activity.author}
                       className="rounded-md border border-border/70 bg-background/70 p-3"
                     >
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                        <span className="font-medium text-foreground">
-                          {review.author?.login ?? "Usuário"}
-                        </span>
-                        <span className="text-muted-foreground">
-                          {reviewStateLabel(review.state)}
-                          {review.submittedAt ? ` · ${formatDate(review.submittedAt)}` : ""}
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-medium text-foreground">{activity.author}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {activity.reviews.length > 0
+                            ? `${activity.reviews.length} comentário${activity.reviews.length === 1 ? "" : "s"} de revisão`
+                            : "Sem comentário geral"}
+                          {activity.inlineComments.length > 0
+                            ? ` · ${activity.inlineComments.length} no código`
+                            : ""}
                         </span>
                       </div>
-                      <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">
-                        {review.body}
-                      </p>
+                      {activity.reviews.map((review) => (
+                        <div
+                          key={`review-${review.submittedAt ?? review.state}-${review.body}`}
+                          className="mt-3 rounded-md border border-border/60 bg-muted/30 p-3"
+                        >
+                          <div className="text-xs text-muted-foreground">
+                            {reviewStateLabel(review.state)}
+                            {review.submittedAt ? ` · ${formatDate(review.submittedAt)}` : ""}
+                          </div>
+                          <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">
+                            {review.body}
+                          </p>
+                        </div>
+                      ))}
+                      {activity.inlineComments.length > 0 ? (
+                        <div className="mt-3 border-t border-border/60 pt-3">
+                          <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+                            <span className="font-medium text-foreground">
+                              Comentários no código
+                            </span>
+                            <span className="text-muted-foreground">
+                              {activity.inlineComments.length}
+                            </span>
+                          </div>
+                          <div className="space-y-2">
+                            {activity.inlineComments.map(({ thread, comment }) => {
+                              const line = thread.line ?? thread.originalLine;
+                              return (
+                                <div
+                                  key={`${thread.path}-${line ?? "unknown"}-${comment.createdAt ?? comment.body}`}
+                                  className="rounded-md border border-border/60 bg-muted/20 p-3"
+                                >
+                                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                                    <code className="min-w-0 truncate font-medium text-foreground">
+                                      {thread.path}
+                                      {line ? `:${line}` : ""}
+                                    </code>
+                                    <span
+                                      className={
+                                        thread.isResolved
+                                          ? "text-emerald-700 dark:text-emerald-300"
+                                          : thread.isOutdated
+                                            ? "text-muted-foreground"
+                                            : "text-amber-700 dark:text-amber-300"
+                                      }
+                                    >
+                                      {thread.isResolved
+                                        ? "Resolvido"
+                                        : thread.isOutdated
+                                          ? "Desatualizado"
+                                          : "Aberto"}
+                                    </span>
+                                  </div>
+                                  <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">
+                                    {comment.body}
+                                  </p>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
                     </article>
                   ))}
                 </div>
               ) : (
                 <p className="mt-2 text-xs text-muted-foreground">
                   Nenhum comentário foi deixado nas revisões desta PR.
-                </p>
-              )}
-            </section>
-            <section
-              className="rounded-lg border border-primary/30 bg-primary/5 p-3"
-              aria-label="Comentários no código"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                  <GitPullRequestIcon className="size-4 text-primary" aria-hidden="true" />
-                  Comentários no código
-                </div>
-                <span className="rounded-full bg-background px-2 py-0.5 text-xs text-muted-foreground">
-                  {inlineReviewComments.length}
-                </span>
-              </div>
-              {inlineReviewComments.length > 0 ? (
-                <div className="mt-3 space-y-2">
-                  {inlineReviewComments.map(({ thread, comment }) => {
-                    const line = thread.line ?? thread.originalLine;
-                    return (
-                      <article
-                        key={`${thread.path}-${line ?? "unknown"}-${comment.author?.login ?? "unknown"}-${comment.createdAt ?? comment.body}`}
-                        className="rounded-md border border-border/70 bg-background/70 p-3"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                          <code className="min-w-0 truncate font-medium text-foreground">
-                            {thread.path}
-                            {line ? `:${line}` : ""}
-                          </code>
-                          <span
-                            className={
-                              thread.isResolved
-                                ? "text-emerald-700 dark:text-emerald-300"
-                                : thread.isOutdated
-                                  ? "text-muted-foreground"
-                                  : "text-amber-700 dark:text-amber-300"
-                            }
-                          >
-                            {thread.isResolved
-                              ? "Resolvido"
-                              : thread.isOutdated
-                                ? "Desatualizado"
-                                : "Aberto"}
-                          </span>
-                        </div>
-                        <div className="mt-2 text-xs text-muted-foreground">
-                          {comment.author?.login ?? "Usuário"}
-                          {comment.createdAt ? ` - ${formatDate(comment.createdAt)}` : ""}
-                        </div>
-                        <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">
-                          {comment.body}
-                        </p>
-                      </article>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Nenhum comentário linha a linha foi deixado nesta PR.
                 </p>
               )}
             </section>
