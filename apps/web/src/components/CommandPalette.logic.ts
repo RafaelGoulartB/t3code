@@ -1,4 +1,8 @@
-import { type KeybindingCommand, type FilesystemBrowseEntry } from "@t3tools/contracts";
+import {
+  type FilesystemBrowseEntry,
+  type GitHubPullRequestListItem,
+  type KeybindingCommand,
+} from "@t3tools/contracts";
 import type { SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
@@ -111,6 +115,34 @@ export function buildProjectActionItems(input: {
   }));
 }
 
+export function buildPullRequestActionItems(input: {
+  items: ReadonlyArray<GitHubPullRequestListItem>;
+  environmentId: string;
+  icon: ReactNode;
+  runPullRequest: (pullRequest: GitHubPullRequestListItem) => Promise<void>;
+}): CommandPaletteActionItem[] {
+  return input.items.flatMap((pullRequest) => {
+    const [owner, repository] = pullRequest.repository.split("/");
+    if (!owner || !repository) {
+      return [];
+    }
+
+    return [
+      {
+        kind: "action" as const,
+        value: `pull-request:${input.environmentId}:${pullRequest.repository}#${pullRequest.number}`,
+        searchTerms: [pullRequest.title],
+        title: pullRequest.title,
+        description: `${pullRequest.repository} #${pullRequest.number}`,
+        icon: input.icon,
+        run: async () => {
+          await input.runPullRequest(pullRequest);
+        },
+      },
+    ];
+  });
+}
+
 export type BuildThreadActionItemsThread = Pick<
   SidebarThreadSummary,
   "archivedAt" | "branch" | "createdAt" | "environmentId" | "id" | "projectId" | "title"
@@ -218,6 +250,7 @@ export function filterCommandPaletteGroups(input: {
   isInSubmenu: boolean;
   projectSearchItems: ReadonlyArray<CommandPaletteActionItem>;
   threadSearchItems: ReadonlyArray<CommandPaletteActionItem>;
+  pullRequestSearchItems: ReadonlyArray<CommandPaletteActionItem>;
 }): CommandPaletteGroup[] {
   const isActionsFilter = input.query.startsWith(">");
   const searchQuery = isActionsFilter ? input.query.slice(1) : input.query;
@@ -251,6 +284,13 @@ export function filterCommandPaletteGroups(input: {
         value: "threads-search",
         label: "Threads",
         items: input.threadSearchItems,
+      });
+    }
+    if (input.pullRequestSearchItems.length > 0) {
+      searchableGroups.push({
+        value: "pull-requests-search",
+        label: "Pull Requests",
+        items: input.pullRequestSearchItems,
       });
     }
   }

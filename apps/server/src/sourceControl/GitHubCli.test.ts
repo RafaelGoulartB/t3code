@@ -93,6 +93,89 @@ describe("GitHubCli.layer", () => {
     }).pipe(Effect.provide(layer)),
   );
 
+  it.effect("searches involved pull requests by title in GraphQL and fallback modes", () =>
+    Effect.gen(function* () {
+      const filters = {
+        preset: "involvement" as const,
+        state: "open" as const,
+        query: "Improve search",
+        sort: "best-match" as const,
+        limit: 20,
+      };
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      const graphqlResponse = JSON.stringify({
+        data: {
+          search: {
+            nodes: [
+              {
+                number: 12,
+                title: "Improve search results",
+                url: "https://github.com/octo/repo/pull/12",
+                repository: { nameWithOwner: "octo/repo" },
+                author: { login: "octocat" },
+                state: "OPEN",
+                isDraft: false,
+                labels: [],
+                reviewDecision: null,
+                statusCheckRollup: { state: "SUCCESS" },
+              },
+            ],
+          },
+        },
+      });
+
+      mockRun.mockReturnValueOnce(Effect.succeed(processOutput(graphqlResponse)));
+      const gh = yield* GitHubCli.GitHubCli;
+      const graphqlResult = yield* gh.searchPullRequests({ cwd: "/repo", filters });
+      assert.equal(graphqlResult.items[0]?.title, "Improve search results");
+      const graphqlArgs = mockRun.mock.calls[0]?.[0].args.join(" ") ?? "";
+      expect(graphqlArgs).toContain("involves:@me");
+      expect(graphqlArgs).toContain("Improve search in:title");
+
+      mockRun.mockReset();
+      mockRun.mockReturnValueOnce(
+        Effect.fail(
+          new VcsProcessExitError({
+            operation: "GitHubCli.execute",
+            command: "gh api graphql",
+            cwd: "/repo",
+            exitCode: 1,
+            failureKind: "command-failed",
+            detail: "GraphQL unavailable",
+          }),
+        ),
+      );
+      mockRun.mockReturnValueOnce(
+        Effect.succeed(
+          processOutput(
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify([
+              {
+                number: 12,
+                title: "Improve search results",
+                url: "https://github.com/octo/repo/pull/12",
+                repository: { nameWithOwner: "octo/repo" },
+                author: { login: "octocat" },
+                state: "OPEN",
+                isDraft: false,
+                labels: [],
+              },
+            ]),
+          ),
+        ),
+      );
+
+      const fallbackResult = yield* gh.searchPullRequests({ cwd: "/repo", filters });
+      assert.equal(fallbackResult.items[0]?.title, "Improve search results");
+      const fallbackArgs = mockRun.mock.calls[1]?.[0].args.join(" ") ?? "";
+      expect(fallbackArgs).toContain("Improve search in:title");
+      expect(fallbackArgs).toContain("--involves @me");
+      expect(fallbackArgs).toContain("--state open");
+      expect(fallbackArgs).toContain("--sort best-match");
+      expect(fallbackArgs).toContain("--limit 20");
+    }).pipe(Effect.provide(layer)),
+  );
+
   it.effect("aggregates CI and review status for list cards", () =>
     Effect.gen(function* () {
       mockRun.mockReturnValueOnce(

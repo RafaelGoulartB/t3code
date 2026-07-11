@@ -18,8 +18,10 @@ describe("pullRequestRoutes", () => {
         preset: "review_requested",
         organization: "octo",
         repository: "octo/repo",
+        query: "search results",
         checks: "failure",
         review: "required",
+        sort: "best-match",
         limit: 999,
       }),
     );
@@ -29,8 +31,10 @@ describe("pullRequestRoutes", () => {
       preset: "review_requested",
       organization: "octo",
       repository: "octo/repo",
+      query: "search results",
       checks: "failure",
       review: "required",
+      sort: "best-match",
     });
   });
 
