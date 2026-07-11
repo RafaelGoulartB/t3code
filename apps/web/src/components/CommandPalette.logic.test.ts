@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+  type GitHubPullRequestListItem,
+} from "@t3tools/contracts";
 import type { Thread } from "../types";
 import {
+  buildPullRequestActionItems,
   buildThreadActionItems,
   filterCommandPaletteGroups,
   type CommandPaletteGroup,
@@ -9,6 +16,21 @@ import {
 
 const LOCAL_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
 const PROJECT_ID = ProjectId.make("project-1");
+
+const pullRequest: GitHubPullRequestListItem = {
+  number: 42,
+  title: "Improve search results",
+  url: "https://github.com/octo/repo/pull/42",
+  repository: "octo/repo",
+  author: "octocat",
+  state: "open",
+  isDraft: false,
+  createdAt: "2026-03-01T00:00:00.000Z",
+  updatedAt: "2026-03-02T00:00:00.000Z",
+  labels: [],
+  ciStatus: "success",
+  reviewStatus: "approved",
+};
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {
@@ -99,6 +121,7 @@ describe("buildThreadActionItems", () => {
       isInSubmenu: false,
       projectSearchItems: [],
       threadSearchItems: threadItems,
+      pullRequestSearchItems: [],
     });
 
     expect(groups).toHaveLength(1);
@@ -132,6 +155,7 @@ describe("buildThreadActionItems", () => {
       isInSubmenu: false,
       projectSearchItems: [],
       threadSearchItems: [],
+      pullRequestSearchItems: [],
     });
 
     expect(groups).toHaveLength(1);
@@ -161,5 +185,75 @@ describe("buildThreadActionItems", () => {
     });
 
     expect(items.map((item) => item.value)).toEqual(["thread:thread-active"]);
+  });
+});
+
+describe("buildPullRequestActionItems", () => {
+  it("builds title-searchable items and runs the selected pull request", async () => {
+    const runPullRequest = vi.fn(async (_pullRequest: GitHubPullRequestListItem) => undefined);
+    const items = buildPullRequestActionItems({
+      items: [pullRequest],
+      environmentId: LOCAL_ENVIRONMENT_ID,
+      icon: null,
+      runPullRequest,
+    });
+
+    expect(items[0]).toMatchObject({
+      value: `pull-request:${LOCAL_ENVIRONMENT_ID}:octo/repo#42`,
+      searchTerms: ["Improve search results"],
+      title: "Improve search results",
+      description: "octo/repo #42",
+    });
+
+    await items[0]?.run();
+    expect(runPullRequest).toHaveBeenCalledWith(pullRequest);
+  });
+
+  it("does not expose malformed repository references", () => {
+    const items = buildPullRequestActionItems({
+      items: [{ ...pullRequest, repository: "repo-only" }],
+      environmentId: LOCAL_ENVIRONMENT_ID,
+      icon: null,
+      runPullRequest: async () => undefined,
+    });
+
+    expect(items).toEqual([]);
+  });
+});
+
+describe("pull request command palette filtering", () => {
+  const items = buildPullRequestActionItems({
+    items: [pullRequest],
+    environmentId: LOCAL_ENVIRONMENT_ID,
+    icon: null,
+    runPullRequest: async () => undefined,
+  });
+
+  it("adds pull requests as a searchable root group", () => {
+    const groups = filterCommandPaletteGroups({
+      activeGroups: [],
+      query: "improve",
+      isInSubmenu: false,
+      projectSearchItems: [],
+      threadSearchItems: [],
+      pullRequestSearchItems: items,
+    });
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.value).toBe("pull-requests-search");
+    expect(groups[0]?.label).toBe("Pull Requests");
+  });
+
+  it("does not match a pull request by repository alone", () => {
+    const groups = filterCommandPaletteGroups({
+      activeGroups: [],
+      query: "octo/repo",
+      isInSubmenu: false,
+      projectSearchItems: [],
+      threadSearchItems: [],
+      pullRequestSearchItems: items,
+    });
+
+    expect(groups).toEqual([]);
   });
 });

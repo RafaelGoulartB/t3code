@@ -18,6 +18,7 @@ import {
   type SourceControlRepositoryInfo,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
 } from "@t3tools/contracts";
+import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
@@ -27,6 +28,7 @@ import {
   CornerLeftUpIcon,
   FolderIcon,
   FolderPlusIcon,
+  GitPullRequestIcon,
   LinkIcon,
   MessageSquareIcon,
   SettingsIcon,
@@ -55,6 +57,7 @@ import { desktopLocalBackendId } from "../connection/desktopLocal";
 import { filesystemEnvironment } from "../state/filesystem";
 import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
+import { githubPullRequestEnvironment } from "../state/githubPullRequests";
 import { sourceControlEnvironment } from "../state/sourceControl";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
@@ -96,6 +99,7 @@ import {
   buildProjectActionItems,
   buildRootGroups,
   buildThreadActionItems,
+  buildPullRequestActionItems,
   type CommandPaletteActionItem,
   type CommandPaletteSubmenuItem,
   type CommandPaletteView,
@@ -570,6 +574,28 @@ function OpenCommandPaletteDialog(props: {
   const isBrowsing =
     !isRemoteProjectRepositoryStep && isFilesystemBrowseQuery(query, browseEnvironmentPlatform);
   const paletteMode = getCommandPaletteMode({ currentView, isBrowsing });
+  const [debouncedPullRequestQuery] = useDebouncedValue(deferredQuery, { wait: 300 });
+  const normalizedPullRequestQuery = debouncedPullRequestQuery.trim();
+  const shouldSearchPullRequests =
+    currentView === null &&
+    !isActionsOnly &&
+    !isBrowsing &&
+    normalizedPullRequestQuery.length >= 2 &&
+    primaryEnvironmentId !== null;
+  const pullRequestQuery = useEnvironmentQuery(
+    shouldSearchPullRequests
+      ? githubPullRequestEnvironment.list({
+          environmentId: primaryEnvironmentId,
+          input: {
+            preset: "involvement",
+            state: "open",
+            sort: "best-match",
+            query: normalizedPullRequestQuery,
+            limit: 20,
+          },
+        })
+      : null,
+  );
   const getAddProjectInitialQueryForEnvironment = useCallback(
     (environmentId: EnvironmentId | null): string => {
       const environment = environments.find(
@@ -720,6 +746,38 @@ function OpenCommandPaletteDialog(props: {
     [activeThreadId, clientSettings.sidebarThreadSortOrder, navigate, projectTitleById, threads],
   );
   const recentThreadItems = allThreadItems.slice(0, RECENT_THREAD_LIMIT);
+
+  const pullRequestSearchItems = useMemo(
+    () =>
+      primaryEnvironmentId === null
+        ? []
+        : buildPullRequestActionItems({
+            items: pullRequestQuery.data?.items ?? [],
+            environmentId: primaryEnvironmentId,
+            icon: <GitPullRequestIcon className={ITEM_ICON_CLASS} />,
+            runPullRequest: async (pullRequest) => {
+              const [owner, repo] = pullRequest.repository.split("/");
+              if (!owner || !repo) return;
+              await navigate({
+                to: "/pull-requests/$owner/$repo/$number",
+                params: {
+                  owner,
+                  repo,
+                  number: String(pullRequest.number),
+                },
+                search: {
+                  environment: primaryEnvironmentId,
+                  preset: "involvement",
+                  state: "open",
+                  sort: "best-match",
+                  query: normalizedPullRequestQuery,
+                  limit: 20,
+                },
+              });
+            },
+          }),
+    [navigate, normalizedPullRequestQuery, primaryEnvironmentId, pullRequestQuery.data?.items],
+  );
 
   function pushPaletteView(view: CommandPaletteView): void {
     setViewStack((previousViews) => [
@@ -1080,7 +1138,17 @@ function OpenCommandPaletteDialog(props: {
     isInSubmenu: currentView !== null,
     projectSearchItems: projectSearchItems,
     threadSearchItems: allThreadItems,
+    pullRequestSearchItems,
   });
+
+  const emptySearchMessage =
+    filteredGroups.length === 0 && shouldSearchPullRequests
+      ? pullRequestQuery.isPending && pullRequestQuery.data === null
+        ? "Searching commands, projects, threads, and pull requests..."
+        : pullRequestQuery.error
+          ? "Pull request search is unavailable."
+          : undefined
+      : undefined;
 
   const handleAddProjectForEnvironment = useCallback(
     async (input: {
@@ -1819,6 +1887,7 @@ function OpenCommandPaletteDialog(props: {
             isActionsOnly={isActionsOnly}
             keybindings={keybindings}
             onExecuteItem={executeItem}
+            {...(emptySearchMessage ? { emptyStateMessage: emptySearchMessage } : {})}
             {...(addProjectCloneFlow?.step === "repository"
               ? {
                   emptyStateMessage:

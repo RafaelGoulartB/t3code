@@ -644,9 +644,15 @@ function quoteSearchQualifier(value: string): string {
   return /\s/.test(trimmed) ? `"${trimmed.replaceAll('"', '\\"')}"` : trimmed;
 }
 
+function buildPullRequestTextQuery(query: string | undefined): string | undefined {
+  const trimmed = query?.trim() ?? "";
+  return trimmed.length > 0 ? `${trimmed} in:title` : undefined;
+}
+
 function buildPullRequestSearchQuery(filters: GitHubPullRequestListInput): string {
   const preset = filters.preset ?? "mine";
   const qualifiers: string[] = ["is:pr"];
+  const textQuery = buildPullRequestTextQuery(filters.query);
   const state = filters.state ?? "open";
   if (state === "open" || state === "closed") qualifiers.push(`state:${state}`);
   if (state === "merged") qualifiers.push("is:merged");
@@ -674,7 +680,7 @@ function buildPullRequestSearchQuery(filters: GitHubPullRequestListInput): strin
     qualifiers.push(`sort:${filters.sort}-desc`);
   }
 
-  return [filters.query?.trim(), ...qualifiers].filter(Boolean).join(" ");
+  return [textQuery, ...qualifiers].filter(Boolean).join(" ");
 }
 
 function normalizeGraphqlListResult(raw: unknown, limit: number): GitHubPullRequestListResult {
@@ -917,10 +923,11 @@ export const make = Effect.gen(function* () {
       const filters = input.filters;
       const limit = filters.limit ?? 50;
       const state = filters.state ?? "open";
+      const textQuery = buildPullRequestTextQuery(filters.query);
       const basicArgs = [
         "search",
         "prs",
-        ...(filters.query && filters.query.trim().length > 0 ? [filters.query.trim()] : []),
+        ...(textQuery ? [textQuery] : []),
         ...(state === "open" || state === "closed" ? ["--state", state] : []),
         ...(state === "merged" ? ["--merged"] : []),
         "--limit",
