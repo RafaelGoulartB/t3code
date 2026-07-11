@@ -4,7 +4,6 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
-import { type TimestampFormat } from "@t3tools/contracts/settings";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { ScrollArea } from "./ui/scroll-area";
@@ -17,9 +16,7 @@ import {
   LoaderIcon,
 } from "lucide-react";
 import { cn } from "~/lib/utils";
-import type { ActivePlanState } from "../session-logic";
 import type { LatestProposedPlanState } from "../session-logic";
-import { formatTimestamp } from "../timestampFormat";
 import {
   proposedPlanTitle,
   buildProposedPlanMarkdownFilename,
@@ -56,26 +53,22 @@ export function stepStatusIcon(status: string): React.ReactNode {
 }
 
 interface PlanSidebarProps {
-  activePlan: ActivePlanState | null;
   activeProposedPlan: LatestProposedPlanState | null;
   label?: string;
   environmentId: EnvironmentId;
   threadRef?: ScopedThreadRef | undefined;
   markdownCwd: string | undefined;
   workspaceRoot: string | undefined;
-  timestampFormat: TimestampFormat;
   mode?: "sheet" | "sidebar" | "embedded";
 }
 
 const PlanSidebar = memo(function PlanSidebar({
-  activePlan,
   activeProposedPlan,
   label = "Plan",
   environmentId,
   threadRef,
   markdownCwd,
   workspaceRoot,
-  timestampFormat,
   mode = "sidebar",
 }: PlanSidebarProps) {
   const [proposedPlanExpanded, setProposedPlanExpanded] = useState(false);
@@ -154,11 +147,6 @@ const PlanSidebar = memo(function PlanSidebar({
           >
             {label}
           </Badge>
-          {activePlan ? (
-            <span className="text-[11px] text-muted-foreground/60 tabular-nums">
-              {formatTimestamp(activePlan.createdAt, timestampFormat)}
-            </span>
-          ) : null}
         </div>
         <div className="flex items-center gap-1">
           {planMarkdown ? (
@@ -195,46 +183,6 @@ const PlanSidebar = memo(function PlanSidebar({
       {/* Content */}
       <ScrollArea className="min-h-0 flex-1">
         <div className="p-3 space-y-4">
-          {/* Explanation */}
-          {activePlan?.explanation ? (
-            <p className="text-[13px] leading-relaxed text-muted-foreground/80">
-              {activePlan.explanation}
-            </p>
-          ) : null}
-
-          {/* Plan Steps */}
-          {activePlan && activePlan.steps.length > 0 ? (
-            <div className="space-y-1">
-              <p className="mb-2 text-[10px] font-semibold tracking-widest text-muted-foreground/40 uppercase">
-                Steps
-              </p>
-              {activePlan.steps.map((step) => (
-                <div
-                  key={`${step.status}:${step.step}`}
-                  className={cn(
-                    "flex items-center gap-2.5 rounded-lg px-2.5 py-2 transition-colors duration-200",
-                    step.status === "inProgress" && "bg-blue-500/5",
-                    step.status === "completed" && "bg-emerald-500/5",
-                  )}
-                >
-                  {stepStatusIcon(step.status)}
-                  <p
-                    className={cn(
-                      "text-[13px] leading-snug",
-                      step.status === "completed"
-                        ? "text-muted-foreground/50 line-through decoration-muted-foreground/20"
-                        : step.status === "inProgress"
-                          ? "text-foreground/90"
-                          : "text-muted-foreground/70",
-                    )}
-                  >
-                    {step.step}
-                  </p>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
           {/* Proposed Plan Markdown */}
           {planMarkdown ? (
             <div className="space-y-2">
@@ -266,9 +214,9 @@ const PlanSidebar = memo(function PlanSidebar({
           ) : null}
 
           {/* Empty state */}
-          {!activePlan && !planMarkdown ? (
+          {!planMarkdown ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
-              <p className="text-[13px] text-muted-foreground/40">No active plan yet.</p>
+              <p className="text-[13px] text-muted-foreground/40">No plan yet.</p>
               <p className="mt-1 text-[11px] text-muted-foreground/30">
                 Plans will appear here when generated.
               </p>

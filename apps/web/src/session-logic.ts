@@ -513,14 +513,13 @@ export function deriveActivePlanState(
 ): ActivePlanState | null {
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
   const allPlanActivities = ordered.filter((activity) => activity.kind === "turn.plan.updated");
-  // Prefer plan from the current turn; fall back to the most recent plan from any turn
-  // so that TodoWrite tasks persist across follow-up messages.
-  const latest = Option.firstSomeOf([
-    ...(latestTurnId
-      ? Arr.findLast(allPlanActivities, (activity) => activity.turnId === latestTurnId)
-      : Option.none()),
-    Arr.last(allPlanActivities),
-  ]).pipe(Option.getOrNull);
+  // Todo steps belong to the turn that produced them. Do not carry them into
+  // a new turn while it is waiting for its first plan update.
+  const latest = latestTurnId
+    ? Arr.findLast(allPlanActivities, (activity) => activity.turnId === latestTurnId).pipe(
+        Option.getOrNull,
+      )
+    : Arr.last(allPlanActivities).pipe(Option.getOrNull);
   if (!latest) {
     return null;
   }
