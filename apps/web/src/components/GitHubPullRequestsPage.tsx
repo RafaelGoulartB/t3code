@@ -1015,7 +1015,7 @@ export function GitHubPullRequestsPage() {
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden bg-background text-foreground">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3 sm:px-6">
+        <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3 sm:px-6 wco:pr-[calc(100vw-env(titlebar-area-width)-env(titlebar-area-x)+1em)]">
           <GitPullRequestIcon className="size-5 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <h1 className="text-sm font-semibold">Pull Requests</h1>
@@ -1977,7 +1977,7 @@ export function GitHubPullRequestDetailsPage() {
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden bg-background text-foreground">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex flex-wrap items-start gap-3 border-b border-border px-4 py-3 sm:px-6">
+        <header className="flex flex-wrap items-start gap-3 border-b border-border px-4 py-3 sm:px-6 wco:pr-[calc(100vw-env(titlebar-area-width)-env(titlebar-area-x)+1em)]">
           <Button
             size="xs"
             variant="ghost"
