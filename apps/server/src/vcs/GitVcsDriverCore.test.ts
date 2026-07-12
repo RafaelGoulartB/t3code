@@ -161,6 +161,64 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
       }),
     );
 
+    it.effect("lists the current branch commit history in pages", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        yield* writeTextFile(cwd, "second.txt", "second\n");
+        yield* git(cwd, ["add", "second.txt"]);
+        yield* git(cwd, ["commit", "-m", "second commit"]);
+        yield* writeTextFile(cwd, "third.txt", "third\n");
+        yield* git(cwd, ["add", "third.txt"]);
+        yield* git(cwd, ["commit", "-m", "third commit"]);
+        yield* git(cwd, ["remote", "add", "origin", "https://github.com/t3tools/t3code.git"]);
+
+        const firstPage = yield* driver.listCommits({ cwd, limit: 2 });
+        assert.equal(firstPage.isRepo, true);
+        assert.equal(firstPage.refName, initialBranch);
+        assert.deepStrictEqual(
+          firstPage.commits.map((commit) => commit.subject),
+          ["third commit", "second commit"],
+        );
+        assert.equal(firstPage.commits[0]?.hash.length, 40);
+        assert.isAbove(firstPage.commits[0]?.shortHash.length ?? 0, 0);
+        assert.isBelow(firstPage.commits[0]?.shortHash.length ?? 40, 40);
+        assert.equal(
+          firstPage.commits[0]?.url,
+          `https://github.com/t3tools/t3code/commit/${firstPage.commits[0]?.hash}`,
+        );
+        assert.equal(firstPage.nextCursor, 2);
+
+        const secondPage = yield* driver.listCommits({
+          cwd,
+          limit: 2,
+          cursor: firstPage.nextCursor ?? 0,
+        });
+        assert.deepStrictEqual(
+          secondPage.commits.map((commit) => commit.subject),
+          ["initial commit"],
+        );
+        assert.equal(secondPage.nextCursor, null);
+      }),
+    );
+
+    it.effect("returns an empty history for a repository without commits", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* driver.initRepo({ cwd });
+
+        const history = yield* driver.listCommits({ cwd, limit: 50 });
+        assert.deepStrictEqual(history, {
+          isRepo: true,
+          refName: null,
+          commits: [],
+          nextCursor: null,
+        });
+      }),
+    );
+
     it.effect("does not wrap a remove-worktree command failure in a synthetic error", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();

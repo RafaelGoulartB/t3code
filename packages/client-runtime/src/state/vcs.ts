@@ -173,6 +173,11 @@ export function createVcsEnvironmentAtoms<R, E>(
   return {
     listRefs,
     listWorktrees,
+    listCommits: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:vcs:list-commits",
+      tag: WS_METHODS.vcsListCommits,
+      staleTimeMs: 0,
+    }),
     status: createEnvironmentSubscriptionAtomFamily(runtime, {
       label: "environment-data:vcs:status",
       subscribe: (input: EnvironmentRpcInput<typeof WS_METHODS.subscribeVcsStatus>) =>

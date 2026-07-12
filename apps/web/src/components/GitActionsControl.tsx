@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { type ScopedThreadRef } from "@t3tools/contracts";
+import { type ScopedThreadRef, type VcsCommitLogEntry } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -28,6 +28,7 @@ import {
   GitBranchPlusIcon,
   GitBranchIcon,
   GitCommitIcon,
+  HistoryIcon,
   InfoIcon,
   LockIcon,
   GlobeIcon,
@@ -104,6 +105,8 @@ import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import { readLocalApi } from "~/localApi";
 import { getSourceControlPresentation } from "~/sourceControlPresentation";
 import { openPullRequestLink } from "~/lib/openPullRequestLink";
+import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
+import { formatRelativeGitCommitDate } from "./GitLogDialog.logic";
 
 interface GitActionsControlProps {
   gitCwd: string | null;
@@ -151,6 +154,7 @@ interface RunGitActionWithToastInput {
 }
 
 const GIT_STATUS_WINDOW_REFRESH_DEBOUNCE_MS = 250;
+const GIT_LOG_PAGE_SIZE = 50;
 
 type RefreshVcsStatus = (target: {
   readonly environmentId: ScopedThreadRef["environmentId"];
@@ -1048,6 +1052,12 @@ export default function GitActionsControl({
   const [selectionTouched, setSelectionTouched] = useState(false);
   const [stashMessage, setStashMessage] = useState("");
   const [isGitMenuOpen, setIsGitMenuOpen] = useState(false);
+  const [isCommitLogOpen, setIsCommitLogOpen] = useState(false);
+  const [commitLogCursor, setCommitLogCursor] = useState(0);
+  const [commitLogEntries, setCommitLogEntries] = useState<ReadonlyArray<VcsCommitLogEntry>>([]);
+  const [commitLogNextCursor, setCommitLogNextCursor] = useState<number | null>(null);
+  const [commitLogRefName, setCommitLogRefName] = useState<string | null>(null);
+  const [isRefreshingGitStatus, setIsRefreshingGitStatus] = useState(false);
   const [isBranchDialogOpen, setIsBranchDialogOpen] = useState(false);
   const [newBranchName, setNewBranchName] = useState("");
   const [newWorktreeBase, setNewWorktreeBase] = useState("");
@@ -1188,6 +1198,14 @@ export default function GitActionsControl({
         })
       : null,
   );
+  const commitLogQuery = useEnvironmentQuery(
+    activeEnvironmentId !== null && gitCwd !== null && isCommitLogOpen
+      ? vcsEnvironment.listCommits({
+          environmentId: activeEnvironmentId,
+          input: { cwd: gitCwd, cursor: commitLogCursor, limit: GIT_LOG_PAGE_SIZE },
+        })
+      : null,
+  );
 
   const initAction = useVcsInitAction(sourceControlScope);
   const runImmediateGitAction = useGitStackedAction(sourceControlScope);
@@ -1213,6 +1231,7 @@ export default function GitActionsControl({
     "stashApply",
     "stashDrop",
   ]);
+  const isGitUiBusy = isGitActionRunning || isRefreshingGitStatus;
   const isSelectingWorktreeBase =
     !activeServerThread &&
     activeDraftThread?.envMode === "worktree" &&
@@ -1251,15 +1270,59 @@ export default function GitActionsControl({
     return gitStatusForActions?.isDefaultRef ?? false;
   }, [gitStatusForActions?.isDefaultRef]);
 
+  useEffect(() => {
+    if (!isCommitLogOpen || !commitLogQuery.data) {
+      return;
+    }
+    const page = commitLogQuery.data;
+    setCommitLogRefName(page.refName);
+    setCommitLogNextCursor(page.nextCursor);
+    setCommitLogEntries((current) => {
+      if (commitLogCursor === 0) {
+        return page.commits;
+      }
+      const knownHashes = new Set(current.map((commit) => commit.hash));
+      return [...current, ...page.commits.filter((commit) => !knownHashes.has(commit.hash))];
+    });
+  }, [commitLogCursor, commitLogQuery.data, isCommitLogOpen]);
+
   const gitActionMenuItems = useMemo(
-    () => buildMenuItems(gitStatusForActions, isGitActionRunning, hasPrimaryRemote),
-    [gitStatusForActions, hasPrimaryRemote, isGitActionRunning],
+    () => buildMenuItems(gitStatusForActions, isGitUiBusy, hasPrimaryRemote),
+    [gitStatusForActions, hasPrimaryRemote, isGitUiBusy],
   );
   const quickAction = useMemo(
-    () =>
-      resolveQuickAction(gitStatusForActions, isGitActionRunning, isDefaultRef, hasPrimaryRemote),
-    [gitStatusForActions, hasPrimaryRemote, isDefaultRef, isGitActionRunning],
+    () => resolveQuickAction(gitStatusForActions, isGitUiBusy, isDefaultRef, hasPrimaryRemote),
+    [gitStatusForActions, hasPrimaryRemote, isDefaultRef, isGitUiBusy],
   );
+  const refreshCurrentGitStatus = useCallback(async () => {
+    if (activeEnvironmentId === null || gitCwd === null || isGitUiBusy) {
+      return;
+    }
+    setIsRefreshingGitStatus(true);
+    try {
+      await refreshVcsStatus({ environmentId: activeEnvironmentId, input: { cwd: gitCwd } });
+    } catch {
+      // The status subscription renders the server-provided error without discarding its last value.
+    } finally {
+      setIsRefreshingGitStatus(false);
+    }
+  }, [activeEnvironmentId, gitCwd, isGitUiBusy, refreshVcsStatus]);
+  const openCommitLog = useCallback(() => {
+    setCommitLogCursor(0);
+    setCommitLogEntries([]);
+    setCommitLogNextCursor(null);
+    setCommitLogRefName(gitStatusForActions?.refName ?? null);
+    setIsCommitLogOpen(true);
+  }, [gitStatusForActions?.refName]);
+  const closeCommitLog = useCallback((open: boolean) => {
+    setIsCommitLogOpen(open);
+    if (!open) {
+      setCommitLogCursor(0);
+      setCommitLogEntries([]);
+      setCommitLogNextCursor(null);
+      setCommitLogRefName(null);
+    }
+  }, []);
   const quickActionDisabledReason = quickAction.disabled
     ? (quickAction.hint ?? "This action is currently unavailable.")
     : null;
@@ -1367,6 +1430,56 @@ export default function GitActionsControl({
       );
     });
   }, [gitStatusForActions, threadToastData]);
+
+  const copyCommitHash = useCallback(
+    (hash: string) => {
+      void writeTextToClipboard(hash, "commit hash").then(
+        () => {
+          toastManager.add({
+            type: "success",
+            title: "Commit hash copied",
+            data: threadToastData,
+          });
+        },
+        (error: unknown) => {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Unable to copy commit hash",
+              description: error instanceof Error ? error.message : "An error occurred.",
+              ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+            }),
+          );
+        },
+      );
+    },
+    [threadToastData],
+  );
+
+  const openCommitUrl = useCallback(
+    (url: string) => {
+      const api = readLocalApi();
+      if (!api) {
+        toastManager.add({
+          type: "error",
+          title: "Link opening is unavailable.",
+          data: threadToastData,
+        });
+        return;
+      }
+      void openPullRequestLink(api.shell, url).catch((error: unknown) => {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Unable to open commit link",
+            description: error instanceof Error ? error.message : "An error occurred.",
+            ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+          }),
+        );
+      });
+    },
+    [threadToastData],
+  );
 
   runGitActionWithToast = useEffectEvent(
     async ({
@@ -2075,7 +2188,7 @@ export default function GitActionsControl({
             <Button
               variant="outline"
               size="xs"
-              disabled={isGitActionRunning || quickAction.disabled}
+              disabled={isGitUiBusy || quickAction.disabled}
               onClick={runQuickAction}
             >
               <GitQuickActionIcon quickAction={quickAction} SourceControlIcon={SourceControlIcon} />
@@ -2095,16 +2208,38 @@ export default function GitActionsControl({
           >
             <MenuTrigger
               render={<Button aria-label="Git action options" size="icon-xs" variant="outline" />}
-              disabled={isGitActionRunning}
+              disabled={isGitUiBusy}
             >
               <ChevronDownIcon aria-hidden="true" className="size-4" />
             </MenuTrigger>
             <MenuPopup align="end" className="w-full">
+              <div className="flex items-center justify-between gap-3 border-b border-border/70 px-2 py-1.5">
+                <span className="text-xs font-medium">Git</span>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        aria-label="Refresh Git status"
+                        size="icon-xs"
+                        variant="ghost"
+                        disabled={isGitUiBusy}
+                        onClick={() => void refreshCurrentGitStatus()}
+                      />
+                    }
+                  >
+                    <RefreshCwIcon
+                      aria-hidden="true"
+                      className={cn("size-3.5", isRefreshingGitStatus && "animate-spin")}
+                    />
+                  </TooltipTrigger>
+                  <TooltipPopup side="left">Refresh Git status</TooltipPopup>
+                </Tooltip>
+              </div>
               {gitActionMenuItems.map((item) => {
                 const disabledReason = getMenuActionDisabledReason({
                   item,
                   gitStatus: gitStatusForActions,
-                  isBusy: isGitActionRunning,
+                  isBusy: isGitUiBusy,
                   hasPrimaryRemote,
                 });
                 if (item.disabled && disabledReason) {
@@ -2145,7 +2280,7 @@ export default function GitActionsControl({
               })}
               {canPublishRepository ? (
                 <MenuItem
-                  disabled={isGitActionRunning}
+                  disabled={isGitUiBusy}
                   onClick={() => {
                     setIsPublishDialogOpen(true);
                   }}
@@ -2155,7 +2290,14 @@ export default function GitActionsControl({
                 </MenuItem>
               ) : null}
               <MenuItem
-                disabled={isGitActionRunning}
+                disabled={isGitUiBusy || gitStatusForActions?.refName === null}
+                onClick={openCommitLog}
+              >
+                <HistoryIcon />
+                Log
+              </MenuItem>
+              <MenuItem
+                disabled={isGitUiBusy}
                 onClick={() => {
                   setNewWorktreeBase(gitStatusForActions?.refName ?? "");
                   setIsBranchDialogOpen(true);
@@ -2172,7 +2314,7 @@ export default function GitActionsControl({
               {stashListQuery.data?.stashes.slice(0, 3).map((stash) => (
                 <MenuItem
                   key={stash.ref}
-                  disabled={isGitActionRunning}
+                  disabled={isGitUiBusy}
                   onClick={() => applyStash(stash.ref, false)}
                 >
                   <RotateCcwIcon />
@@ -2424,6 +2566,98 @@ export default function GitActionsControl({
                 : commitDialogAction === "commit_push"
                   ? "Commit & push"
                   : `Commit, push & ${changeRequestTerminology.shortLabel}`}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+
+      <Dialog open={isCommitLogOpen} onOpenChange={closeCommitLog}>
+        <DialogPopup className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Git log{commitLogRefName ? ` - ${commitLogRefName}` : ""}</DialogTitle>
+            <DialogDescription>Commit history for the current branch.</DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="space-y-3">
+            <ScrollArea className="h-[28rem] rounded-lg border border-input bg-background">
+              <div className="space-y-1 p-1">
+                {commitLogEntries.map((commit) => (
+                  <div
+                    key={commit.hash}
+                    className="grid gap-1 rounded-md px-2 py-2 hover:bg-accent/50"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <button
+                        type="button"
+                        aria-label={`Copy full commit hash ${commit.hash}`}
+                        className="shrink-0 font-mono text-xs text-muted-foreground hover:text-foreground"
+                        onClick={() => copyCommitHash(commit.hash)}
+                      >
+                        {commit.shortHash}
+                      </button>
+                      {commit.url ? (
+                        <a
+                          href={commit.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="min-w-0 flex-1 truncate text-sm hover:underline"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            openCommitUrl(commit.url!);
+                          }}
+                        >
+                          {commit.subject || "No commit message"}
+                        </a>
+                      ) : (
+                        <span className="min-w-0 flex-1 truncate text-sm">
+                          {commit.subject || "No commit message"}
+                        </span>
+                      )}
+                    </div>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {commit.authorName || "Unknown author"} -{" "}
+                      {formatRelativeGitCommitDate(commit.authoredAt)}
+                    </p>
+                  </div>
+                ))}
+                {commitLogQuery.isPending && commitLogEntries.length === 0 ? (
+                  <p className="px-2 py-3 text-xs text-muted-foreground">Loading commits...</p>
+                ) : null}
+                {!commitLogQuery.isPending &&
+                !commitLogQuery.error &&
+                commitLogEntries.length === 0 ? (
+                  <p className="px-2 py-3 text-xs text-muted-foreground">
+                    No commits on this branch yet.
+                  </p>
+                ) : null}
+                {commitLogQuery.error ? (
+                  <div className="space-y-2 px-2 py-3 text-xs text-destructive">
+                    <p>{commitLogQuery.error}</p>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={() => void commitLogQuery.refresh()}
+                    >
+                      Retry
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            </ScrollArea>
+            {commitLogNextCursor !== null ? (
+              <Button
+                className="w-full"
+                size="sm"
+                variant="outline"
+                disabled={commitLogQuery.isPending}
+                onClick={() => setCommitLogCursor(commitLogNextCursor)}
+              >
+                {commitLogQuery.isPending ? "Loading..." : "Load more"}
+              </Button>
+            ) : null}
+          </DialogPanel>
+          <DialogFooter>
+            <Button size="sm" onClick={() => closeCommitLog(false)}>
+              Done
             </Button>
           </DialogFooter>
         </DialogPopup>

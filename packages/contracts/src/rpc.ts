@@ -35,6 +35,8 @@ import {
   VcsListWorktreesResult,
   VcsDeleteWorktreeWithThreadsInput,
   VcsDeleteWorktreeWithThreadsResult,
+  VcsListCommitsInput,
+  VcsListCommitsResult,
   GitManagerServiceError,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
@@ -197,6 +199,7 @@ export const WS_METHODS = {
   vcsRefreshStatus: "vcs.refreshStatus",
   vcsListRefs: "vcs.listRefs",
   vcsListWorktrees: "vcs.listWorktrees",
+  vcsListCommits: "vcs.listCommits",
   vcsCreateWorktree: "vcs.createWorktree",
   vcsRemoveWorktree: "vcs.removeWorktree",
   vcsDeleteWorktreeWithThreads: "vcs.deleteWorktreeWithThreads",
@@ -302,7 +305,7 @@ export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProv
   payload: Schema.Struct({
     /**
      * When supplied, only refresh this specific provider instance. When
-     * omitted, refresh all configured instances — the legacy `refresh()`
+     * omitted, refresh all configured instances â€” the legacy `refresh()`
      * behaviour retained for transports that still dispatch untargeted
      * refreshes.
      */
@@ -530,6 +533,12 @@ export const WsVcsListRefsRpc = Rpc.make(WS_METHODS.vcsListRefs, {
 export const WsVcsListWorktreesRpc = Rpc.make(WS_METHODS.vcsListWorktrees, {
   payload: VcsListWorktreesInput,
   success: VcsListWorktreesResult,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsListCommitsRpc = Rpc.make(WS_METHODS.vcsListCommits, {
+  payload: VcsListCommitsInput,
+  success: VcsListCommitsResult,
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
 });
 
@@ -863,6 +872,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitPreparePullRequestThreadRpc,
   WsVcsListRefsRpc,
   WsVcsListWorktreesRpc,
+  WsVcsListCommitsRpc,
   WsVcsCreateWorktreeRpc,
   WsVcsRemoveWorktreeRpc,
   WsVcsDeleteWorktreeWithThreadsRpc,
