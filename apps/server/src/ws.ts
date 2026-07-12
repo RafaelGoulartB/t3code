@@ -9,6 +9,7 @@ import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import { normalizeWorktreePath } from "@t3tools/shared/worktreePath";
 import {
   DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL,
   AuthOrchestrationOperateScope,
@@ -323,8 +324,10 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.gitResolvePullRequest, AuthOrchestrationOperateScope],
   [WS_METHODS.gitPreparePullRequestThread, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsListRefs, AuthOrchestrationReadScope],
+  [WS_METHODS.vcsListWorktrees, AuthOrchestrationReadScope],
   [WS_METHODS.vcsCreateWorktree, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsRemoveWorktree, AuthOrchestrationOperateScope],
+  [WS_METHODS.vcsDeleteWorktreeWithThreads, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsCreateRef, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsSwitchRef, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsRenameBranch, AuthOrchestrationOperateScope],
@@ -1706,6 +1709,10 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.vcsListRefs, gitWorkflow.listRefs(input), {
             "rpc.aggregate": "vcs",
           }),
+        [WS_METHODS.vcsListWorktrees]: (input) =>
+          observeRpcEffect(WS_METHODS.vcsListWorktrees, gitWorkflow.listWorktrees(input), {
+            "rpc.aggregate": "vcs",
+          }),
         [WS_METHODS.vcsCreateWorktree]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsCreateWorktree,
@@ -1716,6 +1723,64 @@ const makeWsRpcLayer = (
           observeRpcEffect(
             WS_METHODS.vcsRemoveWorktree,
             gitWorkflow.removeWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsDeleteWorktreeWithThreads]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsDeleteWorktreeWithThreads,
+            Effect.gen(function* () {
+              const worktrees = yield* gitWorkflow.listWorktrees({ cwd: input.cwd });
+              const targetPath = normalizeWorktreePath(input.path);
+              const target = worktrees.worktrees.find(
+                (worktree) => normalizeWorktreePath(worktree.path) === targetPath,
+              );
+              if (!target || target.isMain) {
+                return yield* new OrchestrationDispatchCommandError({
+                  message: "Worktree not found or cannot be removed.",
+                  cause: input,
+                });
+              }
+              const snapshot = yield* projectionSnapshotQuery.getSnapshot().pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new OrchestrationDispatchCommandError({
+                      message: "Could not validate threads using this worktree.",
+                      cause,
+                    }),
+                ),
+              );
+              const threads = snapshot.threads.filter(
+                (thread) =>
+                  thread.projectId === input.projectId &&
+                  normalizeWorktreePath(thread.worktreePath) === targetPath,
+              );
+              const running = threads.find(
+                (thread) =>
+                  thread.session?.status === "running" && thread.session.activeTurnId !== null,
+              );
+              if (running) {
+                return yield* new OrchestrationDispatchCommandError({
+                  message: `Stop thread ${running.title} before deleting its worktree.`,
+                  cause: running.id,
+                });
+              }
+              for (const thread of threads) {
+                yield* dispatchNormalizedCommand({
+                  type: "thread.delete",
+                  commandId: yield* serverCommandId("worktree-thread-delete"),
+                  threadId: thread.id,
+                });
+              }
+              yield* gitWorkflow.removeWorktree({ cwd: input.cwd, path: input.path, force: true });
+              yield* refreshGitStatus(input.cwd);
+              return { deletedThreadIds: threads.map((thread) => thread.id) };
+            }).pipe(
+              Effect.mapError((cause) =>
+                isOrchestrationDispatchCommandError(cause)
+                  ? cause
+                  : toDispatchCommandError(cause, "Failed to delete worktree and its threads"),
+              ),
+            ),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsCreateRef]: (input) =>

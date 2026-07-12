@@ -1,5 +1,11 @@
 import * as Schema from "effect/Schema";
-import { NonNegativeInt, PositiveInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import {
+  NonNegativeInt,
+  PositiveInt,
+  ProjectId,
+  ThreadId,
+  TrimmedNonEmptyString,
+} from "./baseSchemas.ts";
 import { SourceControlProviderError, SourceControlProviderInfo } from "./sourceControl.ts";
 import { VcsDriverKind } from "./vcs.ts";
 
@@ -83,7 +89,14 @@ export const VcsRef = Schema.Struct({
 });
 export type VcsRef = typeof VcsRef.Type;
 
-const VcsWorktree = Schema.Struct({
+export const VcsWorktree = Schema.Struct({
+  path: TrimmedNonEmptyStringSchema,
+  refName: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
+  isMain: Schema.Boolean,
+  isDetached: Schema.Boolean,
+});
+export type VcsWorktree = typeof VcsWorktree.Type;
+const VcsCreatedWorktree = Schema.Struct({
   path: TrimmedNonEmptyStringSchema,
   refName: TrimmedNonEmptyStringSchema,
 });
@@ -138,6 +151,11 @@ export const VcsListRefsInput = Schema.Struct({
 });
 export type VcsListRefsInput = typeof VcsListRefsInput.Type;
 
+export const VcsListWorktreesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+});
+export type VcsListWorktreesInput = typeof VcsListWorktreesInput.Type;
+
 export const VcsCreateWorktreeInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   refName: TrimmedNonEmptyStringSchema,
@@ -167,6 +185,13 @@ export const VcsRemoveWorktreeInput = Schema.Struct({
   force: Schema.optional(Schema.Boolean),
 });
 export type VcsRemoveWorktreeInput = typeof VcsRemoveWorktreeInput.Type;
+
+export const VcsDeleteWorktreeWithThreadsInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  projectId: ProjectId,
+  path: TrimmedNonEmptyStringSchema,
+});
+export type VcsDeleteWorktreeWithThreadsInput = typeof VcsDeleteWorktreeWithThreadsInput.Type;
 
 export const VcsCreateRefInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
@@ -319,8 +344,19 @@ export const VcsListRefsResult = Schema.Struct({
 });
 export type VcsListRefsResult = typeof VcsListRefsResult.Type;
 
+export const VcsListWorktreesResult = Schema.Struct({
+  isRepo: Schema.Boolean,
+  worktrees: Schema.Array(VcsWorktree),
+});
+export type VcsListWorktreesResult = typeof VcsListWorktreesResult.Type;
+
+export const VcsDeleteWorktreeWithThreadsResult = Schema.Struct({
+  deletedThreadIds: Schema.Array(ThreadId),
+});
+export type VcsDeleteWorktreeWithThreadsResult = typeof VcsDeleteWorktreeWithThreadsResult.Type;
+
 export const VcsCreateWorktreeResult = Schema.Struct({
-  worktree: VcsWorktree,
+  worktree: VcsCreatedWorktree,
 });
 export type VcsCreateWorktreeResult = typeof VcsCreateWorktreeResult.Type;
 

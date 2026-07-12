@@ -937,7 +937,18 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         env: STATUS_UPSTREAM_REFRESH_ENV,
         timeoutMs: Duration.toMillis(STATUS_UPSTREAM_REFRESH_TIMEOUT),
       },
-    ).pipe(Effect.asVoid);
+    ).pipe(
+      Effect.asVoid,
+      Effect.catchTags({
+        GitCommandError: (error) =>
+          error.detail.toLocaleLowerCase().includes("timed out")
+            ? Effect.logDebug("Git remote status fetch timed out; using cached remote data.", {
+                cwd: fetchCwd,
+                remoteName,
+              })
+            : Effect.fail(error),
+      }),
+    );
   };
 
   const resolveGitCommonDir = Effect.fn("resolveGitCommonDir")(function* (cwd: string) {
@@ -2244,6 +2255,71 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     },
   );
 
+  const listWorktrees: GitVcsDriver.GitVcsDriver["Service"]["listWorktrees"] = Effect.fn(
+    "listWorktrees",
+  )(function* (input) {
+    const result = yield* executeGit(
+      "GitVcsDriver.listWorktrees",
+      input.cwd,
+      ["worktree", "list", "--porcelain"],
+      { timeoutMs: 10_000, allowNonZeroExit: true },
+    );
+    if (result.exitCode !== 0) {
+      if (isNonRepositoryGitStderr(result.stderr.trim())) {
+        return { isRepo: false, worktrees: [] };
+      }
+      return yield* new GitCommandError({
+        ...gitCommandContext({
+          operation: "GitVcsDriver.listWorktrees",
+          cwd: input.cwd,
+          args: ["worktree", "list", "--porcelain"],
+        }),
+        detail: "Git worktree listing failed.",
+        exitCode: result.exitCode,
+        stdoutLength: result.stdout.length,
+        stderrLength: result.stderr.length,
+      });
+    }
+
+    const records: Array<{ path: string; refName: string | null; isDetached: boolean }> = [];
+    let current: {
+      path: string;
+      refName: string | null;
+      isDetached: boolean;
+      prunable: boolean;
+    } | null = null;
+    const finish = () => {
+      if (current && !current.prunable) {
+        records.push({
+          path: current.path,
+          refName: current.refName,
+          isDetached: current.isDetached,
+        });
+      }
+      current = null;
+    };
+    for (const line of result.stdout.split("\n")) {
+      if (line.length === 0) {
+        finish();
+      } else if (line.startsWith("worktree ")) {
+        finish();
+        current = { path: line.slice(9), refName: null, isDetached: false, prunable: false };
+      } else if (current && line.startsWith("branch refs/heads/")) {
+        current.refName = line.slice("branch refs/heads/".length);
+      } else if (current && line === "detached") {
+        current.isDetached = true;
+      } else if (current && line.startsWith("prunable")) {
+        current.prunable = true;
+      }
+    }
+    finish();
+
+    return {
+      isRepo: true,
+      worktrees: records.map((worktree, index) => ({ ...worktree, isMain: index === 0 })),
+    };
+  });
+
   const createWorktree: GitVcsDriver.GitVcsDriver["Service"]["createWorktree"] = Effect.fn(
     "createWorktree",
   )(function* (input) {
@@ -2694,6 +2770,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     getReviewDiffPreview,
     readConfigValue,
     listRefs,
+    listWorktrees,
     createWorktree,
     fetchPullRequestBranch,
     ensureRemote,

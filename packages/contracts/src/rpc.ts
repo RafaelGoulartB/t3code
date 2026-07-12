@@ -31,6 +31,10 @@ import {
   VcsInitInput,
   VcsListRefsInput,
   VcsListRefsResult,
+  VcsListWorktreesInput,
+  VcsListWorktreesResult,
+  VcsDeleteWorktreeWithThreadsInput,
+  VcsDeleteWorktreeWithThreadsResult,
   GitManagerServiceError,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
@@ -192,8 +196,10 @@ export const WS_METHODS = {
   vcsFetch: "vcs.fetch",
   vcsRefreshStatus: "vcs.refreshStatus",
   vcsListRefs: "vcs.listRefs",
+  vcsListWorktrees: "vcs.listWorktrees",
   vcsCreateWorktree: "vcs.createWorktree",
   vcsRemoveWorktree: "vcs.removeWorktree",
+  vcsDeleteWorktreeWithThreads: "vcs.deleteWorktreeWithThreads",
   vcsCreateRef: "vcs.createRef",
   vcsSwitchRef: "vcs.switchRef",
   vcsRenameBranch: "vcs.renameBranch",
@@ -521,6 +527,12 @@ export const WsVcsListRefsRpc = Rpc.make(WS_METHODS.vcsListRefs, {
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
 });
 
+export const WsVcsListWorktreesRpc = Rpc.make(WS_METHODS.vcsListWorktrees, {
+  payload: VcsListWorktreesInput,
+  success: VcsListWorktreesResult,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
 export const WsVcsCreateWorktreeRpc = Rpc.make(WS_METHODS.vcsCreateWorktree, {
   payload: VcsCreateWorktreeInput,
   success: VcsCreateWorktreeResult,
@@ -530,6 +542,16 @@ export const WsVcsCreateWorktreeRpc = Rpc.make(WS_METHODS.vcsCreateWorktree, {
 export const WsVcsRemoveWorktreeRpc = Rpc.make(WS_METHODS.vcsRemoveWorktree, {
   payload: VcsRemoveWorktreeInput,
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsDeleteWorktreeWithThreadsRpc = Rpc.make(WS_METHODS.vcsDeleteWorktreeWithThreads, {
+  payload: VcsDeleteWorktreeWithThreadsInput,
+  success: VcsDeleteWorktreeWithThreadsResult,
+  error: Schema.Union([
+    GitCommandError,
+    OrchestrationDispatchCommandError,
+    EnvironmentAuthorizationError,
+  ]),
 });
 
 export const WsVcsCreateRefRpc = Rpc.make(WS_METHODS.vcsCreateRef, {
@@ -840,8 +862,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitResolvePullRequestRpc,
   WsGitPreparePullRequestThreadRpc,
   WsVcsListRefsRpc,
+  WsVcsListWorktreesRpc,
   WsVcsCreateWorktreeRpc,
   WsVcsRemoveWorktreeRpc,
+  WsVcsDeleteWorktreeWithThreadsRpc,
   WsVcsCreateRefRpc,
   WsVcsSwitchRefRpc,
   WsVcsRenameBranchRpc,

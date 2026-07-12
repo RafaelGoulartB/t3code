@@ -164,9 +164,15 @@ export function createVcsEnvironmentAtoms<R, E>(
     readonly environmentId: EnvironmentId;
     readonly input: VcsListRefsInput;
   }) => listRefsByEnvironment(target.environmentId)(JSON.stringify(target.input));
+  const listWorktrees = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:vcs:list-worktrees",
+    tag: WS_METHODS.vcsListWorktrees,
+    staleTimeMs: 5_000,
+  });
 
   return {
     listRefs,
+    listWorktrees,
     status: createEnvironmentSubscriptionAtomFamily(runtime, {
       label: "environment-data:vcs:status",
       subscribe: (input: EnvironmentRpcInput<typeof WS_METHODS.subscribeVcsStatus>) =>
@@ -207,6 +213,12 @@ export function createVcsEnvironmentAtoms<R, E>(
     removeWorktree: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:remove-worktree",
       tag: WS_METHODS.vcsRemoveWorktree,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
+    deleteWorktreeWithThreads: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:delete-worktree-with-threads",
+      tag: WS_METHODS.vcsDeleteWorktreeWithThreads,
       scheduler: vcsCommandScheduler,
       concurrency: vcsCommandConcurrency,
     }),

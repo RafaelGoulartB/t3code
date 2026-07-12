@@ -6,6 +6,7 @@ import {
   ContainerIcon,
   FolderIcon,
   FolderPlusIcon,
+  GitBranchIcon,
   GitPullRequestIcon,
   Globe2Icon,
   LoaderIcon,
@@ -3255,6 +3256,10 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     if (isMobile) setOpenMobile(false);
     void navigate({ to: "/pull-requests" });
   }, [isMobile, navigate, setOpenMobile]);
+  const openWorktrees = useCallback(() => {
+    if (isMobile) setOpenMobile(false);
+    void navigate({ to: "/worktrees" });
+  }, [isMobile, navigate, setOpenMobile]);
 
   const handleProjectSortOrderChange = useCallback(
     (sortOrder: SidebarProjectSortOrder) => {
@@ -3399,6 +3404,17 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                 </Kbd>
               ) : null}
             </CommandDialogTrigger>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              size="sm"
+              isActive={sidebarPathname.startsWith("/worktrees")}
+              className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+              onClick={openWorktrees}
+            >
+              <GitBranchIcon className="size-3.5" />
+              <span className="truncate text-xs">Worktrees</span>
+            </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarGroup>

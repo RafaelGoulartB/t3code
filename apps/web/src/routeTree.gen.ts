@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as WorktreesRouteImport } from './routes/worktrees'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PullRequestsRouteImport } from './routes/pull-requests'
 import { Route as PairRouteImport } from './routes/pair'
@@ -25,6 +26,11 @@ import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draf
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
 import { Route as PullRequestsOwnerRepoNumberRouteImport } from './routes/pull-requests_.$owner.$repo.$number'
 
+const WorktreesRoute = WorktreesRouteImport.update({
+  id: '/worktrees',
+  path: '/worktrees',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -107,6 +113,7 @@ export interface FileRoutesByFullPath {
   '/pair': typeof PairRoute
   '/pull-requests': typeof PullRequestsRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/worktrees': typeof WorktreesRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
@@ -122,6 +129,7 @@ export interface FileRoutesByTo {
   '/pair': typeof PairRoute
   '/pull-requests': typeof PullRequestsRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/worktrees': typeof WorktreesRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
@@ -140,6 +148,7 @@ export interface FileRoutesById {
   '/pair': typeof PairRoute
   '/pull-requests': typeof PullRequestsRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/worktrees': typeof WorktreesRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
@@ -159,6 +168,7 @@ export interface FileRouteTypes {
     | '/pair'
     | '/pull-requests'
     | '/settings'
+    | '/worktrees'
     | '/settings/archived'
     | '/settings/connections'
     | '/settings/diagnostics'
@@ -174,6 +184,7 @@ export interface FileRouteTypes {
     | '/pair'
     | '/pull-requests'
     | '/settings'
+    | '/worktrees'
     | '/settings/archived'
     | '/settings/connections'
     | '/settings/diagnostics'
@@ -191,6 +202,7 @@ export interface FileRouteTypes {
     | '/pair'
     | '/pull-requests'
     | '/settings'
+    | '/worktrees'
     | '/settings/archived'
     | '/settings/connections'
     | '/settings/diagnostics'
@@ -209,11 +221,19 @@ export interface RootRouteChildren {
   PairRoute: typeof PairRoute
   PullRequestsRoute: typeof PullRequestsRoute
   SettingsRoute: typeof SettingsRouteWithChildren
+  WorktreesRoute: typeof WorktreesRoute
   PullRequestsOwnerRepoNumberRoute: typeof PullRequestsOwnerRepoNumberRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/worktrees': {
+      id: '/worktrees'
+      path: '/worktrees'
+      fullPath: '/worktrees'
+      preLoaderRoute: typeof WorktreesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -365,6 +385,7 @@ const rootRouteChildren: RootRouteChildren = {
   PairRoute: PairRoute,
   PullRequestsRoute: PullRequestsRoute,
   SettingsRoute: SettingsRouteWithChildren,
+  WorktreesRoute: WorktreesRoute,
   PullRequestsOwnerRepoNumberRoute: PullRequestsOwnerRepoNumberRoute,
 }
 export const routeTree = rootRouteImport
