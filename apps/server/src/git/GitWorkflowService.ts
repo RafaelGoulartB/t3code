@@ -17,6 +17,8 @@ import {
   type VcsCreateWorktreeResult,
   type VcsListRefsInput,
   type VcsListRefsResult,
+  type VcsListCommitsInput,
+  type VcsListCommitsResult,
   type GitManagerServiceError,
   type GitPreparePullRequestThreadInput,
   type GitPreparePullRequestThreadResult,
@@ -74,6 +76,9 @@ export class GitWorkflowService extends Context.Service<
     readonly listRefs: (
       input: VcsListRefsInput,
     ) => Effect.Effect<VcsListRefsResult, GitCommandError>;
+    readonly listCommits: (
+      input: VcsListCommitsInput,
+    ) => Effect.Effect<VcsListCommitsResult, GitCommandError>;
     readonly createWorktree: (
       input: VcsCreateWorktreeInput,
     ) => Effect.Effect<VcsCreateWorktreeResult, GitCommandError>;
@@ -152,6 +157,10 @@ function nonRepositoryListRefs(): VcsListRefsResult {
     nextCursor: null,
     totalCount: 0,
   };
+}
+
+function nonRepositoryListCommits(): VcsListCommitsResult {
+  return { isRepo: false, refName: null, commits: [], nextCursor: null };
 }
 
 export const make = Effect.gen(function* () {
@@ -327,6 +336,12 @@ export const make = Effect.gen(function* () {
       detectGitRepositoryForCommand("GitWorkflowService.listRefs", input.cwd).pipe(
         Effect.flatMap((isGitRepository) =>
           isGitRepository ? git.listRefs(input) : Effect.succeed(nonRepositoryListRefs()),
+        ),
+      ),
+    listCommits: (input) =>
+      detectGitRepositoryForCommand("GitWorkflowService.listCommits", input.cwd).pipe(
+        Effect.flatMap((isGitRepository) =>
+          isGitRepository ? git.listCommits(input) : Effect.succeed(nonRepositoryListCommits()),
         ),
       ),
     createWorktree: (input) =>

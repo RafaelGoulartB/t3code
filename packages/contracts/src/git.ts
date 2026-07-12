@@ -1,10 +1,17 @@
 import * as Schema from "effect/Schema";
-import { NonNegativeInt, PositiveInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import {
+  IsoDateTime,
+  NonNegativeInt,
+  PositiveInt,
+  ThreadId,
+  TrimmedNonEmptyString,
+} from "./baseSchemas.ts";
 import { SourceControlProviderError, SourceControlProviderInfo } from "./sourceControl.ts";
 import { VcsDriverKind } from "./vcs.ts";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const GIT_LIST_BRANCHES_MAX_LIMIT = 200;
+const GIT_LIST_COMMITS_MAX_LIMIT = 100;
 
 // Domain Types
 
@@ -137,6 +144,13 @@ export const VcsListRefsInput = Schema.Struct({
   ),
 });
 export type VcsListRefsInput = typeof VcsListRefsInput.Type;
+
+export const VcsListCommitsInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  cursor: Schema.optional(NonNegativeInt),
+  limit: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(GIT_LIST_COMMITS_MAX_LIMIT))),
+});
+export type VcsListCommitsInput = typeof VcsListCommitsInput.Type;
 
 export const VcsCreateWorktreeInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
@@ -318,6 +332,24 @@ export const VcsListRefsResult = Schema.Struct({
   totalCount: NonNegativeInt,
 });
 export type VcsListRefsResult = typeof VcsListRefsResult.Type;
+
+export const VcsCommitLogEntry = Schema.Struct({
+  hash: TrimmedNonEmptyStringSchema,
+  shortHash: TrimmedNonEmptyStringSchema,
+  subject: Schema.String,
+  authorName: Schema.String,
+  authoredAt: IsoDateTime,
+  url: Schema.NullOr(Schema.String),
+});
+export type VcsCommitLogEntry = typeof VcsCommitLogEntry.Type;
+
+export const VcsListCommitsResult = Schema.Struct({
+  isRepo: Schema.Boolean,
+  refName: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  commits: Schema.Array(VcsCommitLogEntry),
+  nextCursor: NonNegativeInt.pipe(Schema.NullOr),
+});
+export type VcsListCommitsResult = typeof VcsListCommitsResult.Type;
 
 export const VcsCreateWorktreeResult = Schema.Struct({
   worktree: VcsWorktree,
