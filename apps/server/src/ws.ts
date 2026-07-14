@@ -297,6 +297,7 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.serverGetTraceDiagnostics, AuthOrchestrationReadScope],
   [WS_METHODS.serverGetProcessDiagnostics, AuthOrchestrationReadScope],
   [WS_METHODS.serverGetProcessResourceHistory, AuthOrchestrationReadScope],
+  [WS_METHODS.subscribeProcessResourceHistory, AuthOrchestrationReadScope],
   [WS_METHODS.serverSignalProcess, AuthOrchestrationOperateScope],
   [WS_METHODS.cloudGetRelayClientStatus, AuthRelayWriteScope],
   [WS_METHODS.cloudInstallRelayClient, AuthRelayWriteScope],
@@ -1347,6 +1348,14 @@ const makeWsRpcLayer = (
           observeRpcEffect(
             WS_METHODS.serverGetProcessResourceHistory,
             processResourceMonitor.readHistory(input),
+            {
+              "rpc.aggregate": "server",
+            },
+          ),
+        [WS_METHODS.subscribeProcessResourceHistory]: (input) =>
+          observeRpcStream(
+            WS_METHODS.subscribeProcessResourceHistory,
+            processResourceMonitor.streamHistory(input),
             {
               "rpc.aggregate": "server",
             },

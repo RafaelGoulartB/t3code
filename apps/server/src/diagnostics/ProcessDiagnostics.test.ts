@@ -203,11 +203,14 @@ describe("ProcessDiagnostics", () => {
           );
         }),
       );
-      const layer = ProcessDiagnostics.layer.pipe(Layer.provide(spawnerLayer));
+      const layer = ProcessDiagnostics.layer.pipe(
+        Layer.provide(Layer.merge(spawnerLayer, Layer.succeed(HostProcessPlatform, "linux"))),
+      );
 
       const diagnostics = yield* Effect.service(ProcessDiagnostics.ProcessDiagnostics).pipe(
         Effect.flatMap((pd) => pd.read),
         Effect.provide(layer),
+        Effect.provideService(HostProcessPlatform, "linux"),
       );
 
       expect(diagnostics.processes.map((process) => process.pid)).toEqual([4242]);
@@ -258,6 +261,62 @@ describe("ProcessDiagnostics", () => {
     }),
   );
 
+  it.effect(
+    "uses one projected Win32_Process query and calculates CPU from cumulative counters",
+    () =>
+      Effect.gen(function* () {
+        const commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> =
+          [];
+        const spawnerLayer = Layer.succeed(
+          ChildProcessSpawner.ChildProcessSpawner,
+          ChildProcessSpawner.make((command) => {
+            const childProcess = command as unknown as {
+              readonly command: string;
+              readonly args: ReadonlyArray<string>;
+            };
+            commands.push({ command: childProcess.command, args: childProcess.args });
+            return Effect.succeed(
+              mockHandle({
+                stdout:
+                  '{"ProcessId":4242,"ParentProcessId":1,"Name":"agent.exe","CommandLine":"agent.exe --serve","Status":"OK","WorkingSetSize":2048,"KernelModeTime":"1000","UserModeTime":"2000","CreationDate":"2026-01-01T00:00:00.0000000Z"}',
+              }),
+            );
+          }),
+        );
+
+        const rows = yield* ProcessDiagnostics.readProcessRows.pipe(
+          Effect.provide(spawnerLayer),
+          Effect.provideService(HostProcessPlatform, "win32"),
+        );
+        expect(rows).toHaveLength(1);
+        expect(rows[0]?.cpuPercent).toBe(0);
+        expect(commands).toHaveLength(1);
+        expect(commands[0]?.command).toBe("powershell.exe");
+        const command = commands[0]?.args[3] ?? "";
+        expect(command).toContain("Get-CimInstance Win32_Process -Property");
+        expect(command).not.toContain("Win32_PerfFormattedData_PerfProc_Process");
+        expect(command.match(/Get-CimInstance/g)).toHaveLength(1);
+
+        const first = ProcessDiagnostics.parseWindowsProcessRows(
+          '{"ProcessId":4242,"ParentProcessId":1,"Name":"agent.exe","WorkingSetSize":2048,"KernelModeTime":"1000","UserModeTime":"2000","CreationDate":"2026-01-01T00:00:00.0000000Z"}',
+        );
+        const second = ProcessDiagnostics.parseWindowsProcessRows(
+          '{"ProcessId":4242,"ParentProcessId":1,"Name":"agent.exe","WorkingSetSize":2048,"KernelModeTime":"5001000","UserModeTime":"2000","CreationDate":"2026-01-01T00:00:00.0000000Z"}',
+        );
+        const initial = ProcessDiagnostics.withWindowsCpuPercent({
+          rows: first,
+          observedAtMs: 1_000,
+          previous: new Map(),
+        });
+        const measured = ProcessDiagnostics.withWindowsCpuPercent({
+          rows: second,
+          observedAtMs: 2_000,
+          previous: initial.next,
+        });
+        expect(measured.rows[0]?.cpuPercent).toBe(50);
+      }),
+  );
+
   it.effect("does not allow signaling the diagnostics query process", () =>
     Effect.gen(function* () {
       const spawnerLayer = Layer.succeed(
@@ -273,11 +332,14 @@ describe("ProcessDiagnostics", () => {
           ),
         ),
       );
-      const layer = ProcessDiagnostics.layer.pipe(Layer.provide(spawnerLayer));
+      const layer = ProcessDiagnostics.layer.pipe(
+        Layer.provide(Layer.merge(spawnerLayer, Layer.succeed(HostProcessPlatform, "linux"))),
+      );
 
       const result = yield* Effect.service(ProcessDiagnostics.ProcessDiagnostics).pipe(
         Effect.flatMap((pd) => pd.signal({ pid: 4242, signal: "SIGINT" })),
         Effect.provide(layer),
+        Effect.provideService(HostProcessPlatform, "linux"),
       );
 
       expect(result).toEqual({

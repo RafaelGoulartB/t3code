@@ -1,11 +1,38 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
+import * as ProcessDiagnostics from "./ProcessDiagnostics.ts";
 import * as ProcessResourceMonitor from "./ProcessResourceMonitor.ts";
 
 describe("ProcessResourceMonitor", () => {
+  it.effect("does not sample processes when the monitor service is constructed", () =>
+    Effect.gen(function* () {
+      let reads = 0;
+      const diagnostics = ProcessDiagnostics.ProcessDiagnostics.of({
+        read: Effect.die("not used"),
+        readRows: Effect.sync(() => {
+          reads += 1;
+          return {
+            readAt: DateTime.makeUnsafe("2026-05-05T10:00:00.000Z"),
+            rows: [],
+          };
+        }),
+        signal: () => Effect.die("not used"),
+      });
+      const layer = ProcessResourceMonitor.layer.pipe(
+        Layer.provide(Layer.succeed(ProcessDiagnostics.ProcessDiagnostics, diagnostics)),
+      );
+
+      yield* Effect.service(ProcessResourceMonitor.ProcessResourceMonitor).pipe(
+        Effect.provide(layer),
+      );
+      expect(reads).toBe(0);
+    }),
+  );
+
   it.effect("samples the server root process and descendants", () =>
     Effect.sync(() => {
       const sampledAt = DateTime.makeUnsafe("2026-05-05T10:00:00.000Z");
@@ -118,8 +145,8 @@ describe("ProcessResourceMonitor", () => {
       expect(result.topProcesses).toHaveLength(1);
       expect(result.topProcesses[0]?.avgCpuPercent).toBe(20);
       expect(result.topProcesses[0]?.maxCpuPercent).toBe(30);
-      expect(result.topProcesses[0]?.cpuSecondsApprox).toBe(2);
-      expect(result.totalCpuSecondsApprox).toBe(2);
+      expect(result.topProcesses[0]?.cpuSecondsApprox).toBe(6);
+      expect(result.totalCpuSecondsApprox).toBe(6);
       expect(result.buckets.some((bucket) => bucket.maxCpuPercent === 30)).toBe(true);
     }),
   );

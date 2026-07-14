@@ -838,7 +838,6 @@ export function DiagnosticsSettingsPanel() {
     data: resourceData,
     error: resourceError,
     isPending: isResourcePending,
-    refresh: refreshResources,
   } = useEnvironmentQuery(
     environmentId === null
       ? null
@@ -1025,11 +1024,6 @@ export function DiagnosticsSettingsPanel() {
               onSelect={setResourceWindowMs}
             />
             <DiagnosticsLastChecked checkedAt={resourceData?.readAt ?? null} />
-            <DiagnosticsRefreshButton
-              isPending={isResourcePending}
-              label="Refresh resource history"
-              onClick={refreshResources}
-            />
           </div>
         }
       >
@@ -1042,7 +1036,7 @@ export function DiagnosticsSettingsPanel() {
           <StatBlock
             label="Samples"
             value={resourceData ? formatCount(resourceData.retainedSampleCount) : "..."}
-            tooltip="In-memory process samples retained by the server. This resets when the server restarts."
+            tooltip="Process samples are collected while this Diagnostics page is open, retained in memory for up to one hour, and reset when the server restarts."
           />
           <StatBlock
             label="Interval"
@@ -1074,7 +1068,7 @@ export function DiagnosticsSettingsPanel() {
           processes={resourceData?.topProcesses ?? []}
           emptyLabel={
             isResourcePending && resourceData === null
-              ? "Collecting process resource samples..."
+              ? "Collecting the first process resource sample..."
               : "No process resource samples found for this window."
           }
         />

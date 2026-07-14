@@ -11,6 +11,8 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
+import * as Semaphore from "effect/Semaphore";
 import * as Schema from "effect/Schema";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
@@ -26,9 +28,13 @@ export interface ProcessRow {
   readonly rssBytes: number;
   readonly elapsed: string;
   readonly command: string;
+  /** Stable across samples until Windows reuses the PID. */
+  readonly processIdentity?: string;
 }
 
-const PROCESS_QUERY_TIMEOUT_MS = 1_000;
+const POSIX_PROCESS_QUERY_TIMEOUT_MS = 1_000;
+const WINDOWS_PROCESS_QUERY_TIMEOUT_MS = 10_000;
+const PROCESS_SNAPSHOT_CACHE_MS = 1_000;
 const POSIX_PROCESS_QUERY_COMMAND = "pid=,ppid=,pgid=,stat=,pcpu=,rss=,etime=,command=";
 const PROCESS_QUERY_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 
@@ -36,6 +42,7 @@ export class ProcessDiagnostics extends Context.Service<
   ProcessDiagnostics,
   {
     readonly read: Effect.Effect<ServerProcessDiagnosticsResult>;
+    readonly readRows: Effect.Effect<ProcessSnapshot, ProcessDiagnosticsQueryError>;
     readonly signal: (input: {
       readonly pid: number;
       readonly signal: ServerProcessSignal;
@@ -43,7 +50,7 @@ export class ProcessDiagnostics extends Context.Service<
   }
 >()("t3/diagnostics/ProcessDiagnostics") {}
 
-class ProcessDiagnosticsQueryTimeoutError extends Schema.TaggedErrorClass<ProcessDiagnosticsQueryTimeoutError>()(
+export class ProcessDiagnosticsQueryTimeoutError extends Schema.TaggedErrorClass<ProcessDiagnosticsQueryTimeoutError>()(
   "ProcessDiagnosticsQueryTimeoutError",
   {
     command: Schema.String,
@@ -57,7 +64,7 @@ class ProcessDiagnosticsQueryTimeoutError extends Schema.TaggedErrorClass<Proces
   }
 }
 
-class ProcessDiagnosticsQueryFailedError extends Schema.TaggedErrorClass<ProcessDiagnosticsQueryFailedError>()(
+export class ProcessDiagnosticsQueryFailedError extends Schema.TaggedErrorClass<ProcessDiagnosticsQueryFailedError>()(
   "ProcessDiagnosticsQueryFailedError",
   {
     command: Schema.String,
@@ -118,8 +125,16 @@ const ProcessDiagnosticsError = Schema.Union([
   ProcessDiagnosticsNotDescendantError,
   ProcessDiagnosticsSignalFailedError,
 ]);
-type ProcessDiagnosticsError = typeof ProcessDiagnosticsError.Type;
+export type ProcessDiagnosticsError = typeof ProcessDiagnosticsError.Type;
+export type ProcessDiagnosticsQueryError =
+  | ProcessDiagnosticsQueryTimeoutError
+  | ProcessDiagnosticsQueryFailedError;
 const isProcessDiagnosticsError = Schema.is(ProcessDiagnosticsError);
+
+export interface ProcessSnapshot {
+  readonly readAt: DateTime.Utc;
+  readonly rows: ReadonlyArray<ProcessRow>;
+}
 
 function parsePositiveInt(value: string): number | null {
   const parsed = Number.parseInt(value, 10);
@@ -201,7 +216,25 @@ export function parsePosixProcessRows(output: string): ReadonlyArray<ProcessRow>
   return rows;
 }
 
-function normalizeWindowsProcessRow(value: unknown): ProcessRow | null {
+interface WindowsProcessRow extends ProcessRow {
+  readonly totalCpuTime100ns: bigint | null;
+}
+
+function parseWindowsCounter(value: unknown): bigint | null {
+  if (typeof value !== "string" || !/^\d+$/.test(value)) return null;
+  try {
+    return BigInt(value);
+  } catch {
+    return null;
+  }
+}
+
+function isWindowsProcessRow(row: ProcessRow): row is WindowsProcessRow {
+  const value = (row as Partial<WindowsProcessRow>).totalCpuTime100ns;
+  return typeof value === "bigint" || value === null;
+}
+
+function normalizeWindowsProcessRow(value: unknown): WindowsProcessRow | null {
   if (typeof value !== "object" || value === null) return null;
   const record = value as Record<string, unknown>;
   const pid = typeof record.ProcessId === "number" ? record.ProcessId : null;
@@ -216,10 +249,14 @@ function normalizeWindowsProcessRow(value: unknown): ProcessRow | null {
     typeof record.WorkingSetSize === "number" && Number.isFinite(record.WorkingSetSize)
       ? Math.max(0, Math.round(record.WorkingSetSize))
       : 0;
-  const cpuPercent =
-    typeof record.PercentProcessorTime === "number" && Number.isFinite(record.PercentProcessorTime)
-      ? Math.max(0, record.PercentProcessorTime)
-      : 0;
+  const kernelModeTime = parseWindowsCounter(record.KernelModeTime);
+  const userModeTime = parseWindowsCounter(record.UserModeTime);
+  const totalCpuTime100ns =
+    kernelModeTime === null || userModeTime === null ? null : kernelModeTime + userModeTime;
+  const creationDate =
+    typeof record.CreationDate === "string" && record.CreationDate.length > 0
+      ? record.CreationDate
+      : null;
 
   if (!pid || pid <= 0 || ppid === null || ppid < 0 || !commandLine) return null;
   return {
@@ -227,14 +264,16 @@ function normalizeWindowsProcessRow(value: unknown): ProcessRow | null {
     ppid,
     pgid: null,
     status: typeof record.Status === "string" && record.Status.length > 0 ? record.Status : "Live",
-    cpuPercent,
+    cpuPercent: 0,
     rssBytes: workingSet,
     elapsed: "",
     command: commandLine,
+    ...(creationDate ? { processIdentity: `${pid}:${creationDate}` } : {}),
+    totalCpuTime100ns,
   };
 }
 
-function parseWindowsProcessRows(output: string): ReadonlyArray<ProcessRow> {
+export function parseWindowsProcessRows(output: string): ReadonlyArray<WindowsProcessRow> {
   if (output.trim().length === 0) return [];
   try {
     const parsed = JSON.parse(output) as unknown;
@@ -340,6 +379,7 @@ interface ProcessOutput {
 const runProcess = Effect.fn("runProcess")(function* (input: {
   readonly command: string;
   readonly args: ReadonlyArray<string>;
+  readonly timeoutMillis: number;
 }) {
   const cwd = process.cwd();
   return yield* Effect.gen(function* () {
@@ -381,7 +421,7 @@ const runProcess = Effect.fn("runProcess")(function* (input: {
     } satisfies ProcessOutput;
   }).pipe(
     Effect.scoped,
-    Effect.timeoutOption(Duration.millis(PROCESS_QUERY_TIMEOUT_MS)),
+    Effect.timeoutOption(Duration.millis(input.timeoutMillis)),
     Effect.flatMap((result) =>
       Option.match(result, {
         onNone: () =>
@@ -390,7 +430,7 @@ const runProcess = Effect.fn("runProcess")(function* (input: {
               command: input.command,
               argCount: input.args.length,
               cwd,
-              timeoutMillis: PROCESS_QUERY_TIMEOUT_MS,
+              timeoutMillis: input.timeoutMillis,
             }),
           ),
         onSome: Effect.succeed,
@@ -411,12 +451,13 @@ const runProcess = Effect.fn("runProcess")(function* (input: {
 
 function readPosixProcessRows(): Effect.Effect<
   ReadonlyArray<ProcessRow>,
-  ProcessDiagnosticsError,
+  ProcessDiagnosticsQueryError,
   ChildProcessSpawner.ChildProcessSpawner
 > {
   return runProcess({
     command: "ps",
     args: ["-axo", POSIX_PROCESS_QUERY_COMMAND],
+    timeoutMillis: POSIX_PROCESS_QUERY_TIMEOUT_MS,
   }).pipe(
     Effect.flatMap((result) =>
       result.exitCode !== 0
@@ -439,20 +480,20 @@ function readPosixProcessRows(): Effect.Effect<
 
 function readWindowsProcessRows(): Effect.Effect<
   ReadonlyArray<ProcessRow>,
-  ProcessDiagnosticsError,
+  ProcessDiagnosticsQueryError,
   ChildProcessSpawner.ChildProcessSpawner
 > {
   const command = [
-    "$processes = Get-CimInstance Win32_Process | ForEach-Object {",
-    '$perf = Get-CimInstance Win32_PerfFormattedData_PerfProc_Process -Filter "IDProcess = $($_.ProcessId)" -ErrorAction SilentlyContinue;',
-    "[pscustomobject]@{ ProcessId = $_.ProcessId; ParentProcessId = $_.ParentProcessId; Name = $_.Name; CommandLine = $_.CommandLine; Status = $_.Status; WorkingSetSize = $_.WorkingSetSize; PercentProcessorTime = if ($perf) { $perf.PercentProcessorTime } else { 0 } }",
-    "};",
-    "$processes | ConvertTo-Json -Compress -Depth 3",
+    "$processes = Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,Name,CommandLine,Status,WorkingSetSize,KernelModeTime,UserModeTime,CreationDate -ErrorAction Stop;",
+    "$processes | ForEach-Object {",
+    "[pscustomobject]@{ ProcessId = $_.ProcessId; ParentProcessId = $_.ParentProcessId; Name = $_.Name; CommandLine = $_.CommandLine; Status = $_.Status; WorkingSetSize = $_.WorkingSetSize; KernelModeTime = [string]$_.KernelModeTime; UserModeTime = [string]$_.UserModeTime; CreationDate = if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('O') } else { $null } }",
+    "} | ConvertTo-Json -Compress -Depth 3",
   ].join(" ");
 
   return runProcess({
     command: "powershell.exe",
     args: ["-NoProfile", "-NonInteractive", "-Command", command],
+    timeoutMillis: WINDOWS_PROCESS_QUERY_TIMEOUT_MS,
   }).pipe(
     Effect.flatMap((result) =>
       result.exitCode !== 0
@@ -478,6 +519,41 @@ export const readProcessRows = Effect.gen(function* () {
   return yield* platform === "win32" ? readWindowsProcessRows() : readPosixProcessRows();
 });
 
+interface WindowsCpuCounter {
+  readonly totalCpuTime100ns: bigint;
+  readonly observedAtMs: number;
+}
+
+export function withWindowsCpuPercent(input: {
+  readonly rows: ReadonlyArray<ProcessRow>;
+  readonly observedAtMs: number;
+  readonly previous: ReadonlyMap<string, WindowsCpuCounter>;
+}): {
+  readonly rows: ReadonlyArray<ProcessRow>;
+  readonly next: ReadonlyMap<string, WindowsCpuCounter>;
+} {
+  const next = new Map<string, WindowsCpuCounter>();
+  const rows = input.rows.map((row) => {
+    if (!isWindowsProcessRow(row)) return row;
+
+    const key = row.processIdentity ?? `${row.pid}:${row.command}`;
+    const totalCpuTime100ns = row.totalCpuTime100ns;
+    if (totalCpuTime100ns === null) return row;
+
+    const previous = input.previous.get(key);
+    next.set(key, { totalCpuTime100ns, observedAtMs: input.observedAtMs });
+    const elapsedMs = previous ? input.observedAtMs - previous.observedAtMs : 0;
+    const cpuDelta = previous ? totalCpuTime100ns - previous.totalCpuTime100ns : 0n;
+    const cpuPercent =
+      elapsedMs > 0 && cpuDelta >= 0n
+        ? Math.max(0, (Number(cpuDelta) / (elapsedMs * 10_000)) * 100)
+        : 0;
+    const { totalCpuTime100ns: _totalCpuTime100ns, ...processRow } = row;
+    return { ...processRow, cpuPercent };
+  });
+  return { rows, next };
+}
+
 export function aggregateProcessDiagnostics(input: {
   readonly serverPid: number;
   readonly rows: ReadonlyArray<ProcessRow>;
@@ -486,44 +562,72 @@ export function aggregateProcessDiagnostics(input: {
   return makeResult(input);
 }
 
-function assertDescendantPid(
-  pid: number,
-): Effect.Effect<void, ProcessDiagnosticsError, ChildProcessSpawner.ChildProcessSpawner> {
-  if (pid === process.pid) {
+function assertDescendantPid(input: {
+  readonly pid: number;
+  readonly rows: ReadonlyArray<ProcessRow>;
+}): Effect.Effect<void, ProcessDiagnosticsError> {
+  if (input.pid === process.pid) {
     return Effect.fail(
       new ProcessDiagnosticsServerProcessSignalError({
-        pid,
+        pid: input.pid,
       }),
     );
   }
 
-  return readProcessRows.pipe(
-    Effect.flatMap((rows) => {
-      const filteredRows = rows.filter((row) => !isDiagnosticsQueryProcess(row, process.pid));
-      const descendant = buildDescendantEntries(filteredRows, process.pid).some(
-        (entry) => entry.pid === pid,
-      );
-      return descendant
-        ? Effect.void
-        : Effect.fail(
-            new ProcessDiagnosticsNotDescendantError({
-              pid,
-              serverPid: process.pid,
-            }),
-          );
-    }),
+  const filteredRows = input.rows.filter((row) => !isDiagnosticsQueryProcess(row, process.pid));
+  const descendant = buildDescendantEntries(filteredRows, process.pid).some(
+    (entry) => entry.pid === input.pid,
   );
+  return descendant
+    ? Effect.void
+    : Effect.fail(
+        new ProcessDiagnosticsNotDescendantError({
+          pid: input.pid,
+          serverPid: process.pid,
+        }),
+      );
 }
 
 export const make = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const snapshotLock = yield* Semaphore.make(1);
+  const snapshotRef = yield* Ref.make<ProcessSnapshot | null>(null);
+  const windowsCpuCountersRef = yield* Ref.make<ReadonlyMap<string, WindowsCpuCounter>>(new Map());
+
+  const readRows: ProcessDiagnostics["Service"]["readRows"] = snapshotLock.withPermits(1)(
+    Effect.gen(function* () {
+      const now = yield* DateTime.now;
+      const nowMs = DateTime.toEpochMillis(now);
+      const cached = yield* Ref.get(snapshotRef);
+      if (cached && nowMs - DateTime.toEpochMillis(cached.readAt) <= PROCESS_SNAPSHOT_CACHE_MS) {
+        return cached;
+      }
+
+      const platform = yield* HostProcessPlatform;
+      const rawRows = yield* readProcessRows.pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        Effect.provideService(HostProcessPlatform, platform),
+      );
+      if (platform === "win32") {
+        const result = withWindowsCpuPercent({
+          rows: rawRows,
+          observedAtMs: nowMs,
+          previous: yield* Ref.get(windowsCpuCountersRef),
+        });
+        yield* Ref.set(windowsCpuCountersRef, result.next);
+        const snapshot = { readAt: now, rows: result.rows } satisfies ProcessSnapshot;
+        yield* Ref.set(snapshotRef, snapshot);
+        return snapshot;
+      }
+      const snapshot = { readAt: now, rows: rawRows } satisfies ProcessSnapshot;
+      yield* Ref.set(snapshotRef, snapshot);
+      return snapshot;
+    }),
+  );
 
   const read: ProcessDiagnostics["Service"]["read"] = Effect.gen(function* () {
-    const readAt = yield* DateTime.now;
-    const rows = yield* readProcessRows.pipe(
-      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-    );
-    return makeResult({ serverPid: process.pid, rows, readAt });
+    const snapshot = yield* readRows;
+    return makeResult({ serverPid: process.pid, rows: snapshot.rows, readAt: snapshot.readAt });
   }).pipe(
     Effect.catch((error: ProcessDiagnosticsError) =>
       DateTime.now.pipe(
@@ -536,8 +640,8 @@ export const make = Effect.gen(function* () {
 
   const signal: ProcessDiagnostics["Service"]["signal"] = Effect.fn("ProcessDiagnostics.signal")(
     function* (input) {
-      return yield* assertDescendantPid(input.pid).pipe(
-        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      return yield* readRows.pipe(
+        Effect.flatMap((snapshot) => assertDescendantPid({ pid: input.pid, rows: snapshot.rows })),
         Effect.flatMap(() =>
           Effect.try({
             try: () => {
@@ -569,7 +673,7 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  return ProcessDiagnostics.of({ read, signal });
+  return ProcessDiagnostics.of({ read, readRows, signal });
 });
 
 export const layer = Layer.effect(ProcessDiagnostics, make);

@@ -9,15 +9,21 @@ import {
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
-import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
+import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import * as ProcessDiagnostics from "./ProcessDiagnostics.ts";
 
-const SAMPLE_INTERVAL_MS = 5_000;
+const SAMPLE_INTERVAL_MS = 15_000;
+const MAX_FAILURE_INTERVAL_MS = 60_000;
 const RETENTION_MS = 60 * 60_000;
 const MAX_RETAINED_SAMPLES = 20_000;
 
@@ -51,12 +57,20 @@ interface MonitorState {
   readonly lastFailure: ProcessResourceSamplingError | null;
 }
 
+interface ActivePoller {
+  readonly fiber: Fiber.Fiber<void, never>;
+  readonly subscriberCount: number;
+}
+
 export class ProcessResourceMonitor extends Context.Service<
   ProcessResourceMonitor,
   {
     readonly readHistory: (
       input: ServerProcessResourceHistoryInput,
     ) => Effect.Effect<ServerProcessResourceHistoryResult>;
+    readonly streamHistory: (
+      input: ServerProcessResourceHistoryInput,
+    ) => Stream.Stream<ServerProcessResourceHistoryResult>;
   }
 >()("t3/diagnostics/ProcessResourceMonitor") {}
 
@@ -64,8 +78,10 @@ function dateTimeFromMillis(ms: number): DateTime.Utc {
   return DateTime.makeUnsafe(ms);
 }
 
-function sampleKey(row: Pick<ProcessDiagnostics.ProcessRow, "pid" | "command">): string {
-  return `${row.pid}:${row.command}`;
+function sampleKey(
+  row: Pick<ProcessDiagnostics.ProcessRow, "pid" | "command" | "processIdentity">,
+): string {
+  return row.processIdentity ?? `${row.pid}:${row.command}`;
 }
 
 function findServerRootRow(
@@ -264,8 +280,13 @@ export function aggregateProcessResourceHistory(input: {
 }
 
 export const make = Effect.gen(function* () {
-  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const processDiagnostics = yield* ProcessDiagnostics.ProcessDiagnostics;
   const state = yield* Ref.make<MonitorState>({ samples: [], lastFailure: null });
+  const changes = yield* Effect.acquireRelease(PubSub.unbounded<void>(), PubSub.shutdown);
+  const pollerScope = yield* Effect.acquireRelease(Scope.make(), (scope) =>
+    Scope.close(scope, Exit.void),
+  );
+  const pollerRef = yield* SynchronizedRef.make<ActivePoller | null>(null);
 
   const recordSamplingFailure = (cause: {
     readonly _tag: ServerProcessResourceHistoryFailureTagType;
@@ -279,13 +300,11 @@ export const make = Effect.gen(function* () {
     }));
 
   const sampleOnce = Effect.gen(function* () {
-    const sampledAt = yield* DateTime.now;
+    const snapshot = yield* processDiagnostics.readRows;
+    const sampledAt = snapshot.readAt;
     const sampledAtMs = DateTime.toEpochMillis(sampledAt);
-    const rows = yield* ProcessDiagnostics.readProcessRows.pipe(
-      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-    );
     const samples = collectMonitoredSamples({
-      rows,
+      rows: snapshot.rows,
       serverPid: process.pid,
       sampledAt,
       sampledAtMs,
@@ -294,36 +313,89 @@ export const make = Effect.gen(function* () {
       samples: trimSamples([...current.samples, ...samples], sampledAtMs),
       lastFailure: null,
     }));
-  }).pipe(
-    Effect.catchTags({
-      ProcessDiagnosticsQueryTimeoutError: recordSamplingFailure,
-      ProcessDiagnosticsQueryFailedError: recordSamplingFailure,
-      ProcessDiagnosticsServerProcessSignalError: recordSamplingFailure,
-      ProcessDiagnosticsNotDescendantError: recordSamplingFailure,
-      ProcessDiagnosticsSignalFailedError: recordSamplingFailure,
-    }),
-  );
+  });
 
-  yield* Effect.forever(sampleOnce.pipe(Effect.andThen(Effect.sleep(SAMPLE_INTERVAL_MS)))).pipe(
-    Effect.forkScoped,
-  );
+  const readCurrent = Effect.fn("ProcessResourceMonitor.readCurrent")(function* (
+    input: ServerProcessResourceHistoryInput,
+  ) {
+    const readAt = yield* DateTime.now;
+    const readAtMs = DateTime.toEpochMillis(readAt);
+    const current = yield* Ref.get(state);
+    return aggregateProcessResourceHistory({
+      samples: current.samples,
+      readAt,
+      readAtMs,
+      windowMs: input.windowMs,
+      bucketMs: input.bucketMs,
+      lastFailure: current.lastFailure,
+    });
+  });
+
+  const runPoller = Effect.fn("ProcessResourceMonitor.runPoller")(function* () {
+    let consecutiveFailures = 0;
+    while (true) {
+      const succeeded = yield* sampleOnce.pipe(
+        Effect.as(true),
+        Effect.catch((cause) => recordSamplingFailure(cause).pipe(Effect.as(false))),
+      );
+      consecutiveFailures = succeeded ? 0 : consecutiveFailures + 1;
+      yield* PubSub.publish(changes, undefined);
+      const interval = Math.min(
+        MAX_FAILURE_INTERVAL_MS,
+        SAMPLE_INTERVAL_MS * 2 ** Math.max(0, consecutiveFailures - 1),
+      );
+      yield* Effect.sleep(interval);
+    }
+  });
+
+  const retainPoller = Effect.fn("ProcessResourceMonitor.retainPoller")(function* () {
+    yield* SynchronizedRef.modifyEffect(pollerRef, (current) => {
+      if (current) {
+        return Effect.succeed([
+          undefined,
+          { ...current, subscriberCount: current.subscriberCount + 1 },
+        ] as const);
+      }
+      return runPoller().pipe(
+        Effect.forkIn(pollerScope),
+        Effect.map((fiber) => [undefined, { fiber, subscriberCount: 1 }] as const),
+      );
+    });
+  });
+
+  const releasePoller = Effect.fn("ProcessResourceMonitor.releasePoller")(function* () {
+    const fiber = yield* SynchronizedRef.modify(pollerRef, (current) => {
+      if (!current) return [null, current] as const;
+      if (current.subscriberCount > 1) {
+        return [null, { ...current, subscriberCount: current.subscriberCount - 1 }] as const;
+      }
+      return [current.fiber, null] as const;
+    });
+    if (fiber) {
+      yield* Fiber.interrupt(fiber).pipe(Effect.ignore);
+    }
+  });
 
   const readHistory: ProcessResourceMonitor["Service"]["readHistory"] = (input) =>
     Effect.gen(function* () {
-      const readAt = yield* DateTime.now;
-      const readAtMs = DateTime.toEpochMillis(readAt);
-      const current = yield* Ref.get(state);
-      return aggregateProcessResourceHistory({
-        samples: current.samples,
-        readAt,
-        readAtMs,
-        windowMs: input.windowMs,
-        bucketMs: input.bucketMs,
-        lastFailure: current.lastFailure,
-      });
+      yield* sampleOnce.pipe(Effect.catch(recordSamplingFailure));
+      return yield* readCurrent(input);
     });
 
-  return ProcessResourceMonitor.of({ readHistory });
+  const streamHistory: ProcessResourceMonitor["Service"]["streamHistory"] = (input) =>
+    Stream.unwrap(
+      Effect.gen(function* () {
+        const subscription = yield* PubSub.subscribe(changes);
+        yield* retainPoller();
+        const initial = yield* readCurrent(input);
+        return Stream.concat(
+          initial.retainedSampleCount === 0 ? Stream.empty : Stream.succeed(initial),
+          Stream.fromSubscription(subscription).pipe(Stream.mapEffect(() => readCurrent(input))),
+        ).pipe(Stream.ensuring(releasePoller().pipe(Effect.ignore)));
+      }),
+    );
+
+  return ProcessResourceMonitor.of({ readHistory, streamHistory });
 });
 
 export const layer = Layer.effect(ProcessResourceMonitor, make);

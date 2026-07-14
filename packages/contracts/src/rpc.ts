@@ -257,6 +257,7 @@ export const WS_METHODS = {
   serverGetTraceDiagnostics: "server.getTraceDiagnostics",
   serverGetProcessDiagnostics: "server.getProcessDiagnostics",
   serverGetProcessResourceHistory: "server.getProcessResourceHistory",
+  subscribeProcessResourceHistory: "server.subscribeProcessResourceHistory",
   serverSignalProcess: "server.signalProcess",
 
   // Cloud environment methods
@@ -359,6 +360,16 @@ export const WsServerGetProcessResourceHistoryRpc = Rpc.make(
     payload: ServerProcessResourceHistoryInput,
     success: ServerProcessResourceHistoryResult,
     error: EnvironmentAuthorizationError,
+  },
+);
+
+export const WsSubscribeProcessResourceHistoryRpc = Rpc.make(
+  WS_METHODS.subscribeProcessResourceHistory,
+  {
+    payload: ServerProcessResourceHistoryInput,
+    success: ServerProcessResourceHistoryResult,
+    error: EnvironmentAuthorizationError,
+    stream: true,
   },
 );
 
@@ -851,6 +862,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetTraceDiagnosticsRpc,
   WsServerGetProcessDiagnosticsRpc,
   WsServerGetProcessResourceHistoryRpc,
+  WsSubscribeProcessResourceHistoryRpc,
   WsServerSignalProcessRpc,
   WsCloudGetRelayClientStatusRpc,
   WsCloudInstallRelayClientRpc,
