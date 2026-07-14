@@ -27,6 +27,7 @@ const clientSettings: ClientSettings = {
   sidebarProjectFolders: [],
   sidebarProjectFolderAssignments: {},
   sidebarProjectFolderOrder: [],
+  sidebarPinnedThreadKeysByProject: {},
   sidebarProjectSortOrder: "manual",
   sidebarThreadSortOrder: "created_at",
   sidebarThreadPreviewCount: 6,

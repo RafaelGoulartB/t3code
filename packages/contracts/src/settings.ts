@@ -131,6 +131,10 @@ export const ClientSettingsSchema = Schema.Struct({
   sidebarProjectFolderOrder: Schema.Array(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
+  sidebarPinnedThreadKeysByProject: Schema.Record(
+    TrimmedNonEmptyString,
+    Schema.Array(TrimmedNonEmptyString),
+  ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   sidebarProjectSortOrder: SidebarProjectSortOrder.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_SORT_ORDER)),
   ),
@@ -643,6 +647,9 @@ export const ClientSettingsPatch = Schema.Struct({
     Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString),
   ),
   sidebarProjectFolderOrder: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
+  sidebarPinnedThreadKeysByProject: Schema.optionalKey(
+    Schema.Record(TrimmedNonEmptyString, Schema.Array(TrimmedNonEmptyString)),
+  ),
   sidebarProjectSortOrder: Schema.optionalKey(SidebarProjectSortOrder),
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
