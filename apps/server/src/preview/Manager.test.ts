@@ -67,6 +67,68 @@ it.layer(PreviewManager.layer)("PreviewManager", (it) => {
     }),
   );
 
+  it.effect("shares sessions when callers target the same worktree scope", () =>
+    Effect.gen(function* () {
+      const manager = yield* PreviewManager.PreviewManager;
+      const scope = {
+        _tag: "worktree" as const,
+        projectId: "project-1" as never,
+        worktreePath: "/repo/wt",
+      };
+      const first = yield* manager.open({
+        threadId: freshThreadId(),
+        scope,
+        url: "http://localhost:3000",
+      });
+      const sessions = yield* manager.list({ threadId: freshThreadId(), scope });
+      expect(sessions.sessions.map((session) => session.tabId)).toEqual([first.tabId]);
+      expect(sessions.sessions[0]?.scope).toEqual(scope);
+    }),
+  );
+
+  it.effect("reset closes every scope and emits a closed event per tab", () =>
+    Effect.gen(function* () {
+      const manager = yield* PreviewManager.PreviewManager;
+      const collector = yield* collectEvents;
+      const worktreeScope = {
+        _tag: "worktree" as const,
+        projectId: "project-reset" as never,
+        worktreePath: "/repo/reset",
+      };
+      const threadScope = { _tag: "thread" as const, threadId: freshThreadId() };
+
+      yield* manager.open({
+        threadId: freshThreadId(),
+        scope: worktreeScope,
+        url: "http://localhost:3000",
+      });
+      yield* manager.open({
+        threadId: threadScope.threadId,
+        scope: threadScope,
+        url: "http://localhost:5173",
+      });
+      expect((yield* collector.drain).map((event) => event.type)).toEqual(["opened", "opened"]);
+
+      yield* manager.reset;
+
+      expect(
+        (yield* manager.list({ threadId: freshThreadId(), scope: worktreeScope })).sessions,
+      ).toEqual([]);
+      expect(
+        (yield* manager.list({ threadId: threadScope.threadId, scope: threadScope })).sessions,
+      ).toEqual([]);
+      const closedEvents = yield* collector.drain;
+      expect(closedEvents.every((event) => event.type === "closed")).toBe(true);
+      expect(closedEvents.some((event) => event.scope?._tag === "worktree")).toBe(true);
+      expect(
+        closedEvents.some(
+          (event) =>
+            event.scope?._tag === "thread" && event.scope.threadId === threadScope.threadId,
+        ),
+      ).toBe(true);
+    }),
+  );
+
   it.effect("treats bare hosts as https", () =>
     Effect.gen(function* () {
       const threadId = freshThreadId();

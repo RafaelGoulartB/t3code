@@ -82,6 +82,11 @@ export const TerminalFontSize = Schema.Int.check(
 export type TerminalFontSize = typeof TerminalFontSize.Type;
 export const DEFAULT_TERMINAL_FONT_SIZE: TerminalFontSize = 12;
 
+/** Determines whether the right panel is isolated per conversation or shared by worktree. */
+export const RightPanelSharingMode = Schema.Literals(["thread", "worktree"]);
+export type RightPanelSharingMode = typeof RightPanelSharingMode.Type;
+export const DEFAULT_RIGHT_PANEL_SHARING_MODE: RightPanelSharingMode = "thread";
+
 export const ClientSettingsSchema = Schema.Struct({
   autoOpenPlanSidebar: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -143,6 +148,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   sidebarThreadPreviewCount: SidebarThreadPreviewCount.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT)),
+  ),
+  rightPanelSharingMode: RightPanelSharingMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_RIGHT_PANEL_SHARING_MODE)),
   ),
   timestampFormat: TimestampFormat.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
@@ -653,6 +661,7 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarProjectSortOrder: Schema.optionalKey(SidebarProjectSortOrder),
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
+  rightPanelSharingMode: Schema.optionalKey(RightPanelSharingMode),
   timestampFormat: Schema.optionalKey(TimestampFormat),
   terminalFontSize: Schema.optionalKey(TerminalFontSize),
   wordWrap: Schema.optionalKey(Schema.Boolean),

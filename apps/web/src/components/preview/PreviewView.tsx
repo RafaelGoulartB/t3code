@@ -21,6 +21,7 @@ import { resolveDiscoveredServerUrl } from "~/browser/browserTargetResolver";
 import { useEnvironment, useEnvironmentHttpBaseUrl } from "~/state/environments";
 import { previewEnvironment } from "~/state/preview";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { previewScopeForThread } from "~/rightPanelScope";
 
 import { previewBridge } from "./previewBridge";
 import { subscribePreviewAction } from "./previewActionBus";
@@ -158,6 +159,7 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
         environmentId: threadRef.environmentId,
         input: {
           threadId: threadRef.threadId,
+          scope: previewScopeForThread(threadRef),
           tabId,
           viewport: nextViewport,
         },

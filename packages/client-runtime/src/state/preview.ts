@@ -80,6 +80,12 @@ export function createPreviewEnvironmentAtoms<R, E>(
       scheduler: lifecycleScheduler,
       concurrency: lifecycleConcurrency,
     }),
+    reset: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:preview:reset",
+      tag: WS_METHODS.previewReset,
+      scheduler: lifecycleScheduler,
+      concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
+    }),
     reportStatus: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:preview:report-status",
       tag: WS_METHODS.previewReportStatus,

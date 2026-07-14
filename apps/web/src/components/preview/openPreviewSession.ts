@@ -5,6 +5,7 @@ import type {
   ScopedThreadRef,
 } from "@t3tools/contracts";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
+import { previewScopeForThread } from "~/rightPanelScope";
 
 import { applyPreviewServerSnapshot, rememberPreviewUrl } from "~/previewStateStore";
 
@@ -24,6 +25,7 @@ export async function openPreviewSession<E>(
     environmentId: input.threadRef.environmentId,
     input: {
       threadId: input.threadRef.threadId,
+      scope: previewScopeForThread(input.threadRef),
       ...(input.url === undefined ? {} : { url: input.url }),
     },
   });

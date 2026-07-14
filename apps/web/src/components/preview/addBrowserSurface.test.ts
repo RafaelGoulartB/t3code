@@ -40,7 +40,10 @@ describe("addBrowserSurface", () => {
 
     await addBrowserSurface({ threadRef, openPreview: ({ input }) => openPreview(input) });
 
-    expect(openPreview).toHaveBeenCalledWith({ threadId: "thread-1" });
+    expect(openPreview).toHaveBeenCalledWith({
+      threadId: "thread-1",
+      scope: { _tag: "thread", threadId: "thread-1" },
+    });
     expect(Object.keys(readThreadPreviewState(threadRef).sessions)).toEqual(["tab-1", "tab-2"]);
     expect(
       selectThreadRightPanelState(

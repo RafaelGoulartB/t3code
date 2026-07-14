@@ -356,6 +356,7 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.previewClose, AuthOrchestrationOperateScope],
   [WS_METHODS.previewList, AuthOrchestrationReadScope],
   [WS_METHODS.previewReportStatus, AuthOrchestrationOperateScope],
+  [WS_METHODS.previewReset, AuthOrchestrationOperateScope],
   [WS_METHODS.previewAutomationConnect, AuthOrchestrationOperateScope],
   [WS_METHODS.previewAutomationRespond, AuthOrchestrationOperateScope],
   [WS_METHODS.previewAutomationFocusHost, AuthOrchestrationOperateScope],
@@ -1935,6 +1936,10 @@ const makeWsRpcLayer = (
           }),
         [WS_METHODS.previewReportStatus]: (input) =>
           observeRpcEffect(WS_METHODS.previewReportStatus, previewManager.reportStatus(input), {
+            "rpc.aggregate": "preview",
+          }),
+        [WS_METHODS.previewReset]: (_input) =>
+          observeRpcEffect(WS_METHODS.previewReset, previewManager.reset, {
             "rpc.aggregate": "preview",
           }),
         [WS_METHODS.previewAutomationConnect]: (input) =>

@@ -6,6 +6,7 @@ import * as Schema from "effect/Schema";
 import type { OpenPreviewMutation } from "~/browser/openFileInPreview";
 import { applyPreviewServerSnapshot, isPreviewSupportedInRuntime } from "~/previewStateStore";
 import { useRightPanelStore } from "~/rightPanelStore";
+import { previewScopeForThread } from "~/rightPanelScope";
 
 const terminalLinkErrorContext = {
   environmentId: Schema.String,
@@ -57,6 +58,7 @@ export async function openTerminalLinkInPreview<E>(
   const errorContext = {
     environmentId: input.threadRef.environmentId,
     threadId: input.threadRef.threadId,
+    scope: previewScopeForThread(input.threadRef),
     targetOrigin: new URL(input.url).origin,
   };
 
@@ -83,7 +85,11 @@ export async function openTerminalLinkInPreview<E>(
   if (choice === "open-in-preview") {
     const result = await input.openPreview({
       environmentId: input.threadRef.environmentId,
-      input: { threadId: input.threadRef.threadId, url: input.url },
+      input: {
+        threadId: input.threadRef.threadId,
+        scope: previewScopeForThread(input.threadRef),
+        url: input.url,
+      },
     });
     if (result._tag === "Failure") {
       if (isAtomCommandInterrupted(result)) {

@@ -39,7 +39,8 @@ function ChatRouteGlobalShortcuts() {
   // which we invoke via the action bus to avoid duplicating the rule.
   const previewOpen = useRightPanelStore((state) =>
     routeThreadRef
-      ? selectActiveRightPanel(state.byThreadKey, routeThreadRef) === "preview"
+      ? selectActiveRightPanel(state.byThreadKey, routeThreadRef, state.scopeKeyByThreadKey) ===
+        "preview"
       : false,
   );
   useEffect(() => {

@@ -121,6 +121,7 @@ import {
   PreviewNavigateInput,
   PreviewOpenInput,
   PreviewRefreshInput,
+  PreviewResetInput,
   PreviewReportStatusInput,
   PreviewResizeInput,
   PreviewSessionSnapshot,
@@ -239,6 +240,7 @@ export const WS_METHODS = {
   previewClose: "preview.close",
   previewList: "preview.list",
   previewReportStatus: "preview.reportStatus",
+  previewReset: "preview.reset",
   previewAutomationConnect: "previewAutomation.connect",
   previewAutomationRespond: "previewAutomation.respond",
   previewAutomationFocusHost: "previewAutomation.focusHost",
@@ -707,6 +709,11 @@ export const WsPreviewReportStatusRpc = Rpc.make(WS_METHODS.previewReportStatus,
   error: Schema.Union([PreviewError, EnvironmentAuthorizationError]),
 });
 
+export const WsPreviewResetRpc = Rpc.make(WS_METHODS.previewReset, {
+  payload: PreviewResetInput,
+  error: EnvironmentAuthorizationError,
+});
+
 export const WsPreviewAutomationConnectRpc = Rpc.make(WS_METHODS.previewAutomationConnect, {
   payload: PreviewAutomationHost,
   success: PreviewAutomationStreamEvent,
@@ -903,6 +910,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsPreviewCloseRpc,
   WsPreviewListRpc,
   WsPreviewReportStatusRpc,
+  WsPreviewResetRpc,
   WsPreviewAutomationConnectRpc,
   WsPreviewAutomationRespondRpc,
   WsPreviewAutomationFocusHostRpc,

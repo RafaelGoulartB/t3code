@@ -73,7 +73,7 @@ import {
   primaryServerProvidersAtom,
   serverEnvironment,
 } from "../../state/server";
-import { usePrimaryEnvironment } from "../../state/environments";
+import { useEnvironments, usePrimaryEnvironment } from "../../state/environments";
 import { useProjects } from "../../state/entities";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { formatRelativeTime, formatRelativeTimeLabel } from "../../timestampFormat";
@@ -113,6 +113,9 @@ import {
 } from "./settingsLayout";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { previewEnvironment } from "../../state/preview";
+import { clearPreviewState } from "../../previewStateStore";
+import { useRightPanelStore } from "../../rightPanelStore";
 
 const THEME_OPTIONS = [
   {
@@ -454,6 +457,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.sidebarThreadPreviewCount !== DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount
         ? ["Visible threads"]
         : []),
+      ...(settings.rightPanelSharingMode !== DEFAULT_UNIFIED_SETTINGS.rightPanelSharingMode
+        ? ["Right panel sharing"]
+        : []),
       ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),
       ...(settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace
         ? ["Diff whitespace changes"]
@@ -501,6 +507,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.automaticGitFetchInterval,
       settings.enableAssistantStreaming,
       settings.sidebarThreadPreviewCount,
+      settings.rightPanelSharingMode,
       settings.terminalFontSize,
       settings.timestampFormat,
       settings.wordWrap,
@@ -528,6 +535,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
+      rightPanelSharingMode: DEFAULT_UNIFIED_SETTINGS.rightPanelSharingMode,
       autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
       enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
       automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
@@ -875,6 +883,8 @@ export function GeneralSettingsPanel() {
   const { theme, setTheme } = useTheme();
   const settings = usePrimarySettings();
   const updateSettings = useUpdatePrimarySettings();
+  const { environments } = useEnvironments();
+  const resetPreview = useAtomCommand(previewEnvironment.reset, { reportFailure: false });
   const observability = useAtomValue(primaryServerObservabilityAtom);
   const serverProviders = useAtomValue(primaryServerProvidersAtom);
   const diagnosticsDescription = formatDiagnosticsDescription({
@@ -908,6 +918,42 @@ export function GeneralSettingsPanel() {
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
   const isTextGenerationPolicyDirty = !isDefaultTextGenerationPolicy(settings.textGenerationPolicy);
+  const changeRightPanelSharingMode = useCallback(
+    async (nextMode: "thread" | "worktree") => {
+      if (nextMode === settings.rightPanelSharingMode) return;
+      const api = readLocalApi();
+      const confirmed = await (api ?? ensureLocalApi()).dialogs.confirm(
+        [
+          "Restart and reset Browser sessions?",
+          "This closes every in-app Browser in connected environments, clears Right Panel state, and affects other connected windows.",
+        ].join("\n"),
+      );
+      if (!confirmed) return;
+      const connected = environments.filter(
+        (environment) => environment.connection.phase === "connected",
+      );
+      const results = await Promise.all(
+        connected.map((environment) =>
+          resetPreview({ environmentId: environment.environmentId, input: {} }),
+        ),
+      );
+      const failed = results.find((result) => result._tag === "Failure");
+      if (failed) {
+        const error = squashAtomCommandFailure(failed);
+        toastManager.add({
+          type: "error",
+          title: "Could not reset Browser sessions",
+          description: error instanceof Error ? error.message : "The sharing mode was not changed.",
+        });
+        return;
+      }
+      useRightPanelStore.getState().reset();
+      clearPreviewState();
+      updateSettings({ rightPanelSharingMode: nextMode });
+      window.location.reload();
+    },
+    [environments, resetPreview, settings.rightPanelSharingMode, updateSettings],
+  );
 
   return (
     <SettingsPageContainer>
@@ -1043,6 +1089,47 @@ export function GeneralSettingsPanel() {
               onCheckedChange={(checked) => updateSettings({ wordWrap: Boolean(checked) })}
               aria-label="Wrap code, tables, diffs, and file previews by default"
             />
+          }
+        />
+
+        <SettingsRow
+          title="Right panel sharing"
+          description="Per project worktree reuses the right-panel tabs, terminals, and Browser between threads in the same worktree."
+          resetAction={
+            settings.rightPanelSharingMode !== DEFAULT_UNIFIED_SETTINGS.rightPanelSharingMode ? (
+              <SettingResetButton
+                label="right panel sharing"
+                onClick={() =>
+                  void changeRightPanelSharingMode(DEFAULT_UNIFIED_SETTINGS.rightPanelSharingMode)
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.rightPanelSharingMode}
+              onValueChange={(value) => {
+                if (value === "thread" || value === "worktree") {
+                  void changeRightPanelSharingMode(value);
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-72" aria-label="Right panel sharing mode">
+                <SelectValue>
+                  {settings.rightPanelSharingMode === "worktree"
+                    ? "Per project worktree (shared)"
+                    : "Per thread (current behavior)"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                <SelectItem hideIndicator value="thread">
+                  Per thread (current behavior)
+                </SelectItem>
+                <SelectItem hideIndicator value="worktree">
+                  Per project worktree (shared)
+                </SelectItem>
+              </SelectPopup>
+            </Select>
           }
         />
 
