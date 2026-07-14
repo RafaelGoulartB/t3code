@@ -85,6 +85,25 @@ export function sortThreads<T extends { readonly id: string } & ThreadSortInput>
   );
 }
 
+/**
+ * Sorts pinned threads before the remaining threads while retaining the normal
+ * configured ordering within each group.
+ */
+export function sortThreadsPinnedFirst<T extends { readonly id: string } & ThreadSortInput>(
+  threads: readonly T[],
+  sortOrder: SidebarThreadSortOrder,
+  isPinned: (thread: T) => boolean,
+): T[] {
+  const pinned: T[] = [];
+  const unpinned: T[] = [];
+
+  for (const thread of threads) {
+    (isPinned(thread) ? pinned : unpinned).push(thread);
+  }
+
+  return [...sortThreads(pinned, sortOrder), ...sortThreads(unpinned, sortOrder)];
+}
+
 export function getLatestThreadForProject<
   T extends {
     readonly id: string;

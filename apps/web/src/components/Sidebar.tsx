@@ -10,6 +10,7 @@ import {
   GitPullRequestIcon,
   Globe2Icon,
   LoaderIcon,
+  PinIcon,
   SearchIcon,
   SettingsIcon,
   SquarePenIcon,
@@ -208,7 +209,7 @@ import {
   useThreadJumpHintVisibility,
   ThreadStatusPill,
 } from "./Sidebar.logic";
-import { sortThreads } from "../lib/threadSort";
+import { sortThreadsPinnedFirst } from "../lib/threadSort";
 import { SidebarUpdatePill } from "./sidebar/SidebarUpdatePill";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useIsMobile } from "~/hooks/useMediaQuery";
@@ -323,6 +324,15 @@ function projectExpansionPreferenceKeys(project: SidebarProjectSnapshot): string
   ];
 }
 
+function isSidebarThreadPinned(
+  pinnedThreadKeysByProject: Readonly<Record<string, readonly string[]>>,
+  thread: Pick<SidebarThreadSummary, "environmentId" | "id" | "projectId">,
+): boolean {
+  const projectKey = scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId));
+  const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+  return pinnedThreadKeysByProject[projectKey]?.includes(threadKey) ?? false;
+}
+
 function projectGroupingModeDescription(mode: SidebarProjectGroupingMode): string {
   switch (mode) {
     case "repository":
@@ -366,6 +376,7 @@ function buildThreadJumpLabelMap(input: {
 
 interface SidebarThreadRowProps {
   thread: SidebarThreadSummary;
+  isPinned: boolean;
   projectCwd: string | null;
   orderedProjectThreadKeys: readonly string[];
   isActive: boolean;
@@ -426,6 +437,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
     cancelRename,
     attemptArchiveThread,
     openPrLink,
+    isPinned,
     thread,
   } = props;
   const threadRef = scopeThreadRef(thread.environmentId, thread.id);
@@ -758,6 +770,23 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
             </Tooltip>
           )}
           {threadStatus && <ThreadStatusLabel status={threadStatus} />}
+          {isPinned && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    role="img"
+                    aria-label="Pinned thread"
+                    className="inline-flex shrink-0 items-center justify-center text-muted-foreground/60"
+                    data-testid={`thread-pin-${thread.id}`}
+                  />
+                }
+              >
+                <PinIcon className="size-3" />
+              </TooltipTrigger>
+              <TooltipPopup side="top">Pinned</TooltipPopup>
+            </Tooltip>
+          )}
           {renamingThreadKey === threadKey ? (
             <input
               ref={handleRenameInputRef}
@@ -941,6 +970,7 @@ interface SidebarProjectThreadListProps {
   hiddenThreadStatus: ThreadStatusPill | null;
   orderedProjectThreadKeys: readonly string[];
   renderedThreads: readonly SidebarThreadSummary[];
+  pinnedThreadKeysByProject: Readonly<Record<string, readonly string[]>>;
   showEmptyThreadState: boolean;
   shouldShowThreadPanel: boolean;
   isThreadListExpanded: boolean;
@@ -992,6 +1022,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     hiddenThreadStatus,
     orderedProjectThreadKeys,
     renderedThreads,
+    pinnedThreadKeysByProject,
     showEmptyThreadState,
     shouldShowThreadPanel,
     isThreadListExpanded,
@@ -1046,6 +1077,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
             <SidebarThreadRow
               key={threadKey}
               thread={thread}
+              isPinned={isSidebarThreadPinned(pinnedThreadKeysByProject, thread)}
               projectCwd={projectCwd}
               orderedProjectThreadKeys={orderedProjectThreadKeys}
               isActive={activeRouteThreadKey === threadKey}
@@ -1165,6 +1197,9 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   );
   const sidebarProjectFolderOrder = useClientSettings(
     (settings) => settings.sidebarProjectFolderOrder,
+  );
+  const sidebarPinnedThreadKeysByProject = useClientSettings(
+    (settings) => settings.sidebarPinnedThreadKeysByProject,
   );
   const serverConfigs = useServerConfigs();
   const deleteProject = useAtomCommand(projectEnvironment.delete, {
@@ -1329,9 +1364,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         },
       });
     };
-    const visibleProjectThreads = sortThreads(
+    const visibleProjectThreads = sortThreadsPinnedFirst(
       projectThreads.filter((thread) => thread.archivedAt === null),
       threadSortOrder,
+      (thread) => isSidebarThreadPinned(sidebarPinnedThreadKeysByProject, thread),
     );
     const projectStatus = resolveProjectStatusIndicator(
       visibleProjectThreads.map((thread) => resolveProjectThreadStatus(thread)),
@@ -1343,7 +1379,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       projectStatus,
       visibleProjectThreads,
     };
-  }, [projectThreads, threadLastVisitedAts, threadSortOrder]);
+  }, [projectThreads, sidebarPinnedThreadKeysByProject, threadLastVisitedAts, threadSortOrder]);
   const pinnedCollapsedThread = useMemo(() => {
     const activeThreadKey = activeRouteThreadKey ?? undefined;
     if (!activeThreadKey || projectExpanded) {
@@ -2264,8 +2300,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       );
       const threadWorkspacePath =
         thread.worktreePath ?? threadProject?.workspaceRoot ?? project.workspaceRoot ?? null;
+      const isPinned = isSidebarThreadPinned(sidebarPinnedThreadKeysByProject, thread);
       const clicked = await api.contextMenu.show(
         [
+          { id: "toggle-pin", label: isPinned ? "Unpin thread" : "Pin thread" },
           { id: "rename", label: "Rename thread" },
           { id: "mark-unread", label: "Mark unread" },
           { id: "copy-path", label: "Copy Path" },
@@ -2274,6 +2312,27 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         ],
         position,
       );
+
+      if (clicked === "toggle-pin") {
+        const projectKey = scopedProjectKey(
+          scopeProjectRef(thread.environmentId, thread.projectId),
+        );
+        const pinnedThreadKeys = sidebarPinnedThreadKeysByProject[projectKey] ?? [];
+        const nextPinnedThreadKeys = isPinned
+          ? pinnedThreadKeys.filter((pinnedThreadKey) => pinnedThreadKey !== threadKey)
+          : [
+              ...pinnedThreadKeys.filter((pinnedThreadKey) => pinnedThreadKey !== threadKey),
+              threadKey,
+            ];
+        const nextPinnedThreadKeysByProject = { ...sidebarPinnedThreadKeysByProject };
+        if (nextPinnedThreadKeys.length === 0) {
+          delete nextPinnedThreadKeysByProject[projectKey];
+        } else {
+          nextPinnedThreadKeysByProject[projectKey] = nextPinnedThreadKeys;
+        }
+        updateSettings({ sidebarPinnedThreadKeysByProject: nextPinnedThreadKeysByProject });
+        return;
+      }
 
       if (clicked === "rename") {
         startThreadRename(threadKey, thread.title);
@@ -2334,7 +2393,9 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       markThreadUnread,
       memberProjectByScopedKey,
       project.workspaceRoot,
+      sidebarPinnedThreadKeysByProject,
       startThreadRename,
+      updateSettings,
     ],
   );
 
@@ -2453,6 +2514,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         hiddenThreadStatus={hiddenThreadStatus}
         orderedProjectThreadKeys={orderedProjectThreadKeys}
         renderedThreads={renderedThreads}
+        pinnedThreadKeysByProject={sidebarPinnedThreadKeysByProject}
         showEmptyThreadState={showEmptyThreadState}
         shouldShowThreadPanel={shouldShowThreadPanel}
         isThreadListExpanded={isThreadListExpanded}
@@ -3688,6 +3750,9 @@ export default function Sidebar() {
   const sidebarProjectGroupingMode = useClientSettings((s) => s.sidebarProjectGroupingMode);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const sidebarThreadPreviewCount = useClientSettings((s) => s.sidebarThreadPreviewCount);
+  const sidebarPinnedThreadKeysByProject = useClientSettings(
+    (s) => s.sidebarPinnedThreadKeysByProject,
+  );
   const sidebarProjectFolders = useClientSettings((s) => s.sidebarProjectFolders);
   const sidebarProjectFolderAssignments = useClientSettings(
     (s) => s.sidebarProjectFolderAssignments,
@@ -4029,11 +4094,12 @@ export default function Sidebar() {
           return [];
         }
         return bucket.projects.flatMap((project) => {
-          const projectThreads = sortThreads(
+          const projectThreads = sortThreadsPinnedFirst(
             (threadsByProjectKey.get(project.projectKey) ?? []).filter(
               (thread) => thread.archivedAt === null,
             ),
             sidebarThreadSortOrder,
+            (thread) => isSidebarThreadPinned(sidebarPinnedThreadKeysByProject, thread),
           );
           const projectExpanded = resolveProjectExpanded(
             projectExpandedById,
@@ -4066,6 +4132,7 @@ export default function Sidebar() {
       }),
     [
       sidebarThreadSortOrder,
+      sidebarPinnedThreadKeysByProject,
       sidebarThreadPreviewCount,
       sidebarProjectFolderExpandedById,
       expandedThreadListsByProject,

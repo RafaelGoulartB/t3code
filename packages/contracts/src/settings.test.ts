@@ -88,6 +88,37 @@ describe("ClientSettings sidebar project folders", () => {
   });
 });
 
+describe("ClientSettings sidebar pinned threads", () => {
+  it("defaults pinned threads for legacy client settings", () => {
+    expect(decodeClientSettings({}).sidebarPinnedThreadKeysByProject).toEqual({});
+  });
+
+  it("round-trips pinned thread keys per project", () => {
+    const decoded = decodeClientSettings({
+      sidebarPinnedThreadKeysByProject: {
+        "environment-1\u0000project-1": ["environment-1\u0000thread-1"],
+      },
+    });
+
+    expect(decoded.sidebarPinnedThreadKeysByProject).toEqual({
+      "environment-1\u0000project-1": ["environment-1\u0000thread-1"],
+    });
+  });
+
+  it("rejects blank project or thread keys", () => {
+    expect(() =>
+      decodeClientSettings({
+        sidebarPinnedThreadKeysByProject: { "": ["environment-1\u0000thread-1"] },
+      }),
+    ).toThrow();
+    expect(() =>
+      decodeClientSettings({
+        sidebarPinnedThreadKeysByProject: { "environment-1\u0000project-1": [""] },
+      }),
+    ).toThrow();
+  });
+});
+
 describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
   it("defaults to an empty record so legacy configs without the key still decode", () => {
     expect(DEFAULT_SERVER_SETTINGS.providerInstances).toEqual({});
