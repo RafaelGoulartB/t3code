@@ -121,6 +121,7 @@ import {
   type RightPanelSurface,
   useRightPanelStore,
 } from "../rightPanelStore";
+import { registerPreviewScopeForThread, resolveRightPanelScope } from "../rightPanelScope";
 import { openWorkspaceFile } from "../workspaceFileActions";
 import {
   isPreviewSupportedInRuntime,
@@ -521,7 +522,8 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
     worktreePath: terminalScopeRef?.worktreePath ?? null,
   });
   const panelSurfaces = useRightPanelStore(
-    (state) => selectThreadRightPanelState(state.byThreadKey, threadRef).surfaces,
+    (state) =>
+      selectThreadRightPanelState(state.byThreadKey, threadRef, state.scopeKeyByThreadKey).surfaces,
   );
   const panelTerminalIds = useMemo(
     () =>
@@ -1349,6 +1351,26 @@ function ChatViewContent(props: ChatViewProps) {
     () => (activeThread ? scopeThreadRef(activeThread.environmentId, activeThread.id) : null),
     [activeThread],
   );
+  const activeRightPanelScope = useMemo(
+    () =>
+      activeThread
+        ? resolveRightPanelScope(
+            {
+              environmentId: activeThread.environmentId,
+              id: activeThread.id,
+              projectId: ProjectId.make(activeThread.projectId),
+              worktreePath: activeThread.worktreePath ?? null,
+            },
+            settings.rightPanelSharingMode,
+          )
+        : null,
+    [activeThread, settings.rightPanelSharingMode],
+  );
+  useEffect(() => {
+    if (!activeThreadRef || !activeRightPanelScope) return;
+    useRightPanelStore.getState().registerScope(activeThreadRef, activeRightPanelScope);
+    registerPreviewScopeForThread(activeThreadRef, activeRightPanelScope);
+  }, [activeRightPanelScope, activeThreadRef]);
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
   const [timelineAnchor, setTimelineAnchor] = useState<{
     readonly threadKey: string | null;
@@ -1359,14 +1381,14 @@ function ChatViewContent(props: ChatViewProps) {
   }
   const timelineAnchorMessageId = timelineAnchor.messageId;
   const activeRightPanelKind = useRightPanelStore((state) =>
-    selectActiveRightPanel(state.byThreadKey, activeThreadRef),
+    selectActiveRightPanel(state.byThreadKey, activeThreadRef, state.scopeKeyByThreadKey),
   );
   const diffOpen = activeRightPanelKind === "diff";
   const rightPanelState = useRightPanelStore((state) =>
-    selectThreadRightPanelState(state.byThreadKey, activeThreadRef),
+    selectThreadRightPanelState(state.byThreadKey, activeThreadRef, state.scopeKeyByThreadKey),
   );
   const activeRightPanelSurface = useRightPanelStore((state) =>
-    selectActiveRightPanelSurface(state.byThreadKey, activeThreadRef),
+    selectActiveRightPanelSurface(state.byThreadKey, activeThreadRef, state.scopeKeyByThreadKey),
   );
   const activeFileSurface =
     activeRightPanelSurface?.kind === "file" ? activeRightPanelSurface : null;

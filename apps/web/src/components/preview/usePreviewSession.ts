@@ -14,6 +14,7 @@ import {
   reconcilePreviewServerSessions,
 } from "~/previewStateStore";
 import { previewEnvironment } from "~/state/preview";
+import { previewScopeForThread } from "~/rightPanelScope";
 
 class PreviewSessionThreadKeyParseError extends Schema.TaggedErrorClass<PreviewSessionThreadKeyParseError>()(
   "PreviewSessionThreadKeyParseError",
@@ -32,7 +33,7 @@ const previewSessionSyncAtom = Atom.family((threadKey: string) => {
 
   const sessionsAtom = previewEnvironment.list({
     environmentId: threadRef.environmentId,
-    input: { threadId: threadRef.threadId },
+    input: { threadId: threadRef.threadId, scope: previewScopeForThread(threadRef) },
   });
   const eventsAtom = previewEnvironment.events({
     environmentId: threadRef.environmentId,
@@ -73,7 +74,11 @@ const previewSessionSyncAtom = Atom.family((threadKey: string) => {
         previewEnvironment.open,
         {
           environmentId: threadRef.environmentId,
-          input: { threadId: threadRef.threadId, url: recoverableUrl },
+          input: {
+            threadId: threadRef.threadId,
+            scope: previewScopeForThread(threadRef),
+            url: recoverableUrl,
+          },
         },
         { reportDefect: false, reportFailure: false },
       ).then((openResult) => {
@@ -86,7 +91,20 @@ const previewSessionSyncAtom = Atom.family((threadKey: string) => {
     };
 
     const applyLatestEvent = (result: Atom.Type<typeof eventsAtom>) => {
-      if (!AsyncResult.isSuccess(result) || result.value.threadId !== threadRef.threadId) return;
+      if (!AsyncResult.isSuccess(result)) return;
+      const expectedScope = previewScopeForThread(threadRef);
+      const eventScope = result.value.scope ?? {
+        _tag: "thread" as const,
+        threadId: result.value.threadId,
+      };
+      if (
+        eventScope._tag !== expectedScope._tag ||
+        (eventScope._tag === "thread" && eventScope.threadId !== expectedScope.threadId) ||
+        (eventScope._tag === "worktree" &&
+          (eventScope.projectId !== expectedScope.projectId ||
+            eventScope.worktreePath !== expectedScope.worktreePath))
+      )
+        return;
       applyPreviewServerEvent(threadRef, result.value);
       if (result.value.type === "opened" || result.value.type === "closed") {
         get.refresh(sessionsAtom);

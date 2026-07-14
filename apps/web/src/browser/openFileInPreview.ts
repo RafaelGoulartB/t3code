@@ -21,6 +21,7 @@ import {
   rememberPreviewUrl,
 } from "~/previewStateStore";
 import { useRightPanelStore } from "~/rightPanelStore";
+import { previewScopeForThread } from "~/rightPanelScope";
 
 export const isBrowserPreviewFile = (path: string): boolean =>
   /\.(?:html?|pdf)$/i.test(path.split(/[?#]/, 1)[0] ?? "");
@@ -43,7 +44,11 @@ export async function openUrlInPreview<E>(input: {
 }): Promise<AtomCommandResult<void, E>> {
   const result = await input.openPreview({
     environmentId: input.threadRef.environmentId,
-    input: { threadId: input.threadRef.threadId, url: input.url },
+    input: {
+      threadId: input.threadRef.threadId,
+      scope: previewScopeForThread(input.threadRef),
+      url: input.url,
+    },
   });
   return mapAtomCommandResult(result, (snapshot) => {
     applyPreviewServerSnapshot(input.threadRef, snapshot);
