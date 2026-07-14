@@ -210,6 +210,9 @@ interface CreateManagerOptions {
     readonly childCommand: string | null;
     readonly processIds: ReadonlyArray<number>;
   }>;
+  subprocessBatchInspector?: (
+    terminalPids: ReadonlyArray<number>,
+  ) => Effect.Effect<ReadonlyMap<number, TerminalManager.TerminalSubprocessInspectResult>>;
   subprocessPollIntervalMs?: number;
   processKillGraceMs?: number;
   maxRetainedInactiveSessions?: number;
@@ -245,8 +248,20 @@ const createManager = (
         ptyAdapter,
         ...(options.shellResolver !== undefined ? { shellResolver: options.shellResolver } : {}),
         ...(options.env !== undefined ? { env: options.env } : {}),
-        ...(options.subprocessInspector !== undefined
-          ? { subprocessInspector: options.subprocessInspector }
+        ...(options.subprocessBatchInspector === undefined
+          ? {
+              subprocessInspector:
+                options.subprocessInspector ??
+                (() =>
+                  Effect.succeed({
+                    hasRunningSubprocess: false,
+                    childCommand: null,
+                    processIds: [],
+                  })),
+            }
+          : {}),
+        ...(options.subprocessBatchInspector !== undefined
+          ? { subprocessBatchInspector: options.subprocessBatchInspector }
           : {}),
         ...(options.subprocessPollIntervalMs !== undefined
           ? { subprocessPollIntervalMs: options.subprocessPollIntervalMs }
@@ -935,6 +950,77 @@ it.layer(
           ),
         ),
         "1200 millis",
+      );
+    }),
+  );
+
+  it.effect("inspects every Windows terminal from one process-tree snapshot", () =>
+    Effect.sync(() => {
+      const processTree = TerminalManager.parseWindowsProcessTree(
+        [
+          "9000|1|powershell.exe",
+          "9001|9000|node.exe",
+          "9002|9001|vite.exe",
+          "9100|1|powershell.exe",
+          "9101|9100|python.exe",
+          "9999|1|unrelated.exe",
+        ].join("\n"),
+      );
+      const results = TerminalManager.inspectWindowsTerminalSubprocesses(
+        processTree,
+        [9000, 9100, 9200],
+        "win32",
+      );
+
+      expect(results.get(9000)).toEqual({
+        hasRunningSubprocess: true,
+        childCommand: "node",
+        processIds: [9000, 9001, 9002],
+      });
+      expect(results.get(9100)).toEqual({
+        hasRunningSubprocess: true,
+        childCommand: "python",
+        processIds: [9100, 9101],
+      });
+      expect(results.get(9200)).toEqual({
+        hasRunningSubprocess: false,
+        childCommand: null,
+        processIds: [],
+      });
+    }),
+  );
+
+  it.effect("runs one batched subprocess inspection for many active terminals", () =>
+    Effect.gen(function* () {
+      const inspectedPidBatches: ReadonlyArray<number>[] = [];
+      const { manager } = yield* createManager(5, {
+        subprocessBatchInspector: (terminalPids) => {
+          inspectedPidBatches.push([...terminalPids]);
+          return Effect.succeed(
+            new Map(
+              terminalPids.map((terminalPid) => [
+                terminalPid,
+                {
+                  hasRunningSubprocess: false,
+                  childCommand: null,
+                  processIds: [],
+                },
+              ]),
+            ),
+          );
+        },
+        subprocessPollIntervalMs: 20,
+      });
+
+      yield* manager.open(openInput({ projectId: ProjectId.make("project-1") }));
+      yield* manager.open(openInput({ projectId: "project-2" }));
+      yield* waitFor(
+        Effect.sync(() => inspectedPidBatches.some((batch) => batch.length === 2)),
+        "1200 millis",
+      );
+
+      expect(inspectedPidBatches.some((batch) => batch.toSorted().join(",") === "9000,9001")).toBe(
+        true,
       );
     }),
   );

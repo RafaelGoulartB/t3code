@@ -190,7 +190,7 @@ export class TerminalManager extends Context.Service<
   }
 >()("t3/terminal/Manager/TerminalManager") {}
 
-interface TerminalSubprocessInspectResult {
+export interface TerminalSubprocessInspectResult {
   readonly hasRunningSubprocess: boolean;
   readonly childCommand: string | null;
   readonly processIds: ReadonlyArray<number>;
@@ -200,6 +200,15 @@ interface TerminalSubprocessInspector {
   (
     terminalPid: number,
   ): Effect.Effect<TerminalSubprocessInspectResult, TerminalSubprocessCheckError>;
+}
+
+interface TerminalSubprocessBatchInspector {
+  (
+    terminalPids: ReadonlyArray<number>,
+  ): Effect.Effect<
+    ReadonlyMap<number, TerminalSubprocessInspectResult>,
+    TerminalSubprocessCheckError
+  >;
 }
 
 const resizePtyProcess = (
@@ -625,16 +634,79 @@ function parseFirstChildPidFromPgrep(stdout: string): number | null {
   return null;
 }
 
-function windowsInspectSubprocess(
-  terminalPid: number,
+export interface WindowsProcessTree {
+  readonly processNameById: ReadonlyMap<number, string>;
+  readonly childrenByParent: ReadonlyMap<number, ReadonlyArray<number>>;
+}
+
+export function parseWindowsProcessTree(output: string): WindowsProcessTree {
+  const processNameById = new Map<number, string>();
+  const childrenByParent = new Map<number, number[]>();
+  for (const line of output.split(/\r?\n/g)) {
+    const [pidRaw, parentPidRaw, nameRaw] = line.trim().split("|", 3);
+    const pid = Number(pidRaw);
+    const parentPid = Number(parentPidRaw);
+    if (!Number.isInteger(pid) || !Number.isInteger(parentPid)) continue;
+    processNameById.set(pid, nameRaw?.trim() ?? "");
+    const children = childrenByParent.get(parentPid) ?? [];
+    children.push(pid);
+    childrenByParent.set(parentPid, children);
+  }
+  return { processNameById, childrenByParent };
+}
+
+export function inspectWindowsTerminalSubprocesses(
+  processTree: WindowsProcessTree,
+  terminalPids: ReadonlyArray<number>,
+  platform: NodeJS.Platform,
+): ReadonlyMap<number, TerminalSubprocessInspectResult> {
+  const results = new Map<number, TerminalSubprocessInspectResult>();
+  for (const terminalPid of terminalPids) {
+    const directChildren = processTree.childrenByParent.get(terminalPid) ?? [];
+    const childPid = directChildren[0];
+    if (childPid === undefined) {
+      results.set(terminalPid, {
+        hasRunningSubprocess: false,
+        childCommand: null,
+        processIds: [],
+      });
+      continue;
+    }
+
+    const processIds = new Set<number>([terminalPid]);
+    const pending = [terminalPid];
+    while (pending.length > 0) {
+      const parentPid = pending.pop();
+      if (parentPid === undefined) continue;
+      for (const pid of processTree.childrenByParent.get(parentPid) ?? []) {
+        if (processIds.has(pid)) continue;
+        processIds.add(pid);
+        pending.push(pid);
+      }
+    }
+    const normalized = normalizeChildCommandName(
+      processTree.processNameById.get(childPid) ?? "",
+      platform,
+    );
+    results.set(terminalPid, {
+      hasRunningSubprocess: true,
+      childCommand: normalized ? truncateTerminalWireLabel(normalized) : null,
+      processIds: [...processIds],
+    });
+  }
+  return results;
+}
+
+function windowsInspectSubprocesses(
+  terminalPids: ReadonlyArray<number>,
   platform: NodeJS.Platform,
 ): Effect.Effect<
-  TerminalSubprocessInspectResult,
+  ReadonlyMap<number, TerminalSubprocessInspectResult>,
   TerminalSubprocessCheckError,
   ProcessRunner.ProcessRunner
 > {
   const command =
-    'Get-CimInstance Win32_Process -ErrorAction Stop | ForEach-Object { Write-Output "$($_.ProcessId)|$($_.ParentProcessId)|$($_.Name)" }';
+    'Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,Name -ErrorAction Stop | ForEach-Object { Write-Output "$($_.ProcessId)|$($_.ParentProcessId)|$($_.Name)" }';
   return Effect.gen(function* () {
     const processRunner = yield* ProcessRunner.ProcessRunner;
     return yield* processRunner.run({
@@ -644,57 +716,48 @@ function windowsInspectSubprocess(
       command: "powershell.exe",
       args: ["-NoProfile", "-NonInteractive", "-Command", command],
       timeout: "1500 millis",
-      maxOutputBytes: 32_768,
+      maxOutputBytes: 512 * 1024,
       outputMode: "truncate",
       timeoutBehavior: "timedOutResult",
     });
   }).pipe(
     Effect.map((result) => {
       if (result.code !== 0) {
-        return { hasRunningSubprocess: false, childCommand: null, processIds: [] } as const;
+        return new Map<number, TerminalSubprocessInspectResult>();
       }
-      const processNameById = new Map<number, string>();
-      const childrenByParent = new Map<number, number[]>();
-      for (const line of result.stdout.split(/\r?\n/g)) {
-        const [pidRaw, parentPidRaw, nameRaw] = line.trim().split("|", 3);
-        const pid = Number(pidRaw);
-        const parentPid = Number(parentPidRaw);
-        if (!Number.isInteger(pid) || !Number.isInteger(parentPid)) continue;
-        processNameById.set(pid, nameRaw?.trim() ?? "");
-        const children = childrenByParent.get(parentPid) ?? [];
-        children.push(pid);
-        childrenByParent.set(parentPid, children);
-      }
-      const directChildren = childrenByParent.get(terminalPid) ?? [];
-      const childPid = directChildren[0];
-      if (childPid === undefined) {
-        return { hasRunningSubprocess: false, childCommand: null, processIds: [] } as const;
-      }
-      const processIds = new Set<number>([terminalPid]);
-      const pending = [terminalPid];
-      while (pending.length > 0) {
-        const parentPid = pending.pop();
-        if (parentPid === undefined) continue;
-        for (const pid of childrenByParent.get(parentPid) ?? []) {
-          if (processIds.has(pid)) continue;
-          processIds.add(pid);
-          pending.push(pid);
-        }
-      }
-      const normalized = normalizeChildCommandName(processNameById.get(childPid) ?? "", platform);
-      return {
-        hasRunningSubprocess: true,
-        childCommand: normalized ? truncateTerminalWireLabel(normalized) : null,
-        processIds: [...processIds],
-      } as const;
+      return inspectWindowsTerminalSubprocesses(
+        parseWindowsProcessTree(result.stdout),
+        terminalPids,
+        platform,
+      );
     }),
     Effect.mapError(
       (cause) =>
         new TerminalSubprocessCheckError({
           cause,
-          terminalPid,
+          terminalPid: terminalPids[0] ?? 0,
           command: "powershell",
         }),
+    ),
+  );
+}
+
+function windowsInspectSubprocess(
+  terminalPid: number,
+  platform: NodeJS.Platform,
+): Effect.Effect<
+  TerminalSubprocessInspectResult,
+  TerminalSubprocessCheckError,
+  ProcessRunner.ProcessRunner
+> {
+  return windowsInspectSubprocesses([terminalPid], platform).pipe(
+    Effect.map(
+      (results) =>
+        results.get(terminalPid) ?? {
+          hasRunningSubprocess: false,
+          childCommand: null,
+          processIds: [],
+        },
     ),
   );
 }
@@ -1112,6 +1175,7 @@ interface TerminalManagerOptions {
   shellResolver?: () => string;
   env?: NodeJS.ProcessEnv;
   subprocessInspector?: TerminalSubprocessInspector;
+  subprocessBatchInspector?: TerminalSubprocessBatchInspector;
   subprocessPollIntervalMs?: number;
   processKillGraceMs?: number;
   maxRetainedInactiveSessions?: number;
@@ -1164,6 +1228,14 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       defaultSubprocessInspectorForPlatform(platform)(terminalPid).pipe(
         Effect.provideService(ProcessRunner.ProcessRunner, processRunner),
       ));
+  const subprocessBatchInspector =
+    options.subprocessBatchInspector ??
+    (options.subprocessInspector === undefined && platform === "win32"
+      ? (terminalPids: ReadonlyArray<number>) =>
+          windowsInspectSubprocesses(terminalPids, platform).pipe(
+            Effect.provideService(ProcessRunner.ProcessRunner, processRunner),
+          )
+      : undefined);
   const subprocessPollIntervalMs =
     options.subprocessPollIntervalMs ?? DEFAULT_SUBPROCESS_POLL_INTERVAL_MS;
   const processKillGraceMs = options.processKillGraceMs ?? DEFAULT_PROCESS_KILL_GRACE_MS;
@@ -2065,22 +2137,46 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       return;
     }
 
+    const batchedInspections =
+      subprocessBatchInspector === undefined
+        ? Option.none<ReadonlyMap<number, TerminalSubprocessInspectResult>>()
+        : yield* subprocessBatchInspector(runningSessions.map((session) => session.pid)).pipe(
+            Effect.map(Option.some),
+            Effect.catch((reason) =>
+              Effect.logWarning("failed to inspect terminal subprocess activity batch", {
+                terminalCount: runningSessions.length,
+                reason,
+              }).pipe(
+                Effect.as(
+                  Option.some(
+                    new Map<number, TerminalSubprocessInspectResult>() as ReadonlyMap<
+                      number,
+                      TerminalSubprocessInspectResult
+                    >,
+                  ),
+                ),
+              ),
+            ),
+          );
+
     const checkSubprocessActivity = Effect.fn("terminal.checkSubprocessActivity")(function* (
       session: TerminalSessionState & { pid: number },
     ) {
       const terminalPid = session.pid;
-      const inspectResult = yield* subprocessInspector(terminalPid).pipe(
-        Effect.map(Option.some),
-        Effect.catch((reason) =>
-          Effect.logWarning("failed to check terminal subprocess activity", {
-            projectId: session.projectId,
-            terminalId: session.terminalId,
-            worktreePath: session.worktreePath,
-            terminalPid,
-            reason,
-          }).pipe(Effect.as(Option.none<TerminalSubprocessInspectResult>())),
-        ),
-      );
+      const inspectResult = Option.isSome(batchedInspections)
+        ? Option.fromNullishOr(batchedInspections.value.get(terminalPid))
+        : yield* subprocessInspector(terminalPid).pipe(
+            Effect.map(Option.some),
+            Effect.catch((reason) =>
+              Effect.logWarning("failed to check terminal subprocess activity", {
+                projectId: session.projectId,
+                terminalId: session.terminalId,
+                worktreePath: session.worktreePath,
+                terminalPid,
+                reason,
+              }).pipe(Effect.as(Option.none<TerminalSubprocessInspectResult>())),
+            ),
+          );
 
       if (Option.isNone(inspectResult)) {
         return;
@@ -2134,7 +2230,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     });
 
     yield* Effect.forEach(runningSessions, checkSubprocessActivity, {
-      concurrency: "unbounded",
+      concurrency: 4,
       discard: true,
     });
   });

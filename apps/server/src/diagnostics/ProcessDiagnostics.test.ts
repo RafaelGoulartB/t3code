@@ -208,6 +208,7 @@ describe("ProcessDiagnostics", () => {
       const diagnostics = yield* Effect.service(ProcessDiagnostics.ProcessDiagnostics).pipe(
         Effect.flatMap((pd) => pd.read),
         Effect.provide(layer),
+        Effect.provideService(HostProcessPlatform, "linux"),
       );
 
       expect(diagnostics.processes.map((process) => process.pid)).toEqual([4242]);
@@ -217,6 +218,82 @@ describe("ProcessDiagnostics", () => {
           args: ["-axo", "pid=,ppid=,pgid=,stat=,pcpu=,rss=,etime=,command="],
         },
       ]);
+    }),
+  );
+
+  it.effect("queries Windows process performance in one batch instead of once per PID", () =>
+    Effect.gen(function* () {
+      const commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> =
+        [];
+      const spawnerLayer = Layer.succeed(
+        ChildProcessSpawner.ChildProcessSpawner,
+        ChildProcessSpawner.make((command) => {
+          const childProcess = command as unknown as {
+            readonly command: string;
+            readonly args: ReadonlyArray<string>;
+          };
+          commands.push({ command: childProcess.command, args: childProcess.args });
+          const script = childProcess.args.at(-1) ?? "";
+          return Effect.succeed(
+            mockHandle({
+              stdout: script.includes("Get-CimInstance")
+                ? JSON.stringify([
+                    {
+                      ProcessId: process.pid,
+                      ParentProcessId: 1,
+                      Name: "node.exe",
+                      CommandLine: "t3 server",
+                      Status: null,
+                      WorkingSetSize: 1024,
+                      PercentProcessorTime: 0,
+                    },
+                    {
+                      ProcessId: 4242,
+                      ParentProcessId: process.pid,
+                      Name: "codex.exe",
+                      CommandLine: "codex app-server",
+                      Status: null,
+                      WorkingSetSize: 2048,
+                      PercentProcessorTime: 0,
+                    },
+                  ])
+                : JSON.stringify([
+                    {
+                      Id: process.pid,
+                      PercentProcessorTime: 1,
+                      WorkingSet64: 1024,
+                    },
+                    { Id: 4242, PercentProcessorTime: 2, WorkingSet64: 2048 },
+                  ]),
+            }),
+          );
+        }),
+      );
+
+      const rows = yield* ProcessDiagnostics.readProcessRows.pipe(
+        Effect.provide(spawnerLayer),
+        Effect.provideService(HostProcessPlatform, "win32"),
+      );
+
+      expect(rows.find((row) => row.pid === 4242)).toMatchObject({
+        ppid: process.pid,
+        cpuPercent: 2,
+        rssBytes: 2048,
+        command: "codex app-server",
+      });
+      expect(commands).toHaveLength(2);
+      expect(commands.map((command) => command.command)).toEqual([
+        "powershell.exe",
+        "powershell.exe",
+      ]);
+      const processScript = commands[0]?.args.at(-1) ?? "";
+      const metricScript = commands[1]?.args.at(-1) ?? "";
+      expect(processScript.match(/Get-CimInstance/g)).toHaveLength(1);
+      expect(processScript).toContain("Get-CimInstance Win32_Process");
+      expect(processScript).not.toContain("Win32_PerfFormattedData_PerfProc_Process");
+      expect(metricScript.match(/Get-Process/g)).toHaveLength(2);
+      expect(metricScript).toContain("4242");
+      expect(metricScript).not.toContain("Get-CimInstance");
     }),
   );
 
