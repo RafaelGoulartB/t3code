@@ -121,6 +121,7 @@ import {
   type RightPanelSurface,
   useRightPanelStore,
 } from "../rightPanelStore";
+import { openWorkspaceFile } from "../workspaceFileActions";
 import {
   isPreviewSupportedInRuntime,
   setActivePreviewTab,
@@ -2867,7 +2868,7 @@ function ChatViewContent(props: ChatViewProps) {
   const openFileSurface = useCallback(
     (relativePath: string) => {
       if (!activeThreadRef || !activeProject) return;
-      useRightPanelStore.getState().openFile(activeThreadRef, relativePath);
+      openWorkspaceFile({ threadRef: activeThreadRef, relativePath });
     },
     [activeProject, activeThreadRef],
   );
