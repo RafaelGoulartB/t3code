@@ -243,7 +243,7 @@ function FileSearchPaletteDialog(props: { readonly setOpen: (open: boolean) => v
     >
       <Command
         aria-label="File search palette"
-        autoHighlight="always"
+        autoHighlight={false}
         mode="none"
         onItemHighlighted={(value) => {
           setHighlightedItemValue(typeof value === "string" ? value : null);
