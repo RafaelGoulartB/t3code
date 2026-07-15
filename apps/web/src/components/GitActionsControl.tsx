@@ -1250,6 +1250,7 @@ export default function GitActionsControl({
 
     const branchUpdate = resolveLiveThreadBranchUpdate({
       threadBranch: activeServerThread?.branch ?? activeDraftThread?.branch ?? null,
+      threadWorktreeBranchPrefix: activeServerThread?.worktreeBranchPrefix ?? null,
       gitStatus: gitStatusForActions,
     });
     if (!branchUpdate) {

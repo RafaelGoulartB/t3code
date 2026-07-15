@@ -185,6 +185,17 @@ describe("ServerSettings worktree defaults", () => {
       decodeServerSettingsPatch({ newWorktreesStartFromOrigin: true }).newWorktreesStartFromOrigin,
     ).toBe(true);
   });
+
+  it("defaults and validates the worktree branch prefix", () => {
+    expect(decodeServerSettings({}).worktreeBranchPrefix).toBe("t3code");
+    expect(
+      decodeServerSettingsPatch({ worktreeBranchPrefix: "life_notes" }).worktreeBranchPrefix,
+    ).toBe("life_notes");
+    expect(
+      decodeServerSettingsPatch({ worktreeBranchPrefix: "TNV-123/Feature" }).worktreeBranchPrefix,
+    ).toBe("TNV-123/Feature");
+    expect(() => decodeServerSettingsPatch({ worktreeBranchPrefix: "invalid prefix" })).toThrow();
+  });
 });
 
 describe("ServerSettingsPatch.providerInstances", () => {

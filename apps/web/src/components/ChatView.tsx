@@ -111,7 +111,10 @@ import {
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { isCommandPaletteOpen } from "../commandPaletteContext";
-import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
+import {
+  buildTemporaryWorktreeBranchName,
+  normalizeWorktreeBranchPrefix,
+} from "@t3tools/shared/git";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import {
@@ -1198,6 +1201,8 @@ function ChatViewContent(props: ChatViewProps) {
   const [pendingServerThreadEnvMode, setPendingServerThreadEnvMode] =
     useState<DraftThreadEnvMode | null>(null);
   const [pendingServerThreadBranch, setPendingServerThreadBranch] = useState<string | null>();
+  const [pendingServerThreadWorktreeBranchPrefix, setPendingServerThreadWorktreeBranchPrefix] =
+    useState("");
   const [
     pendingServerThreadStartFromOriginByThreadId,
     setPendingServerThreadStartFromOriginByThreadId,
@@ -3689,6 +3694,11 @@ function ChatViewContent(props: ChatViewProps) {
       ? (pendingServerThreadStartFromOriginByThreadId[activeThread?.id ?? ""] ??
         settings.newWorktreesStartFromOrigin)
       : false;
+  const worktreeBranchPrefixOverride = isLocalDraftThread
+    ? (draftThread?.worktreeBranchPrefixOverride ?? "")
+    : pendingServerThreadWorktreeBranchPrefix;
+  const effectiveWorktreeBranchPrefix =
+    normalizeWorktreeBranchPrefix(worktreeBranchPrefixOverride) ?? settings.worktreeBranchPrefix;
   const sendEnvMode = resolveSendEnvMode({
     requestedEnvMode: envMode,
     isGitRepo,
@@ -3697,6 +3707,7 @@ function ChatViewContent(props: ChatViewProps) {
   useEffect(() => {
     setPendingServerThreadEnvMode(null);
     setPendingServerThreadBranch(undefined);
+    setPendingServerThreadWorktreeBranchPrefix("");
   }, [activeThread?.id]);
 
   useEffect(() => {
@@ -3705,6 +3716,7 @@ function ChatViewContent(props: ChatViewProps) {
     }
     setPendingServerThreadEnvMode(null);
     setPendingServerThreadBranch(undefined);
+    setPendingServerThreadWorktreeBranchPrefix("");
   }, [canOverrideServerThreadEnvMode]);
 
   useEffect(() => {
@@ -4273,7 +4285,11 @@ function ChatViewContent(props: ChatViewProps) {
                     prepareWorktree: {
                       projectCwd: activeProject.workspaceRoot,
                       baseBranch: baseBranchForWorktree,
-                      branch: buildTemporaryWorktreeBranchName(randomHex),
+                      branch: buildTemporaryWorktreeBranchName(
+                        effectiveWorktreeBranchPrefix,
+                        randomHex,
+                      ),
+                      worktreeBranchPrefix: effectiveWorktreeBranchPrefix,
                       ...(startFromOrigin ? { startFromOrigin: true } : {}),
                     },
                     runSetupScript: true,
@@ -5004,6 +5020,15 @@ function ChatViewContent(props: ChatViewProps) {
       });
     }
   };
+  const onWorktreeBranchPrefixOverrideChange = (nextPrefix: string) => {
+    if (canOverrideServerThreadEnvMode) {
+      setPendingServerThreadWorktreeBranchPrefix(nextPrefix);
+      return;
+    }
+    if (isLocalDraftThread) {
+      setDraftThreadContext(composerDraftTarget, { worktreeBranchPrefixOverride: nextPrefix });
+    }
+  };
 
   const onExpandTimelineImage = useCallback((preview: ExpandedImagePreview) => {
     setExpandedImage(preview);
@@ -5355,6 +5380,9 @@ function ChatViewContent(props: ChatViewProps) {
                       onEnvModeChange={onEnvModeChange}
                       startFromOrigin={startFromOrigin}
                       onStartFromOriginChange={onStartFromOriginChange}
+                      worktreeBranchPrefixOverride={worktreeBranchPrefixOverride}
+                      defaultWorktreeBranchPrefix={settings.worktreeBranchPrefix}
+                      onWorktreeBranchPrefixOverrideChange={onWorktreeBranchPrefixOverrideChange}
                       {...(canOverrideServerThreadEnvMode
                         ? { effectiveEnvModeOverride: envMode }
                         : {})}
