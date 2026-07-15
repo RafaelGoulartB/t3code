@@ -1,5 +1,10 @@
-import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { type EnvironmentId, type PreviewSessionSnapshot, ThreadId } from "@t3tools/contracts";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  type EnvironmentId,
+  type PreviewSessionSnapshot,
+  ProjectId,
+  ThreadId,
+} from "@t3tools/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import {
@@ -18,6 +23,7 @@ import {
   setActivePreviewTab,
   updatePreviewServerSnapshot,
 } from "./previewStateStore";
+import { previewScopeKeyForThread, registerPreviewScopeForThread } from "./rightPanelScope";
 
 const environmentId = "env-1" as EnvironmentId;
 const ref = scopeThreadRef(environmentId, ThreadId.make("thread-1"));
@@ -39,14 +45,49 @@ beforeEach(() => {
 
 describe("previewStateStore (single-tab)", () => {
   it("keeps independent state atoms for each thread", () => {
-    expect(previewStateAtom(scopedThreadKey(ref))).toBe(previewStateAtom(scopedThreadKey(ref)));
-    expect(previewStateAtom(scopedThreadKey(ref))).not.toBe(
-      previewStateAtom(scopedThreadKey(otherRef)),
+    expect(previewStateAtom(previewScopeKeyForThread(ref))).toBe(
+      previewStateAtom(previewScopeKeyForThread(ref)),
+    );
+    expect(previewStateAtom(previewScopeKeyForThread(ref))).not.toBe(
+      previewStateAtom(previewScopeKeyForThread(otherRef)),
     );
 
     applyPreviewServerSnapshot(ref, makeSnapshot());
     expect(readThreadPreviewState(ref).snapshot?.tabId).toBe("tab_a");
     expect(readThreadPreviewState(otherRef)).toEqual(__testing.EMPTY_THREAD_PREVIEW_STATE);
+  });
+
+  it("keeps identical thread ids isolated across environments", () => {
+    const sameThreadOtherEnvironment = scopeThreadRef(
+      "env-2" as EnvironmentId,
+      ThreadId.make("thread-1"),
+    );
+    const first = makeSnapshot({ tabId: "tab_env_1" });
+    const second = makeSnapshot({ tabId: "tab_env_2" });
+
+    applyPreviewServerSnapshot(ref, first);
+    applyPreviewServerSnapshot(sameThreadOtherEnvironment, second);
+
+    expect(readThreadPreviewState(ref).snapshot?.tabId).toBe(first.tabId);
+    expect(readThreadPreviewState(sameThreadOtherEnvironment).snapshot?.tabId).toBe(second.tabId);
+  });
+
+  it("preserves the real thread reference for a worktree-scoped browser host", () => {
+    const worktreeRef = scopeThreadRef(environmentId, ThreadId.make("thread-worktree"));
+    registerPreviewScopeForThread(worktreeRef, {
+      kind: "worktree",
+      environmentId,
+      projectId: ProjectId.make("project-1"),
+      worktreePath: "C:\\workspace\\feature",
+    });
+    const snapshot = makeSnapshot({ threadId: worktreeRef.threadId, tabId: "tab_worktree" });
+
+    applyPreviewServerSnapshot(worktreeRef, snapshot);
+
+    const active = __testing.readActivePreviewSessions();
+    expect(active).toHaveLength(1);
+    expect(active[0]?.threadRef).toEqual(worktreeRef);
+    expect(active[0]?.previewState.sessions[snapshot.tabId]).toEqual(snapshot);
   });
 
   it("opened event seeds the snapshot and remembers the URL", () => {

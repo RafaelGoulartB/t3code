@@ -50,6 +50,10 @@ export interface PrContentGenerationInput {
   policy?: TextGenerationPolicy;
   /** Recent commit subjects from the repo, used to match the repository's style. */
   recentCommits?: ReadonlyArray<string> | undefined;
+  /** Base instructions used to generate pull request content. */
+  systemPrompt?: string | undefined;
+  /** Whether to include the text-generation convention's PR instructions. */
+  includeConventionInstructions?: boolean | undefined;
 }
 
 export interface PrContentGenerationResult {

@@ -6,7 +6,10 @@ import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
 import { DEFAULT_GIT_TEXT_GENERATION_MODEL, ProviderOptionSelections } from "./model.ts";
 import { ModelSelection } from "./orchestration.ts";
 import { ProviderInstanceConfig, ProviderInstanceId } from "./providerInstance.ts";
-import { TextGenerationPolicy } from "./textGenerationPolicy.ts";
+import {
+  DEFAULT_PULL_REQUEST_SYSTEM_PROMPT,
+  TextGenerationPolicy,
+} from "./textGenerationPolicy.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -473,6 +476,12 @@ export const ServerSettings = Schema.Struct({
       } as const satisfies typeof TextGenerationPolicy.Type),
     ),
   ),
+  pullRequestSystemPrompt: Schema.String.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_PULL_REQUEST_SYSTEM_PROMPT)),
+  ),
+  includeTextGenerationConventionInPullRequestPrompt: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
 
   // Legacy single-instance-per-driver settings. Continues to be the source
   // of truth until `providerInstances` (below) lands per-driver migration
@@ -610,6 +619,8 @@ export const ServerSettingsPatch = Schema.Struct({
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   textGenerationPolicy: Schema.optionalKey(TextGenerationPolicyPatch),
+  pullRequestSystemPrompt: Schema.optionalKey(Schema.String),
+  includeTextGenerationConventionInPullRequestPrompt: Schema.optionalKey(Schema.Boolean),
   observability: Schema.optionalKey(
     Schema.Struct({
       otlpTracesUrl: Schema.optionalKey(TrimmedString),
