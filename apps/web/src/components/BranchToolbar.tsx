@@ -49,6 +49,9 @@ interface BranchToolbarProps {
   onActiveThreadBranchOverrideChange?: (branch: string | null) => void;
   startFromOrigin: boolean;
   onStartFromOriginChange: (startFromOrigin: boolean) => void;
+  worktreeBranchPrefixOverride: string;
+  defaultWorktreeBranchPrefix: string;
+  onWorktreeBranchPrefixOverrideChange: (prefix: string) => void;
   envLocked: boolean;
   isGitRepo: boolean;
   onCheckoutPullRequestRequest?: (reference: string) => void;
@@ -70,6 +73,9 @@ interface MobileRunContextSelectorProps {
   effectiveEnvMode: EnvMode;
   activeWorktreePath: string | null;
   onEnvModeChange: (mode: EnvMode) => void;
+  worktreeBranchPrefixOverride: string;
+  defaultWorktreeBranchPrefix: string;
+  onWorktreeBranchPrefixOverrideChange: (prefix: string) => void;
   activeProject: EnvironmentProject | null;
   availableProjects: ReadonlyArray<EnvironmentProject>;
   projectLocked: boolean;
@@ -86,6 +92,9 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
   effectiveEnvMode,
   activeWorktreePath,
   onEnvModeChange,
+  worktreeBranchPrefixOverride,
+  defaultWorktreeBranchPrefix,
+  onWorktreeBranchPrefixOverrideChange,
   activeProject,
   availableProjects,
   projectLocked,
@@ -217,6 +226,21 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
                 </span>
               </span>
             </MenuRadioItem>
+            {effectiveEnvMode === "worktree" ? (
+              <label
+                className="mb-1 block px-2 text-xs text-muted-foreground"
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                Branch prefix
+                <input
+                  className="mt-1 h-7 w-full rounded border border-input bg-background px-2 text-xs text-foreground outline-none focus:border-ring"
+                  value={worktreeBranchPrefixOverride}
+                  placeholder={`Default: ${defaultWorktreeBranchPrefix}`}
+                  onChange={(event) => onWorktreeBranchPrefixOverrideChange(event.target.value)}
+                  onKeyDown={(event) => event.stopPropagation()}
+                />
+              </label>
+            ) : null}
             <MenuRadioItem disabled={envModeLocked} value="worktree">
               <span className="flex min-w-0 items-center gap-1.5">
                 <FolderGit2Icon className="size-3" />
@@ -240,6 +264,9 @@ export const BranchToolbar = memo(function BranchToolbar({
   onActiveThreadBranchOverrideChange,
   startFromOrigin,
   onStartFromOriginChange,
+  worktreeBranchPrefixOverride,
+  defaultWorktreeBranchPrefix,
+  onWorktreeBranchPrefixOverrideChange,
   envLocked,
   isGitRepo,
   onCheckoutPullRequestRequest,
@@ -295,6 +322,9 @@ export const BranchToolbar = memo(function BranchToolbar({
           effectiveEnvMode={effectiveEnvMode}
           activeWorktreePath={activeWorktreePath}
           onEnvModeChange={onEnvModeChange}
+          worktreeBranchPrefixOverride={worktreeBranchPrefixOverride}
+          defaultWorktreeBranchPrefix={defaultWorktreeBranchPrefix}
+          onWorktreeBranchPrefixOverrideChange={onWorktreeBranchPrefixOverrideChange}
           activeProject={activeProject}
           availableProjects={availableProjects}
           projectLocked={projectLocked}
@@ -327,6 +357,9 @@ export const BranchToolbar = memo(function BranchToolbar({
                 effectiveEnvMode={effectiveEnvMode}
                 activeWorktreePath={activeWorktreePath}
                 onEnvModeChange={onEnvModeChange}
+                worktreeBranchPrefixOverride={worktreeBranchPrefixOverride}
+                defaultWorktreeBranchPrefix={defaultWorktreeBranchPrefix}
+                onWorktreeBranchPrefixOverrideChange={onWorktreeBranchPrefixOverrideChange}
               />
             </>
           )}

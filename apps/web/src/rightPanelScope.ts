@@ -78,7 +78,7 @@ export function previewScopeForThread(ref: ScopedThreadRef) {
 export function previewScopeKeyForThread(ref: ScopedThreadRef): string {
   const scope = previewScopeForThread(ref);
   return scope._tag === "thread"
-    ? `thread:${scope.threadId}`
+    ? `thread:${scopedThreadKey(ref)}`
     : `worktree:${ref.environmentId}\u0000${scope.projectId}\u0000${scope.worktreePath ?? ""}`;
 }
 

@@ -6,6 +6,7 @@ import {
   GitBranchIcon,
   KeyboardIcon,
   Link2Icon,
+  SlidersHorizontalIcon,
   Settings2Icon,
 } from "lucide-react";
 import { useCanGoBack, useNavigate } from "@tanstack/react-router";
@@ -28,7 +29,8 @@ export type SettingsSectionPath =
   | "/settings/providers"
   | "/settings/source-control"
   | "/settings/connections"
-  | "/settings/archived";
+  | "/settings/archived"
+  | "/settings/advanced";
 
 export const SETTINGS_NAV_ITEMS: ReadonlyArray<{
   label: string;
@@ -40,6 +42,7 @@ export const SETTINGS_NAV_ITEMS: ReadonlyArray<{
   { label: "Providers", to: "/settings/providers", icon: BotIcon },
   { label: "Source Control", to: "/settings/source-control", icon: GitBranchIcon },
   { label: "Connections", to: "/settings/connections", icon: Link2Icon },
+  { label: "Advanced", to: "/settings/advanced", icon: SlidersHorizontalIcon },
   { label: "Archive", to: "/settings/archived", icon: ArchiveIcon },
 ];
 

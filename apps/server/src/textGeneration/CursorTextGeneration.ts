@@ -200,6 +200,8 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
         diffSummary: input.diffSummary,
         diffPatch: input.diffPatch,
         policy: input.policy,
+        systemPrompt: input.systemPrompt,
+        includeConventionInstructions: input.includeConventionInstructions,
         ...(input.recentCommits ? { recentCommits: input.recentCommits } : {}),
       });
 

@@ -895,6 +895,7 @@ const makeWsRpcLayer = (
                 threadId: command.threadId,
                 branch: worktree.worktree.refName,
                 worktreePath: targetWorktreePath,
+                worktreeBranchPrefix: bootstrap.prepareWorktree.worktreeBranchPrefix ?? null,
               });
               yield* refreshGitStatus(targetWorktreePath);
             }

@@ -10,8 +10,16 @@ import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
 import { detectSourceControlProviderFromRemoteUrl } from "./sourceControl.ts";
 
-export const WORKTREE_BRANCH_PREFIX = "t3code";
-const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(`^${WORKTREE_BRANCH_PREFIX}\\/[0-9a-f]{8}$`);
+export const DEFAULT_WORKTREE_BRANCH_PREFIX = "t3code";
+/** @deprecated Use DEFAULT_WORKTREE_BRANCH_PREFIX. */
+export const WORKTREE_BRANCH_PREFIX = DEFAULT_WORKTREE_BRANCH_PREFIX;
+const WORKTREE_BRANCH_PREFIX_PATTERN =
+  /^(?!.*(?:^|\/)\.{1,2}(?:\/|$))(?!.*\.lock(?:\/|$))[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/;
+
+export function normalizeWorktreeBranchPrefix(value: string): string | null {
+  const normalized = value.trim();
+  return WORKTREE_BRANCH_PREFIX_PATTERN.test(normalized) ? normalized : null;
+}
 
 /**
  * Sanitize an arbitrary string into a valid, lowercase git refName fragment.
@@ -87,14 +95,31 @@ export function deriveLocalBranchNameFromRemoteRef(branchName: string): string {
 }
 
 export function buildTemporaryWorktreeBranchName(
+  prefix: string,
   randomHex: (byteLength: number) => string,
+): string;
+/** @deprecated Pass the worktree branch prefix explicitly. */
+export function buildTemporaryWorktreeBranchName(randomHex: (byteLength: number) => string): string;
+export function buildTemporaryWorktreeBranchName(
+  prefixOrRandomHex: string | ((byteLength: number) => string),
+  suppliedRandomHex?: (byteLength: number) => string,
 ): string {
+  const prefix =
+    typeof prefixOrRandomHex === "string" ? prefixOrRandomHex : DEFAULT_WORKTREE_BRANCH_PREFIX;
+  const randomHex = typeof prefixOrRandomHex === "function" ? prefixOrRandomHex : suppliedRandomHex;
+  if (!randomHex) {
+    throw new Error("A random hex generator is required to create a temporary worktree branch.");
+  }
   const token = randomHex(4).toLowerCase();
-  return `${WORKTREE_BRANCH_PREFIX}/${token}`;
+  return `${prefix.trim()}/${token}`;
 }
 
-export function isTemporaryWorktreeBranch(refName: string): boolean {
-  return TEMP_WORKTREE_BRANCH_PATTERN.test(refName.trim().toLowerCase());
+export function isTemporaryWorktreeBranch(
+  refName: string,
+  prefix = DEFAULT_WORKTREE_BRANCH_PREFIX,
+): boolean {
+  const escapedPrefix = prefix.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escapedPrefix}\\/[0-9a-f]{8}$`).test(refName.trim());
 }
 
 /**

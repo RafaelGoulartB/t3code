@@ -559,6 +559,8 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
         diffSummary: input.diffSummary,
         diffPatch: input.diffPatch,
         policy: input.policy,
+        systemPrompt: input.systemPrompt,
+        includeConventionInstructions: input.includeConventionInstructions,
         ...(input.recentCommits ? { recentCommits: input.recentCommits } : {}),
       });
       const generated = yield* runOpenCodeJson({
