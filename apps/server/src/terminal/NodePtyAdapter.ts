@@ -1,3 +1,7 @@
+// @effect-diagnostics nodeBuiltinImport:off globalTimers:off
+// node-pty's console-list helper communicates through Node's fork IPC API;
+// Effect's ChildProcess abstraction intentionally does not expose IPC.
+import * as NodeChildProcess from "node:child_process";
 import * as NodeModule from "node:module";
 
 import * as Effect from "effect/Effect";
@@ -23,6 +27,24 @@ export class NodePtyModuleLoadError extends Schema.TaggedErrorClass<NodePtyModul
 }
 
 type NodePtyModuleLoader = () => Promise<typeof import("node-pty")>;
+
+const requireForNodePty = NodeModule.createRequire(import.meta.url);
+
+function resolveConsoleProcessListAgentPath(): string | null {
+  try {
+    // Shipped by node-pty: it uses GetConsoleProcessList, not WMI.
+    return requireForNodePty.resolve("node-pty/lib/conpty_console_list_agent.js");
+  } catch {
+    return null;
+  }
+}
+
+function normalizeProcessIds(value: unknown, fallbackPid: number): ReadonlyArray<number> {
+  const ids = Array.isArray(value)
+    ? value.filter((pid): pid is number => Number.isInteger(pid) && pid > 0)
+    : [];
+  return ids.length > 0 ? [...new Set(ids)] : [fallbackPid];
+}
 
 let didEnsureSpawnHelperExecutable = false;
 
@@ -69,13 +91,53 @@ const ensureNodePtySpawnHelperExecutable = Effect.fn(function* () {
 
 class NodePtyProcess implements PtyAdapter.PtyProcess {
   private readonly process: import("node-pty").IPty;
+  private readonly consoleProcessListAgentPath: string | null;
+  private readonly isWindows: boolean;
 
-  constructor(process: import("node-pty").IPty) {
+  constructor(
+    process: import("node-pty").IPty,
+    consoleProcessListAgentPath: string | null,
+    isWindows: boolean,
+  ) {
     this.process = process;
+    this.consoleProcessListAgentPath = consoleProcessListAgentPath;
+    this.isWindows = isWindows;
   }
 
   get pid(): number {
     return this.process.pid;
+  }
+
+  getProcessIds(): Promise<ReadonlyArray<number>> {
+    if (!this.isWindows || this.consoleProcessListAgentPath === null) {
+      return Promise.resolve([this.pid]);
+    }
+
+    return new Promise((resolve) => {
+      const child = NodeChildProcess.fork(this.consoleProcessListAgentPath!, [String(this.pid)], {
+        stdio: ["ignore", "ignore", "ignore", "ipc"],
+      });
+      let settled = false;
+      const finish = (value: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve(normalizeProcessIds(value, this.pid));
+      };
+      const timeout = setTimeout(() => {
+        child.kill();
+        finish([]);
+      }, 1_000);
+      child.once("message", (message) => {
+        const processIds =
+          typeof message === "object" && message !== null && "consoleProcessList" in message
+            ? (message as { readonly consoleProcessList: unknown }).consoleProcessList
+            : [];
+        finish(processIds);
+      });
+      child.once("error", () => finish([]));
+      child.once("exit", () => finish([]));
+    });
   }
 
   write(data: string): void {
@@ -127,6 +189,8 @@ export const make = Effect.fn("NodePtyAdapter.make")(function* (
         cause,
       }),
   }).pipe(Effect.orDie);
+  const consoleProcessListAgentPath =
+    platform === "win32" ? resolveConsoleProcessListAgentPath() : null;
 
   const ensureNodePtySpawnHelperExecutableCached = yield* Effect.cached(
     ensureNodePtySpawnHelperExecutable().pipe(
@@ -157,7 +221,7 @@ export const make = Effect.fn("NodePtyAdapter.make")(function* (
             cause,
           }),
       });
-      return new NodePtyProcess(ptyProcess);
+      return new NodePtyProcess(ptyProcess, consoleProcessListAgentPath, platform === "win32");
     }),
   });
 });

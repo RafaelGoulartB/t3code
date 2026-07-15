@@ -36,6 +36,8 @@ export interface PtyExitEvent {
 
 export interface PtyProcess {
   readonly pid: number;
+  /** Returns terminal-console PIDs without a global OS process query when supported. */
+  getProcessIds?(): Promise<ReadonlyArray<number>>;
   write(data: string): void;
   resize(cols: number, rows: number): void;
   kill(signal?: string): void;

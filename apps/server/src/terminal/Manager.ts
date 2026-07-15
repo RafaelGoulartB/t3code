@@ -79,6 +79,7 @@ export {
 const DEFAULT_HISTORY_LINE_LIMIT = 5_000;
 const DEFAULT_PERSIST_DEBOUNCE_MS = 40;
 const DEFAULT_SUBPROCESS_POLL_INTERVAL_MS = 1_000;
+const WINDOWS_CONSOLE_PROCESS_POLL_INTERVAL_MS = 5_000;
 const DEFAULT_PROCESS_KILL_GRACE_MS = 1_000;
 const DEFAULT_MAX_RETAINED_INACTIVE_SESSIONS = 128;
 const DEFAULT_OPEN_COLS = 120;
@@ -92,7 +93,7 @@ class TerminalSubprocessCheckError extends Schema.TaggedErrorClass<TerminalSubpr
   {
     cause: Schema.optional(Schema.Defect()),
     terminalPid: Schema.Number,
-    command: Schema.Literals(["powershell", "pgrep", "ps"]),
+    command: Schema.Literals(["node-pty", "pgrep", "ps"]),
   },
 ) {
   override get message(): string {
@@ -697,7 +698,21 @@ export function inspectWindowsTerminalSubprocesses(
   return results;
 }
 
-function windowsInspectSubprocesses(
+export function inspectWindowsConsoleProcessList(
+  terminalPid: number,
+  processIds: ReadonlyArray<number>,
+): TerminalSubprocessInspectResult {
+  const ids = [...new Set(processIds.filter((pid) => Number.isInteger(pid) && pid > 0))];
+  const normalizedIds = ids.includes(terminalPid) ? ids : [terminalPid, ...ids];
+  const hasRunningSubprocess = normalizedIds.some((pid) => pid !== terminalPid);
+  return {
+    hasRunningSubprocess,
+    childCommand: null,
+    processIds: hasRunningSubprocess ? normalizedIds : [],
+  };
+}
+
+export function legacyWindowsInspectSubprocesses(
   terminalPids: ReadonlyArray<number>,
   platform: NodeJS.Platform,
 ): Effect.Effect<
@@ -705,8 +720,7 @@ function windowsInspectSubprocesses(
   TerminalSubprocessCheckError,
   ProcessRunner.ProcessRunner
 > {
-  const command =
-    'Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,Name -ErrorAction Stop | ForEach-Object { Write-Output "$($_.ProcessId)|$($_.ParentProcessId)|$($_.Name)" }';
+  const command = "";
   return Effect.gen(function* () {
     const processRunner = yield* ProcessRunner.ProcessRunner;
     return yield* processRunner.run({
@@ -736,7 +750,7 @@ function windowsInspectSubprocesses(
         new TerminalSubprocessCheckError({
           cause,
           terminalPid: terminalPids[0] ?? 0,
-          command: "powershell",
+          command: "node-pty",
         }),
     ),
   );
@@ -750,16 +764,9 @@ function windowsInspectSubprocess(
   TerminalSubprocessCheckError,
   ProcessRunner.ProcessRunner
 > {
-  return windowsInspectSubprocesses([terminalPid], platform).pipe(
-    Effect.map(
-      (results) =>
-        results.get(terminalPid) ?? {
-          hasRunningSubprocess: false,
-          childCommand: null,
-          processIds: [],
-        },
-    ),
-  );
+  void terminalPid;
+  void platform;
+  return Effect.succeed({ hasRunningSubprocess: false, childCommand: null, processIds: [] });
 }
 
 const posixInspectSubprocess = Effect.fn("terminal.posixInspectSubprocess")(function* (
@@ -1228,16 +1235,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       defaultSubprocessInspectorForPlatform(platform)(terminalPid).pipe(
         Effect.provideService(ProcessRunner.ProcessRunner, processRunner),
       ));
-  const subprocessBatchInspector =
-    options.subprocessBatchInspector ??
-    (options.subprocessInspector === undefined && platform === "win32"
-      ? (terminalPids: ReadonlyArray<number>) =>
-          windowsInspectSubprocesses(terminalPids, platform).pipe(
-            Effect.provideService(ProcessRunner.ProcessRunner, processRunner),
-          )
-      : undefined);
+  const subprocessBatchInspector = options.subprocessBatchInspector;
   const subprocessPollIntervalMs =
-    options.subprocessPollIntervalMs ?? DEFAULT_SUBPROCESS_POLL_INTERVAL_MS;
+    options.subprocessPollIntervalMs ??
+    (platform === "win32"
+      ? WINDOWS_CONSOLE_PROCESS_POLL_INTERVAL_MS
+      : DEFAULT_SUBPROCESS_POLL_INTERVAL_MS);
   const processKillGraceMs = options.processKillGraceMs ?? DEFAULT_PROCESS_KILL_GRACE_MS;
   const maxRetainedInactiveSessions =
     options.maxRetainedInactiveSessions ?? DEFAULT_MAX_RETAINED_INACTIVE_SESSIONS;
@@ -2163,20 +2166,43 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       session: TerminalSessionState & { pid: number },
     ) {
       const terminalPid = session.pid;
+      const terminalProcess = session.process;
       const inspectResult = Option.isSome(batchedInspections)
         ? Option.fromNullishOr(batchedInspections.value.get(terminalPid))
-        : yield* subprocessInspector(terminalPid).pipe(
-            Effect.map(Option.some),
-            Effect.catch((reason) =>
-              Effect.logWarning("failed to check terminal subprocess activity", {
-                projectId: session.projectId,
-                terminalId: session.terminalId,
-                worktreePath: session.worktreePath,
-                terminalPid,
-                reason,
-              }).pipe(Effect.as(Option.none<TerminalSubprocessInspectResult>())),
-            ),
-          );
+        : platform === "win32" && terminalProcess?.getProcessIds
+          ? yield* Effect.tryPromise({
+              try: () => terminalProcess.getProcessIds!(),
+              catch: (cause) =>
+                new TerminalSubprocessCheckError({
+                  cause,
+                  terminalPid,
+                  command: "node-pty",
+                }),
+            }).pipe(
+              Effect.map((processIds) => inspectWindowsConsoleProcessList(terminalPid, processIds)),
+              Effect.map(Option.some),
+              Effect.catch((reason) =>
+                Effect.logWarning("failed to inspect terminal console processes", {
+                  projectId: session.projectId,
+                  terminalId: session.terminalId,
+                  worktreePath: session.worktreePath,
+                  terminalPid,
+                  reason,
+                }).pipe(Effect.as(Option.none<TerminalSubprocessInspectResult>())),
+              ),
+            )
+          : yield* subprocessInspector(terminalPid).pipe(
+              Effect.map(Option.some),
+              Effect.catch((reason) =>
+                Effect.logWarning("failed to check terminal subprocess activity", {
+                  projectId: session.projectId,
+                  terminalId: session.terminalId,
+                  worktreePath: session.worktreePath,
+                  terminalPid,
+                  reason,
+                }).pipe(Effect.as(Option.none<TerminalSubprocessInspectResult>())),
+              ),
+            );
 
       if (Option.isNone(inspectResult)) {
         return;

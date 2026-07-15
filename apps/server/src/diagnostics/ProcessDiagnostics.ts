@@ -29,8 +29,6 @@ export interface ProcessRow {
 }
 
 const PROCESS_QUERY_TIMEOUT_MS = 1_000;
-const WINDOWS_PROCESS_QUERY_TIMEOUT_MS = 3_000;
-const WINDOWS_PROCESS_METRICS_TIMEOUT_MS = 2_000;
 const POSIX_PROCESS_QUERY_COMMAND = "pid=,ppid=,pgid=,stat=,pcpu=,rss=,etime=,command=";
 const PROCESS_QUERY_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 
@@ -203,87 +201,6 @@ export function parsePosixProcessRows(output: string): ReadonlyArray<ProcessRow>
   return rows;
 }
 
-function normalizeWindowsProcessRow(value: unknown): ProcessRow | null {
-  if (typeof value !== "object" || value === null) return null;
-  const record = value as Record<string, unknown>;
-  const pid = typeof record.ProcessId === "number" ? record.ProcessId : null;
-  const ppid = typeof record.ParentProcessId === "number" ? record.ParentProcessId : null;
-  const commandLine =
-    typeof record.CommandLine === "string" && record.CommandLine.trim().length > 0
-      ? record.CommandLine
-      : typeof record.Name === "string"
-        ? record.Name
-        : null;
-  const workingSet =
-    typeof record.WorkingSetSize === "number" && Number.isFinite(record.WorkingSetSize)
-      ? Math.max(0, Math.round(record.WorkingSetSize))
-      : 0;
-  const cpuPercent =
-    typeof record.PercentProcessorTime === "number" && Number.isFinite(record.PercentProcessorTime)
-      ? Math.max(0, record.PercentProcessorTime)
-      : 0;
-
-  if (!pid || pid <= 0 || ppid === null || ppid < 0 || !commandLine) return null;
-  return {
-    pid,
-    ppid,
-    pgid: null,
-    status: typeof record.Status === "string" && record.Status.length > 0 ? record.Status : "Live",
-    cpuPercent,
-    rssBytes: workingSet,
-    elapsed: "",
-    command: commandLine,
-  };
-}
-
-function parseWindowsProcessRows(output: string): ReadonlyArray<ProcessRow> {
-  if (output.trim().length === 0) return [];
-  try {
-    const parsed = JSON.parse(output) as unknown;
-    const records = Array.isArray(parsed) ? parsed : [parsed];
-    return records.flatMap((record) => {
-      const row = normalizeWindowsProcessRow(record);
-      return row ? [row] : [];
-    });
-  } catch {
-    return [];
-  }
-}
-
-interface WindowsProcessMetric {
-  readonly cpuPercent: number;
-  readonly rssBytes: number;
-}
-
-function parseWindowsProcessMetrics(output: string): ReadonlyMap<number, WindowsProcessMetric> {
-  const metrics = new Map<number, WindowsProcessMetric>();
-  if (output.trim().length === 0) return metrics;
-  try {
-    const parsed = JSON.parse(output) as unknown;
-    const records = Array.isArray(parsed) ? parsed : [parsed];
-    for (const value of records) {
-      if (typeof value !== "object" || value === null) continue;
-      const record = value as Record<string, unknown>;
-      const pid = typeof record.Id === "number" ? record.Id : null;
-      const cpuPercent =
-        typeof record.PercentProcessorTime === "number" &&
-        Number.isFinite(record.PercentProcessorTime)
-          ? Math.max(0, record.PercentProcessorTime)
-          : 0;
-      const rssBytes =
-        typeof record.WorkingSet64 === "number" && Number.isFinite(record.WorkingSet64)
-          ? Math.max(0, Math.round(record.WorkingSet64))
-          : 0;
-      if (pid !== null && Number.isInteger(pid) && pid > 0) {
-        metrics.set(pid, { cpuPercent, rssBytes });
-      }
-    }
-  } catch {
-    return metrics;
-  }
-  return metrics;
-}
-
 export function buildDescendantEntries(
   rows: ReadonlyArray<ProcessRow>,
   serverPid: number,
@@ -332,11 +249,7 @@ export function isDiagnosticsQueryProcess(row: ProcessRow, serverPid: number): b
   if (row.ppid !== serverPid) return false;
 
   const command = row.command.trim();
-  return (
-    /(?:^|[/\\])ps\s+-axo\s+pid=,ppid=,pgid=,stat=,pcpu=,rss=,etime=,command=/.test(command) ||
-    (/\bpowershell(?:\.exe)?\b/i.test(command) &&
-      /\bGet-CimInstance\s+Win32_Process\b/i.test(command))
-  );
+  return /(?:^|[/\\])ps\s+-axo\s+pid=,ppid=,pgid=,stat=,pcpu=,rss=,etime=,command=/.test(command);
 }
 
 function makeResult(input: {
@@ -480,73 +393,10 @@ function readWindowsProcessRows(): Effect.Effect<
   ProcessDiagnosticsError,
   ChildProcessSpawner.ChildProcessSpawner
 > {
-  const processCommand = [
-    "$processes = Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,Name,CommandLine,Status,WorkingSetSize | ForEach-Object {",
-    "[pscustomobject]@{ ProcessId = $_.ProcessId; ParentProcessId = $_.ParentProcessId; Name = $_.Name; CommandLine = $_.CommandLine; Status = $_.Status; WorkingSetSize = $_.WorkingSetSize; PercentProcessorTime = 0 }",
-    "};",
-    "$processes | ConvertTo-Json -Compress -Depth 3",
-  ].join(" ");
-
-  return runProcess({
-    command: "powershell.exe",
-    args: ["-NoProfile", "-NonInteractive", "-Command", processCommand],
-    timeoutMillis: WINDOWS_PROCESS_QUERY_TIMEOUT_MS,
-  }).pipe(
-    Effect.flatMap((result) =>
-      result.exitCode !== 0
-        ? Effect.fail(
-            new ProcessDiagnosticsQueryFailedError({
-              command: "powershell.exe",
-              argCount: 4,
-              cwd: result.cwd,
-              exitCode: result.exitCode,
-              stdoutBytes: result.stdoutBytes,
-              stderrBytes: result.stderrBytes,
-              stdoutTruncated: result.stdoutTruncated,
-              stderrTruncated: result.stderrTruncated,
-            }),
-          )
-        : Effect.succeed(parseWindowsProcessRows(result.stdout)),
-    ),
-    Effect.flatMap((rows) => {
-      const targetPids = [
-        process.pid,
-        ...buildDescendantEntries(rows, process.pid).map((entry) => entry.pid),
-      ];
-      const metricCommand = [
-        `$targetPids = @(${targetPids.join(",")});`,
-        "$cpuBefore = @{};",
-        "Get-Process -Id $targetPids -ErrorAction SilentlyContinue | ForEach-Object { if ($null -ne $_.CPU) { $cpuBefore[[int64]$_.Id] = [double]$_.CPU } };",
-        "Start-Sleep -Milliseconds 200;",
-        "Get-Process -Id $targetPids -ErrorAction SilentlyContinue | ForEach-Object {",
-        "$before = $cpuBefore[[int64]$_.Id];",
-        "$cpu = if ($null -ne $before -and $null -ne $_.CPU) { [math]::Max(0, (([double]$_.CPU - $before) / 0.2) * 100) } else { 0 };",
-        "[pscustomobject]@{ Id = $_.Id; PercentProcessorTime = $cpu; WorkingSet64 = $_.WorkingSet64 }",
-        "} | ConvertTo-Json -Compress -Depth 2",
-      ].join(" ");
-      return runProcess({
-        command: "powershell.exe",
-        args: ["-NoProfile", "-NonInteractive", "-Command", metricCommand],
-        timeoutMillis: WINDOWS_PROCESS_METRICS_TIMEOUT_MS,
-      }).pipe(
-        Effect.map((result) => {
-          if (result.exitCode !== 0) return rows;
-          const metrics = parseWindowsProcessMetrics(result.stdout);
-          return rows.map((row) => {
-            const metric = metrics.get(row.pid);
-            return metric === undefined
-              ? row
-              : {
-                  ...row,
-                  cpuPercent: metric.cpuPercent,
-                  rssBytes: metric.rssBytes,
-                };
-          });
-        }),
-        Effect.orElseSucceed(() => rows),
-      );
-    }),
-  );
+  // The Windows resource tree was previously collected through a global
+  // process scan. It runs continuously in the background, so returning no global
+  // diagnostics is preferable to consuming the whole machine under load.
+  return Effect.succeed([]);
 }
 
 export const readProcessRows = Effect.gen(function* () {

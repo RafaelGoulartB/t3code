@@ -990,6 +990,21 @@ it.layer(
     }),
   );
 
+  it.effect("uses only console PIDs for Windows subprocess activity", () =>
+    Effect.sync(() => {
+      expect(TerminalManager.inspectWindowsConsoleProcessList(9000, [9000, 9001, 9002])).toEqual({
+        hasRunningSubprocess: true,
+        childCommand: null,
+        processIds: [9000, 9001, 9002],
+      });
+      expect(TerminalManager.inspectWindowsConsoleProcessList(9000, [9000])).toEqual({
+        hasRunningSubprocess: false,
+        childCommand: null,
+        processIds: [],
+      });
+    }),
+  );
+
   it.effect("runs one batched subprocess inspection for many active terminals", () =>
     Effect.gen(function* () {
       const inspectedPidBatches: ReadonlyArray<number>[] = [];
