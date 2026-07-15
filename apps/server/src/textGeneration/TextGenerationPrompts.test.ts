@@ -9,6 +9,7 @@ import {
 import { normalizeCliError, sanitizeThreadTitle } from "./TextGenerationUtils.ts";
 import {
   conventionalCommitsTextGenerationPolicy,
+  DEFAULT_PULL_REQUEST_SYSTEM_PROMPT,
   repositoryConventionsTextGenerationPolicy,
   TextGenerationError,
 } from "@t3tools/contracts";
@@ -113,6 +114,21 @@ describe("buildPrContentPrompt", () => {
     expect(result.prompt).toContain("3 files changed");
     expect(result.prompt).toContain("Diff patch:");
     expect(result.prompt).toContain("export function login()");
+    expect(result.prompt).toContain(DEFAULT_PULL_REQUEST_SYSTEM_PROMPT);
+  });
+
+  it("uses a custom system prompt", () => {
+    const result = buildPrContentPrompt({
+      baseBranch: "main",
+      headBranch: "feature/auth",
+      commitSummary: "feat: add login page",
+      diffSummary: "3 files changed",
+      diffPatch: "diff",
+      systemPrompt: "Write a concise engineering change request.",
+    });
+
+    expect(result.prompt).toContain("Write a concise engineering change request.");
+    expect(result.prompt).not.toContain(DEFAULT_PULL_REQUEST_SYSTEM_PROMPT);
   });
 
   it("injects policy change-request instructions when a policy is provided", () => {
@@ -143,6 +159,24 @@ describe("buildPrContentPrompt", () => {
     expect(result.prompt).toContain("Recent commits (style reference):");
     expect(result.prompt).toContain("- refactor: extract auth helper");
     expect(result.prompt).toContain("- chore: bump deps");
+  });
+
+  it("omits convention instructions when disabled without omitting recent commits", () => {
+    const result = buildPrContentPrompt({
+      baseBranch: "main",
+      headBranch: "feature/auth",
+      commitSummary: "feat: add login page",
+      diffSummary: "3 files changed",
+      diffPatch: "diff",
+      policy: repositoryConventionsTextGenerationPolicy,
+      includeConventionInstructions: false,
+      recentCommits: ["refactor: extract auth helper"],
+    });
+
+    expect(result.prompt).not.toContain("Additional instructions:");
+    expect(result.prompt).not.toContain("Follow the repository's established change request");
+    expect(result.prompt).toContain("Recent commits (style reference):");
+    expect(result.prompt).toContain("- refactor: extract auth helper");
   });
 });
 

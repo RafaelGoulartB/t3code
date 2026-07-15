@@ -7,7 +7,7 @@
  * @module textGenerationPrompts
  */
 import * as Schema from "effect/Schema";
-import type { ChatAttachment } from "@t3tools/contracts";
+import { DEFAULT_PULL_REQUEST_SYSTEM_PROMPT, type ChatAttachment } from "@t3tools/contracts";
 
 import { limitSection } from "./TextGenerationUtils.ts";
 import type { TextGenerationPolicy } from "./TextGenerationPolicy.ts";
@@ -97,18 +97,16 @@ export interface PrContentPromptInput {
   diffPatch: string;
   policy?: TextGenerationPolicy | undefined;
   recentCommits?: ReadonlyArray<string> | undefined;
+  systemPrompt?: string | undefined;
+  includeConventionInstructions?: boolean | undefined;
 }
 
 export function buildPrContentPrompt(input: PrContentPromptInput) {
   const prompt = [
-    "You write GitHub pull request content.",
-    "Return a JSON object with keys: title, body.",
-    "Rules:",
-    "- title should be concise and specific",
-    "- body must be markdown and include headings '## Summary' and '## Testing'",
-    "- under Summary, provide short bullet points",
-    "- under Testing, include bullet points with concrete checks or 'Not run' where appropriate",
-    ...policyInstruction(input.policy?.changeRequestInstructions),
+    input.systemPrompt ?? DEFAULT_PULL_REQUEST_SYSTEM_PROMPT,
+    ...(input.includeConventionInstructions !== false
+      ? policyInstruction(input.policy?.changeRequestInstructions)
+      : []),
     "",
     `Base branch: ${input.baseBranch}`,
     `Head branch: ${input.headBranch}`,

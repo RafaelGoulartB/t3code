@@ -1,5 +1,16 @@
 import * as Schema from "effect/Schema";
 
+/** Default instructions used to generate pull request titles and descriptions. */
+export const DEFAULT_PULL_REQUEST_SYSTEM_PROMPT = [
+  "You write GitHub pull request content.",
+  "Return a JSON object with keys: title, body.",
+  "Rules:",
+  "- title should be concise and specific",
+  "- body must be markdown and include headings '## Summary' and '## Testing'",
+  "- under Summary, provide short bullet points",
+  "- under Testing, include bullet points with concrete checks or 'Not run' where appropriate",
+].join("\n");
+
 export const TextGenerationPolicyKind = Schema.Literals([
   "default",
   "conventional_commits",

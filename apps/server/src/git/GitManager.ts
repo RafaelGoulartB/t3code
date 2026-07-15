@@ -1314,6 +1314,8 @@ export const make = Effect.gen(function* () {
     emit: GitActionProgressEmitter,
     policy: TextGenerationPolicy = defaultTextGenerationPolicy,
     recentCommits?: ReadonlyArray<string>,
+    systemPrompt?: string,
+    includeConventionInstructions?: boolean,
   ) {
     const provider = yield* sourceControlProvider(cwd);
     const terms = getChangeRequestTerminologyForKind(provider.kind);
@@ -1369,6 +1371,8 @@ export const make = Effect.gen(function* () {
       diffPatch: limitContext(rangeContext.diffPatch, 60_000),
       modelSelection,
       policy,
+      systemPrompt,
+      includeConventionInstructions,
       ...(recentCommits ? { recentCommits } : {}),
     });
 
@@ -1763,6 +1767,9 @@ export const make = Effect.gen(function* () {
         );
         const modelSelection = settings.textGenerationModelSelection;
         const policy = settings.textGenerationPolicy;
+        const systemPrompt = settings.pullRequestSystemPrompt;
+        const includeConventionInstructions =
+          settings.includeTextGenerationConventionInPullRequestPrompt;
         const recentCommits =
           policy.kind === "repo_conventions"
             ? yield* fetchRecentCommitSubjects(input.cwd).pipe(
@@ -1852,6 +1859,8 @@ export const make = Effect.gen(function* () {
                     progress.emit,
                     policy,
                     recentCommits,
+                    systemPrompt,
+                    includeConventionInstructions,
                   ),
                 ),
               )

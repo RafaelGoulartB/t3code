@@ -332,6 +332,8 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
         diffSummary: input.diffSummary,
         diffPatch: input.diffPatch,
         policy: input.policy,
+        systemPrompt: input.systemPrompt,
+        includeConventionInstructions: input.includeConventionInstructions,
         ...(input.recentCommits ? { recentCommits: input.recentCommits } : {}),
       });
 
