@@ -27,4 +27,5 @@ export * from "./review.ts";
 export * from "./preview.ts";
 export * from "./previewAutomation.ts";
 export * from "./githubPullRequests.ts";
+export * from "./jira.ts";
 export * from "./rpc.ts";

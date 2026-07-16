@@ -175,6 +175,19 @@ import {
   GitHubPullRequestListInput,
   GitHubPullRequestListResult,
 } from "./githubPullRequests.ts";
+import {
+  JiraActionResult,
+  JiraAuthSwitchInput,
+  JiraCommentListResult,
+  JiraConnectionStatus,
+  JiraError,
+  JiraProject,
+  JiraWorkItemAction,
+  JiraWorkItemDetails,
+  JiraWorkItemDetailsInput,
+  JiraWorkItemListInput,
+  JiraWorkItemListResult,
+} from "./jira.ts";
 import { VcsError } from "./vcs.ts";
 
 export const WS_METHODS = {
@@ -273,6 +286,16 @@ export const WS_METHODS = {
   githubPullRequestsDiff: "github.pullRequests.diff",
   githubPullRequestsAction: "github.pullRequests.action",
   githubPullRequestsCheckout: "github.pullRequests.checkout",
+  jiraStatus: "jira.status",
+  jiraAuthLogin: "jira.auth.login",
+  jiraAuthLogout: "jira.auth.logout",
+  jiraAuthSwitch: "jira.auth.switch",
+  jiraProjectsList: "jira.projects.list",
+  jiraWorkItemsList: "jira.workItems.list",
+  jiraWorkItemsGet: "jira.workItems.get",
+  jiraWorkItemsCommentsList: "jira.workItems.comments.list",
+  jiraWorkItemsAction: "jira.workItems.action",
+  jiraWorkItemsOpenInBrowser: "jira.workItems.openInBrowser",
 
   // Streaming subscriptions
   subscribeVcsStatus: "subscribeVcsStatus",
@@ -439,6 +462,66 @@ export const WsGitHubPullRequestsCheckoutRpc = Rpc.make(WS_METHODS.githubPullReq
   payload: GitHubPullRequestCheckoutInput,
   success: GitHubPullRequestCheckoutResult,
   error: Schema.Union([GitHubPullRequestError, EnvironmentAuthorizationError]),
+});
+
+export const WsJiraStatusRpc = Rpc.make(WS_METHODS.jiraStatus, {
+  payload: Schema.Struct({}),
+  success: JiraConnectionStatus,
+  error: EnvironmentAuthorizationError,
+});
+
+export const WsJiraAuthLoginRpc = Rpc.make(WS_METHODS.jiraAuthLogin, {
+  payload: Schema.Struct({}),
+  success: JiraConnectionStatus,
+  error: Schema.Union([JiraError, EnvironmentAuthorizationError]),
+});
+
+export const WsJiraAuthLogoutRpc = Rpc.make(WS_METHODS.jiraAuthLogout, {
+  payload: Schema.Struct({}),
+  success: JiraConnectionStatus,
+  error: Schema.Union([JiraError, EnvironmentAuthorizationError]),
+});
+
+export const WsJiraAuthSwitchRpc = Rpc.make(WS_METHODS.jiraAuthSwitch, {
+  payload: JiraAuthSwitchInput,
+  success: JiraConnectionStatus,
+  error: Schema.Union([JiraError, EnvironmentAuthorizationError]),
+});
+
+export const WsJiraProjectsListRpc = Rpc.make(WS_METHODS.jiraProjectsList, {
+  payload: Schema.Struct({}),
+  success: Schema.Array(JiraProject),
+  error: Schema.Union([JiraError, EnvironmentAuthorizationError]),
+});
+
+export const WsJiraWorkItemsListRpc = Rpc.make(WS_METHODS.jiraWorkItemsList, {
+  payload: JiraWorkItemListInput,
+  success: JiraWorkItemListResult,
+  error: Schema.Union([JiraError, EnvironmentAuthorizationError]),
+});
+
+export const WsJiraWorkItemsGetRpc = Rpc.make(WS_METHODS.jiraWorkItemsGet, {
+  payload: JiraWorkItemDetailsInput,
+  success: JiraWorkItemDetails,
+  error: Schema.Union([JiraError, EnvironmentAuthorizationError]),
+});
+
+export const WsJiraWorkItemsCommentsListRpc = Rpc.make(WS_METHODS.jiraWorkItemsCommentsList, {
+  payload: JiraWorkItemDetailsInput,
+  success: JiraCommentListResult,
+  error: Schema.Union([JiraError, EnvironmentAuthorizationError]),
+});
+
+export const WsJiraWorkItemsActionRpc = Rpc.make(WS_METHODS.jiraWorkItemsAction, {
+  payload: JiraWorkItemAction,
+  success: JiraActionResult,
+  error: Schema.Union([JiraError, EnvironmentAuthorizationError]),
+});
+
+export const WsJiraWorkItemsOpenInBrowserRpc = Rpc.make(WS_METHODS.jiraWorkItemsOpenInBrowser, {
+  payload: JiraWorkItemDetailsInput,
+  success: JiraActionResult,
+  error: Schema.Union([JiraError, EnvironmentAuthorizationError]),
 });
 
 export const WsProjectsSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntries, {
@@ -863,6 +946,16 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitHubPullRequestsDiffRpc,
   WsGitHubPullRequestsActionRpc,
   WsGitHubPullRequestsCheckoutRpc,
+  WsJiraStatusRpc,
+  WsJiraAuthLoginRpc,
+  WsJiraAuthLogoutRpc,
+  WsJiraAuthSwitchRpc,
+  WsJiraProjectsListRpc,
+  WsJiraWorkItemsListRpc,
+  WsJiraWorkItemsGetRpc,
+  WsJiraWorkItemsCommentsListRpc,
+  WsJiraWorkItemsActionRpc,
+  WsJiraWorkItemsOpenInBrowserRpc,
   WsProjectsListEntriesRpc,
   WsProjectsReadFileRpc,
   WsProjectsSearchEntriesRpc,

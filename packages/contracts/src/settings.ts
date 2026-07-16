@@ -10,6 +10,7 @@ import {
   DEFAULT_PULL_REQUEST_SYSTEM_PROMPT,
   TextGenerationPolicy,
 } from "./textGenerationPolicy.ts";
+import { JiraSettings } from "./jira.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -482,6 +483,7 @@ export const ServerSettings = Schema.Struct({
   includeTextGenerationConventionInPullRequestPrompt: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(true)),
   ),
+  jira: JiraSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 
   // Legacy single-instance-per-driver settings. Continues to be the source
   // of truth until `providerInstances` (below) lands per-driver migration
@@ -621,6 +623,12 @@ export const ServerSettingsPatch = Schema.Struct({
   textGenerationPolicy: Schema.optionalKey(TextGenerationPolicyPatch),
   pullRequestSystemPrompt: Schema.optionalKey(Schema.String),
   includeTextGenerationConventionInPullRequestPrompt: Schema.optionalKey(Schema.Boolean),
+  jira: Schema.optionalKey(
+    Schema.Struct({
+      enabled: Schema.optionalKey(Schema.Boolean),
+      binaryPath: Schema.optionalKey(TrimmedString),
+    }),
+  ),
   observability: Schema.optionalKey(
     Schema.Struct({
       otlpTracesUrl: Schema.optionalKey(TrimmedString),

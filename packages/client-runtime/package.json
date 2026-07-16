@@ -67,6 +67,10 @@
       "types": "./src/state/githubPullRequests.ts",
       "default": "./src/state/githubPullRequests.ts"
     },
+    "./state/jira": {
+      "types": "./src/state/jira.ts",
+      "default": "./src/state/jira.ts"
+    },
     "./state/models": {
       "types": "./src/state/models.ts",
       "default": "./src/state/models.ts"
