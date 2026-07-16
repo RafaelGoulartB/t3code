@@ -9,6 +9,7 @@ import {
   GitBranchIcon,
   GitPullRequestIcon,
   Globe2Icon,
+  KanbanSquareIcon,
   LoaderIcon,
   PinIcon,
   SearchIcon,
@@ -3324,6 +3325,10 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     if (isMobile) setOpenMobile(false);
     void navigate({ to: "/worktrees" });
   }, [isMobile, navigate, setOpenMobile]);
+  const openKanban = useCallback(() => {
+    if (isMobile) setOpenMobile(false);
+    void navigate({ to: "/kanban" });
+  }, [isMobile, navigate, setOpenMobile]);
 
   const handleProjectSortOrderChange = useCallback(
     (sortOrder: SidebarProjectSortOrder) => {
@@ -3478,6 +3483,17 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
             >
               <GitBranchIcon className="size-3.5" />
               <span className="truncate text-xs">Worktrees</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              size="sm"
+              isActive={sidebarPathname.startsWith("/kanban")}
+              className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+              onClick={openKanban}
+            >
+              <KanbanSquareIcon className="size-3.5" />
+              <span className="truncate text-xs">Kanban</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
