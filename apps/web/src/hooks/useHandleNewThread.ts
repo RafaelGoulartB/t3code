@@ -47,6 +47,7 @@ export function useNewThreadHandler() {
         worktreePath?: string | null;
         envMode?: DraftThreadEnvMode;
         startFromOrigin?: boolean;
+        initialPrompt?: string;
       },
     ): Promise<void> => {
       const {
@@ -56,6 +57,7 @@ export function useNewThreadHandler() {
         applyStickyState,
         setDraftThreadContext,
         setLogicalProjectDraftThreadId,
+        setPrompt,
       } = useComposerDraftStore.getState();
       const currentRouteTarget = getCurrentRouteTarget();
       const project = projects.find(
@@ -111,6 +113,9 @@ export function useNewThreadHandler() {
               threadId: reusableStoredDraftThread.threadId,
             },
           );
+          if (options?.initialPrompt !== undefined) {
+            setPrompt(reusableStoredDraftThread.draftId, options.initialPrompt);
+          }
           if (
             currentRouteTarget?.kind === "draft" &&
             currentRouteTarget.draftId === reusableStoredDraftThread.draftId
@@ -153,6 +158,9 @@ export function useNewThreadHandler() {
           ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
           ...(hasStartFromOriginOption ? { startFromOrigin: options?.startFromOrigin } : {}),
         });
+        if (options?.initialPrompt !== undefined) {
+          setPrompt(currentRouteTarget.draftId, options.initialPrompt);
+        }
         return Promise.resolve();
       }
 
@@ -176,6 +184,9 @@ export function useNewThreadHandler() {
           runtimeMode: DEFAULT_RUNTIME_MODE,
         });
         applyStickyState(draftId);
+        if (options?.initialPrompt !== undefined) {
+          setPrompt(draftId, options.initialPrompt);
+        }
 
         await router.navigate({
           to: "/draft/$draftId",
