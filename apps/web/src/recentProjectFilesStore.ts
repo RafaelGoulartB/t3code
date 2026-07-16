@@ -6,7 +6,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { resolveStorage } from "./lib/storage";
 
 export const MAX_RECENT_PROJECT_FILES = 20;
-export const RECENT_PROJECT_FILES_DISPLAY_LIMIT = 5;
+export const RECENT_PROJECT_FILES_DISPLAY_LIMIT = 8;
 
 interface RecentProjectFilesState {
   readonly pathsByProjectKey: Record<string, readonly string[]>;

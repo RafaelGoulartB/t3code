@@ -12,17 +12,41 @@ describe("fileSearchPaths", () => {
       { path: "b.ts", kind: "file" },
       { path: "c.ts", kind: "file" },
       { path: "d.ts", kind: "file" },
+      { path: "e.ts", kind: "file" },
+      { path: "f.ts", kind: "file" },
+      { path: "g.ts", kind: "file" },
+      { path: "h.ts", kind: "file" },
     ]);
 
-    expect(paths).toEqual(["src/main.ts", "README.md", "a.ts", "b.ts", "c.ts"]);
+    expect(paths).toEqual([
+      "src/main.ts",
+      "README.md",
+      "a.ts",
+      "b.ts",
+      "c.ts",
+      "d.ts",
+      "e.ts",
+      "f.ts",
+    ]);
   });
 });
 
 describe("recentFileSearchPaths", () => {
-  it("deduplicates recent paths and limits the palette to five", () => {
-    expect(recentFileSearchPaths(["a.ts", "a.ts", "b.ts", "c.ts", "d.ts", "e.ts", "f.ts"])).toEqual(
-      ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"],
-    );
+  it("deduplicates recent paths and limits the palette to eight", () => {
+    expect(
+      recentFileSearchPaths([
+        "a.ts",
+        "a.ts",
+        "b.ts",
+        "c.ts",
+        "d.ts",
+        "e.ts",
+        "f.ts",
+        "g.ts",
+        "h.ts",
+        "i.ts",
+      ]),
+    ).toEqual(["a.ts", "b.ts", "c.ts", "d.ts", "e.ts", "f.ts", "g.ts", "h.ts"]);
   });
 });
 

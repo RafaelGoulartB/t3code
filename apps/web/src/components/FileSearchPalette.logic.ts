@@ -2,7 +2,7 @@ import type { ProjectEntry } from "@t3tools/contracts";
 
 import { RECENT_PROJECT_FILES_DISPLAY_LIMIT } from "../recentProjectFilesStore";
 
-export const FILE_SEARCH_RESULT_LIMIT = 5;
+export const FILE_SEARCH_RESULT_LIMIT = 8;
 
 export function fileSearchPaths(entries: ReadonlyArray<ProjectEntry>): string[] {
   return entries
