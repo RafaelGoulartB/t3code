@@ -10,6 +10,10 @@ import {
   type JiraConnectionStatus,
   JiraError,
   type JiraProject,
+  type JiraSprint,
+  type JiraSprintListInput,
+  type JiraSprintWorkItemGroup,
+  type JiraSprintWorkItemsInput,
   type JiraWorkItemAction,
   type JiraWorkItemDetails,
   type JiraWorkItemListInput,
@@ -35,6 +39,14 @@ function record(value: unknown): Record<string, unknown> {
 
 function string(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function positiveInt(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+    ? value
+    : typeof value === "string" && /^\d+$/.test(value) && Number(value) > 0
+      ? Number(value)
+      : null;
 }
 
 function display(value: unknown): string | null {
@@ -74,13 +86,34 @@ function workItem(value: unknown) {
   };
 }
 
-function items(value: unknown): ReadonlyArray<unknown> {
+function collection(value: unknown, names: ReadonlyArray<string>): ReadonlyArray<unknown> {
   if (Array.isArray(value)) return value;
   const entry = record(value);
-  for (const name of ["issues", "workItems", "values", "items"]) {
+  for (const name of names) {
     if (Array.isArray(entry[name])) return entry[name] as ReadonlyArray<unknown>;
   }
   return [];
+}
+
+/** ACLI uses different response envelopes per resource and per release. */
+export function workItemsFromCliJson(value: unknown): ReadonlyArray<unknown> {
+  return collection(value, ["issues", "workItems", "values", "items"]);
+}
+
+export function commentsFromCliJson(value: unknown): ReadonlyArray<unknown> {
+  return collection(value, ["comments", "values", "items"]);
+}
+
+export function sprintsFromCliJson(value: unknown): ReadonlyArray<unknown> {
+  return collection(value, ["sprints", "values", "items"]);
+}
+
+function projectsFromCliJson(value: unknown): ReadonlyArray<unknown> {
+  return collection(value, ["projects", "values", "items"]);
+}
+
+function boardsFromCliJson(value: unknown): ReadonlyArray<unknown> {
+  return collection(value, ["boards", "values", "items"]);
 }
 
 function additionalFields(fields: Record<string, unknown>) {
@@ -97,6 +130,9 @@ function additionalFields(fields: Record<string, unknown>) {
     "description",
     "created",
     "updated",
+    "subtasks",
+    "issuelinks",
+    "issuelinks",
   ]);
   return Object.entries(fields)
     .filter(([name]) => !core.has(name.toLowerCase()))
@@ -113,6 +149,45 @@ function additionalFields(fields: Record<string, unknown>) {
     .filter((entry): entry is { name: string; value: string } => entry !== null);
 }
 
+function relatedSummary(value: unknown, relationship: unknown = null) {
+  const summary = workItem(value);
+  return {
+    key: summary.key,
+    summary: summary.summary,
+    status: summary.status,
+    relationship: string(relationship),
+  };
+}
+
+function subtasksFromFields(fields: Record<string, unknown>) {
+  return collection(fields.subtasks, ["values", "items"])
+    .map((entry) => {
+      const summary = workItem(entry);
+      return { key: summary.key, summary: summary.summary, status: summary.status };
+    })
+    .filter((entry) => entry.key !== "UNKNOWN");
+}
+
+function relatedWorkItemsFromFields(fields: Record<string, unknown>) {
+  const links = collection(fields.issuelinks ?? fields.issueLinks, ["values", "items"]);
+  return links
+    .flatMap((link) => {
+      const value = record(link);
+      const type = record(value.type);
+      const inward = value.inwardIssue ?? value.inwardWorkItem;
+      const outward = value.outwardIssue ?? value.outwardWorkItem;
+      const related = inward
+        ? relatedSummary(inward, type.inward ?? type.name)
+        : outward
+          ? relatedSummary(outward, type.outward ?? type.name)
+          : null;
+      return related && related.key !== "UNKNOWN" ? [related] : [];
+    })
+    .filter(
+      (item, index, all) => all.findIndex((candidate) => candidate.key === item.key) === index,
+    );
+}
+
 function jql(input: JiraWorkItemListInput): string {
   if (input.mode === "jql") return input.jql;
   const clauses: string[] = [];
@@ -122,6 +197,7 @@ function jql(input: JiraWorkItemListInput): string {
     const projectKey = input.projectKey.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
     clauses.push(`project = "${projectKey}"`);
   }
+  if (input.sprintId) clauses.push(`sprint = ${input.sprintId}`);
   return `${clauses.length > 0 ? clauses.join(" AND ") : "project IS NOT EMPTY"} ORDER BY updated DESC`;
 }
 
@@ -156,9 +232,15 @@ export class JiraCli extends Context.Service<
       input: CliContext & JiraAuthSwitchInput,
     ) => Effect.Effect<JiraConnectionStatus, JiraError>;
     readonly projects: (input: CliContext) => Effect.Effect<ReadonlyArray<JiraProject>, JiraError>;
+    readonly sprints: (
+      input: CliContext & JiraSprintListInput,
+    ) => Effect.Effect<ReadonlyArray<JiraSprint>, JiraError>;
     readonly listWorkItems: (
       input: CliContext & { readonly input: JiraWorkItemListInput },
     ) => Effect.Effect<JiraWorkItemListResult, JiraError>;
+    readonly listSprintWorkItems: (
+      input: CliContext & { readonly input: JiraSprintWorkItemsInput },
+    ) => Effect.Effect<ReadonlyArray<JiraSprintWorkItemGroup>, JiraError>;
     readonly getWorkItem: (
       input: CliContext & { readonly key: string },
     ) => Effect.Effect<JiraWorkItemDetails, JiraError>;
@@ -257,7 +339,7 @@ export const make = Effect.gen(function* () {
       Effect.flatMap((result) =>
         parseJson(result.stdout, "list projects").pipe(
           Effect.map((output) =>
-            items(output)
+            projectsFromCliJson(output)
               .map((entry) => {
                 const value = record(entry);
                 const key = string(value.key);
@@ -269,6 +351,51 @@ export const make = Effect.gen(function* () {
         ),
       ),
     );
+  const sprints = Effect.fn("JiraCli.sprints")(function* (input: CliContext & JiraSprintListInput) {
+    const boardArgs = ["jira", "board", "search", "--limit", "50", "--json"];
+    if (input.projectKey) boardArgs.push("--project", input.projectKey);
+    const boardResult = yield* run({ ...input, operation: "list sprint boards", args: boardArgs });
+    const boards = yield* parseJson(boardResult.stdout, "list sprint boards").pipe(
+      Effect.map((output) =>
+        boardsFromCliJson(output)
+          .map((entry) => {
+            const id = positiveInt(record(entry).id);
+            return id ? { id } : null;
+          })
+          .filter((entry): entry is { id: number } => entry !== null),
+      ),
+    );
+    const result: JiraSprint[] = [];
+    for (const board of boards) {
+      const output = yield* run({
+        ...input,
+        operation: "list sprints",
+        args: [
+          "jira",
+          "board",
+          "list-sprints",
+          "--id",
+          String(board.id),
+          "--state",
+          "active,future",
+          "--limit",
+          "50",
+          "--json",
+        ],
+      });
+      const parsed = yield* parseJson(output.stdout, "list sprints");
+      for (const entry of sprintsFromCliJson(parsed)) {
+        const value = record(entry);
+        const id = positiveInt(value.id);
+        const name = string(value.name);
+        const state = string(value.state)?.toLowerCase();
+        if (id && name && (state === "active" || state === "future" || state === "closed")) {
+          result.push({ id, boardId: board.id, name, state });
+        }
+      }
+    }
+    return result.sort((left, right) => left.name.localeCompare(right.name) || left.id - right.id);
+  });
   const listWorkItems = (input: CliContext & { readonly input: JiraWorkItemListInput }) =>
     run({
       ...input,
@@ -289,7 +416,7 @@ export const make = Effect.gen(function* () {
       Effect.flatMap((result) =>
         parseJson(result.stdout, "list work items").pipe(
           Effect.map((output) => {
-            const value = items(output);
+            const value = workItemsFromCliJson(output);
             return {
               items: value.map(workItem),
               limit: input.input.limit,
@@ -299,6 +426,48 @@ export const make = Effect.gen(function* () {
         ),
       ),
     );
+  const listSprintWorkItems = Effect.fn("JiraCli.listSprintWorkItems")(function* (
+    input: CliContext & { readonly input: JiraSprintWorkItemsInput },
+  ) {
+    const groups: JiraSprintWorkItemGroup[] = [];
+    const seenWorkItemKeys = new Set<string>();
+    const perSprintLimit = Math.max(
+      1,
+      Math.floor(input.input.input.limit / Math.max(input.input.sprints.length, 1)),
+    );
+    for (const sprint of input.input.sprints.slice(0, 8)) {
+      const result = yield* run({
+        ...input,
+        operation: "list sprint work items",
+        args: [
+          "jira",
+          "sprint",
+          "list-workitems",
+          "--board",
+          String(sprint.boardId),
+          "--sprint",
+          String(sprint.id),
+          "--jql",
+          jql(input.input.input as JiraWorkItemListInput),
+          "--fields",
+          WORK_ITEM_FIELDS,
+          "--limit",
+          String(perSprintLimit),
+          "--json",
+        ],
+      });
+      const parsed = yield* parseJson(result.stdout, "list sprint work items");
+      const workItems = workItemsFromCliJson(parsed)
+        .map(workItem)
+        .filter((workItem) => {
+          if (seenWorkItemKeys.has(workItem.key)) return false;
+          seenWorkItemKeys.add(workItem.key);
+          return true;
+        });
+      groups.push({ sprint, items: workItems, truncated: workItems.length >= perSprintLimit });
+    }
+    return groups;
+  });
   const getWorkItem = (input: CliContext & { readonly key: string }) =>
     run({
       ...input,
@@ -324,6 +493,8 @@ export const make = Effect.gen(function* () {
               labels,
               createdAt: string(value.created) ?? string(value.createdAt) ?? string(fields.created),
               additionalFields: additionalFields(fields),
+              subtasks: subtasksFromFields(fields),
+              relatedWorkItems: relatedWorkItemsFromFields(fields),
             };
           }),
         ),
@@ -338,7 +509,7 @@ export const make = Effect.gen(function* () {
       Effect.flatMap((result) =>
         parseJson(result.stdout, "list comments").pipe(
           Effect.map((output) =>
-            items(output).map((entry) => {
+            commentsFromCliJson(output).map((entry) => {
               const value = record(entry);
               return {
                 id: string(value.id),
@@ -421,7 +592,9 @@ export const make = Effect.gen(function* () {
     logout,
     switchAccount,
     projects,
+    sprints,
     listWorkItems,
+    listSprintWorkItems,
     getWorkItem,
     comments,
     action,

@@ -19,4 +19,11 @@ describe("Jira route search", () => {
       limit: 50,
     });
   });
+
+  it("adds the selected sprint to standard Jira filters", () => {
+    expect(jiraSearchToInput(parseJiraSearch({ sprint: 42 }))).toMatchObject({
+      mode: "filters",
+      sprintId: 42,
+    });
+  });
 });

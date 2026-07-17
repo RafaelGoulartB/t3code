@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Por que nem todos os comandos dos harnesses aparecem no T3 Code</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        background: #0b1020;
+        color: #e9eefb;
+      }
+      body {
+        margin: 0;
+        line-height: 1.55;
+      }
+      main {
+        max-width: 1040px;
+        margin: auto;
+        padding: 44px 24px 72px;
+      }
+      h1 {
+        font-size: clamp(2rem, 5vw, 3.5rem);
+        line-height: 1.04;
+        letter-spacing: -0.04em;
+        margin: 0 0 18px;
+      }
+      h2 {
+        margin-top: 42px;
+        font-size: 1.45rem;
+      }
+      h3 {
+        margin: 24px 0 8px;
+        font-size: 1.08rem;
+      }
+      .lead {
+        max-width: 780px;
+        color: #b8c4de;
+        font-size: 1.16rem;
+      }
+      .answer {
+        border: 1px solid #34476e;
+        border-left: 5px solid #70a5ff;
+        padding: 18px 20px;
+        border-radius: 10px;
+        background: #101a31;
+      }
+      .flow {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 9px;
+        align-items: center;
+        margin: 18px 0;
+      }
+      .node {
+        border: 1px solid #394a70;
+        background: #121d35;
+        padding: 9px 12px;
+        border-radius: 8px;
+        font-weight: 600;
+      }
+      .arrow {
+        color: #8ea7d4;
+        font-size: 1.25rem;
+      }
+      code {
+        color: #a9d2ff;
+        background: #16233f;
+        padding: 0.12em 0.35em;
+        border-radius: 4px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 14px 0;
+        overflow: hidden;
+        border-radius: 10px;
+        border-style: hidden;
+        box-shadow: 0 0 0 1px #31415f;
+      }
+      th,
+      td {
+        text-align: left;
+        vertical-align: top;
+        padding: 13px;
+        border: 1px solid #31415f;
+      }
+      th {
+        background: #172542;
+      }
+      td {
+        background: #0f192e;
+      }
+      .yes {
+        color: #8ce6ae;
+        font-weight: 700;
+      }
+      .no {
+        color: #ffa8ad;
+        font-weight: 700;
+      }
+      .partial {
+        color: #ffd58a;
+        font-weight: 700;
+      }
+      ol li,
+      ul li {
+        margin: 7px 0;
+      }
+      .note {
+        color: #aebbd4;
+        font-size: 0.94rem;
+      }
+      strong {
+        color: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Por que os comandos dos harnesses não aparecem todos?</h1>
+      <p class="lead">
+        T3 Code não incorpora as interfaces de terminal de Codex, Claude Code e OpenCode. Ele é um
+        cliente próprio, que conversa com cada harness por uma API/SDK e traduz a conversa para um
+        modelo comum.
+      </p>
+
+      <section class="answer">
+        <strong>Resposta curta:</strong> <code>/compress</code> e <code>/goal</code> não estão
+        ausentes porque o Codex não os suporta. O app-server do Codex <em>já expõe</em> as operações
+        correspondentes. Eles não aparecem porque o T3 Code ainda não criou a ação de produto
+        completa — contrato comum, chamada no adaptador, estado/eventos e controle visual. Já
+        comandos do Claude aparecem porque o SDK dele entrega uma lista de comandos e o T3 consegue
+        apenas inseri-los como texto no prompt.
+      </section>
+
+      <h2>O que acontece entre a tela e o harness</h2>
+      <div class="flow" aria-label="Fluxo de integração">
+        <span class="node">Composer do T3</span><span class="arrow">→</span>
+        <span class="node">contrato comum</span><span class="arrow">→</span>
+        <span class="node">adaptador do provedor</span><span class="arrow">→</span>
+        <span class="node">API / SDK do harness</span>
+      </div>
+      <p>
+        Um comando só pode ser mostrado com segurança se todo o caminho o entender. A lista de
+        <em>slash commands</em> da UI é só uma descoberta de capacidades; a execução ainda precisa
+        ter semântica definida para aquele provedor.
+      </p>
+
+      <h2>O caso do Codex</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Função</th>
+            <th>O app-server do Codex oferece?</th>
+            <th>O T3 Code implementa hoje?</th>
+            <th>Consequência</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Compactar contexto</td>
+            <td class="yes">Sim: <code>thread/compact/start</code></td>
+            <td class="partial">Só recebe <code>thread/compacted</code></td>
+            <td>
+              A UI informa uma compactação ocorrida, mas não tem botão/comando para iniciá-la.
+            </td>
+          </tr>
+          <tr>
+            <td>Meta da thread</td>
+            <td class="yes">
+              Sim: <code>thread/goal/set</code>, <code>get</code>, <code>clear</code>
+            </td>
+            <td class="no">Não</td>
+            <td>Não há editor, leitura, limpeza nem projeção dos eventos de meta.</td>
+          </tr>
+          <tr>
+            <td>Enviar mensagem</td>
+            <td class="yes">Sim: <code>turn/start</code></td>
+            <td class="yes">Sim</td>
+            <td>É o caminho normal da conversa.</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        No adaptador atual do Codex, <code>sendTurn</code> constrói uma requisição
+        <code>turn/start</code> com texto/anexos. Portanto, digitar <code>/compress</code> chegaria
+        como texto de usuário; não equivale ao comando interno do TUI do Codex. O TUI é outra camada
+        de interface que interpreta atalhos e então chama sua API.
+      </p>
+      <p>
+        Há uma evidência importante de que a base já está preparada: o pacote de protocolo
+        vendorizado tipa <code>thread/compact/start</code> e todos os métodos
+        <code>thread/goal/*</code>. Falta conectá-los ao domínio do T3.
+      </p>
+
+      <h2>Por que Claude Code pode exibir mais comandos</h2>
+      <p>
+        Durante a sondagem do Claude, T3 inicia o SDK sem mandar uma mensagem ao modelo e lê a
+        inicialização. Essa inicialização inclui <code>commands</code>; T3 converte-os para
+        <code>slashCommands</code>, remove duplicados e mostra a lista no composer. Ao selecionar um
+        deles, a interface apenas coloca <code>/nome </code> no texto.
+      </p>
+      <p>
+        Isso funciona porque a integração/SDK do Claude trata esse formato no fluxo de prompt. Não
+        prova que todos os comandos de terminal de todos os harnesses sejam portáveis.
+      </p>
+
+      <h2>Por que OpenCode e outros podem não ter a mesma lista</h2>
+      <p>
+        A integração do OpenCode nesta base descobre inventário de modelos, variantes e agentes. Ela
+        não popula <code>slashCommands</code>. Assim, o menu fica vazio mesmo que a interface de
+        terminal do OpenCode tenha atalhos próprios: essa informação não é coletada nem existe,
+        aqui, um executor genérico desses atalhos.
+      </p>
+      <p>Em termos gerais, há três situações:</p>
+      <ul>
+        <li>
+          <strong>Comando textual encaminhável:</strong> o harness declara o comando e aceita
+          <code>/...</code> no prompt. Pode aparecer como no Claude.
+        </li>
+        <li>
+          <strong>Operação estruturada:</strong> a API oferece um método específico, como compactar
+          ou definir meta no Codex. Precisa de um botão/menu e de uma chamada própria; não deve ser
+          simulada com texto.
+        </li>
+        <li>
+          <strong>Recurso exclusivo do TUI:</strong> depende de estado local do terminal, menus ou
+          teclas. Só pode ser reproduzido se o harness expuser API/SDK equivalente — caso contrário,
+          não há integração correta a fazer.
+        </li>
+      </ul>
+
+      <h2>Como implementar corretamente no T3 Code</h2>
+      <ol>
+        <li>
+          Adicionar capacidades e operações explícitas ao contrato comum (por exemplo,
+          <code>compactThread</code> e operações de meta), sem fingir que são mensagens.
+        </li>
+        <li>Implementá-las apenas no adaptador Codex usando os métodos tipados do app-server.</li>
+        <li>
+          Projetar os eventos <code>thread/goal/updated</code> e
+          <code>thread/goal/cleared</code> para o estado e o histórico da thread; o evento de
+          compactação já é parcialmente projetado.
+        </li>
+        <li>
+          Exibir controles condicionais ao provedor: “Compactar contexto”, editor de meta e estado
+          da meta. Claude/OpenCode esconderiam esses controles até suportá-los.
+        </li>
+        <li>
+          Testar falhas, reconexão e a atualização assíncrona do estado — especialmente porque
+          compactação e metas mudam a thread, não apenas a tela.
+        </li>
+      </ol>
+      <p class="note">
+        Essa abordagem preserva a prioridade do projeto: comportamento previsível. Uma lista global
+        de “comandos” que envia texto idêntico para todos os providers seria simples, mas acionaria
+        ações diferentes — ou nenhuma — dependendo do harness.
+      </p>
+
+      <h2>Pontos do código verificados</h2>
+      <ul>
+        <li>
+          <code>apps/server/src/provider/Layers/CodexProvider.ts</code>: a sondagem do Codex busca
+          modelos e skills, mas não comandos.
+        </li>
+        <li>
+          <code>apps/server/src/provider/Layers/CodexSessionRuntime.ts</code>: o envio normal faz
+          apenas <code>turn/start</code>.
+        </li>
+        <li>
+          <code>apps/server/src/provider/Layers/CodexAdapter.ts</code>: entende a notificação
+          <code>thread/compacted</code>.
+        </li>
+        <li>
+          <code>packages/effect-codex-app-server/src/_generated/meta.gen.ts</code>: o protocolo
+          declara <code>thread/compact/start</code> e <code>thread/goal/*</code>.
+        </li>
+        <li>
+          <code>apps/server/src/provider/Layers/ClaudeProvider.ts</code>: extrai
+          <code>init.commands</code> do SDK do Claude.
+        </li>
+        <li>
+          <code>apps/web/src/components/chat/ChatComposer.tsx</code>: o menu mostra o que houver em
+          <code>selectedProviderStatus.slashCommands</code> e, ao escolher, insere o texto no
+          composer.
+        </li>
+      </ul>
+    </main>
+  </body>
+</html>

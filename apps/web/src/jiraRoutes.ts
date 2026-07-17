@@ -5,6 +5,7 @@ export interface JiraSearch {
   readonly assignee?: JiraAssigneeScope;
   readonly open?: boolean;
   readonly project?: string;
+  readonly sprint?: number;
   readonly view?: "board" | "list";
   readonly limit?: number;
   readonly jql?: string;
@@ -28,12 +29,17 @@ export function parseJiraSearch(input: Record<string, unknown>): JiraSearch {
       : 50;
   const environment = text(input.environment);
   const project = text(input.project);
+  const sprint =
+    typeof input.sprint === "number" && Number.isSafeInteger(input.sprint) && input.sprint > 0
+      ? input.sprint
+      : undefined;
   const jql = text(input.jql);
   return {
     ...(environment ? { environment } : {}),
     assignee: input.assignee === "all" ? "all" : "mine",
     open: input.open !== false,
     ...(project ? { project } : {}),
+    ...(sprint ? { sprint } : {}),
     view: input.view === "list" ? "list" : "board",
     limit,
     ...(jql ? { jql } : {}),
@@ -59,6 +65,7 @@ export function jiraSearchToInput(search: JiraSearch): JiraWorkItemListInput {
         assignee: resolved.assignee,
         openOnly: resolved.open,
         ...(resolved.project ? { projectKey: resolved.project } : {}),
+        ...(resolved.sprint ? { sprintId: resolved.sprint } : {}),
         limit: resolved.limit,
       };
 }

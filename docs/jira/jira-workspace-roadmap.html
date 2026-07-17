@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Jira Workspace Roadmap</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0d1017;
+        --surface: #151a25;
+        --soft: #1d2432;
+        --line: #2c3547;
+        --text: #eef2fa;
+        --muted: #9aa7ba;
+        --blue: #76a9ff;
+        --green: #61d3a0;
+        --amber: #ffcb6b;
+        --red: #ff7b8b;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: radial-gradient(circle at 75% -10%, #253762 0, transparent 34rem), var(--bg);
+        color: var(--text);
+        font:
+          15px/1.5 Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+      }
+      a {
+        color: var(--blue);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      .wrap {
+        width: min(1120px, calc(100% - 32px));
+        margin: auto;
+      }
+      header {
+        padding: 72px 0 44px;
+        border-bottom: 1px solid var(--line);
+      }
+      .eyebrow,
+      .pill {
+        color: var(--blue);
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        font-size: 0.72rem;
+        font-weight: 700;
+      }
+      .pill {
+        display: inline-flex;
+        border: 1px solid #4266a8;
+        background: #152544;
+        border-radius: 999px;
+        padding: 3px 8px;
+        letter-spacing: 0.06em;
+      }
+      .pill.high {
+        color: var(--amber);
+        border-color: #715722;
+        background: #302713;
+      }
+      .pill.done {
+        color: var(--green);
+        border-color: #33765e;
+        background: #102c25;
+      }
+      h1 {
+        margin: 12px 0 8px;
+        font-size: clamp(2.2rem, 6vw, 4.8rem);
+        letter-spacing: -0.055em;
+        line-height: 1;
+      }
+      h2 {
+        font-size: 1.25rem;
+        margin: 0 0 14px;
+      }
+      h3 {
+        margin: 0 0 7px;
+        font-size: 1rem;
+      }
+      p {
+        color: var(--muted);
+        margin: 0;
+      }
+      nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+        margin-top: 25px;
+        font-size: 0.85rem;
+      }
+      main {
+        padding: 38px 0 70px;
+      }
+      section {
+        scroll-margin-top: 18px;
+        margin-bottom: 38px;
+      }
+      .grid {
+        display: grid;
+        gap: 14px;
+      }
+      .cards {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+      .card,
+      .flow,
+      .phase,
+      table {
+        background: linear-gradient(145deg, rgba(35, 43, 60, 0.9), rgba(20, 25, 36, 0.92));
+        border: 1px solid var(--line);
+        border-radius: 14px;
+      }
+      .card {
+        padding: 18px;
+      }
+      .card p {
+        font-size: 0.9rem;
+      }
+      .flow {
+        padding: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        overflow: auto;
+      }
+      .node {
+        min-width: 125px;
+        text-align: center;
+        padding: 12px;
+        border-radius: 10px;
+        background: var(--soft);
+        border: 1px solid var(--line);
+        font-weight: 650;
+      }
+      .arrow {
+        color: var(--blue);
+        font-size: 1.4rem;
+      }
+      .timeline {
+        display: grid;
+        gap: 10px;
+      }
+      .phase {
+        display: grid;
+        grid-template-columns: 90px 1fr auto;
+        align-items: center;
+        gap: 18px;
+        padding: 15px 18px;
+      }
+      .phase strong {
+        font-size: 1.1rem;
+      }
+      .phase ul {
+        margin: 7px 0 0;
+        padding-left: 18px;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      .phase .number {
+        font-size: 1.8rem;
+        color: var(--blue);
+        font-weight: 800;
+      }
+      table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        overflow: hidden;
+      }
+      th,
+      td {
+        padding: 13px 15px;
+        text-align: left;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+      th {
+        color: var(--muted);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      tr:last-child td {
+        border: 0;
+      }
+      .check {
+        display: grid;
+        gap: 9px;
+        padding: 18px;
+      }
+      .check label {
+        display: flex;
+        gap: 9px;
+        color: var(--muted);
+      }
+      input {
+        accent-color: var(--green);
+      }
+      footer {
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        padding: 28px 0 44px;
+        font-size: 0.85rem;
+      }
+      @media (max-width: 720px) {
+        header {
+          padding-top: 44px;
+        }
+        .wrap {
+          width: min(100% - 24px, 1120px);
+        }
+        .cards {
+          grid-template-columns: 1fr;
+        }
+        .phase {
+          grid-template-columns: 44px 1fr;
+        }
+        .phase .pill {
+          grid-column: 2;
+          justify-self: start;
+        }
+        .flow {
+          align-items: stretch;
+          flex-direction: column;
+        }
+        .arrow {
+          transform: rotate(90deg);
+          text-align: center;
+        }
+        .node {
+          width: 100%;
+        }
+        table {
+          font-size: 0.84rem;
+        }
+        th,
+        td {
+          padding: 10px;
+        }
+        .hide-mobile {
+          display: none;
+        }
+      }
+      @media (max-width: 720px) {
+        .flow {
+          overflow: visible;
+        }
+      }
+      @media print {
+        :root {
+          color-scheme: light;
+          --bg: #fff;
+          --surface: #fff;
+          --soft: #f5f7fa;
+          --line: #cbd3df;
+          --text: #142033;
+          --muted: #4a5870;
+        }
+        body {
+          background: #fff;
+        }
+        .card,
+        .flow,
+        .phase,
+        table {
+          background: #fff;
+          break-inside: avoid;
+        }
+        header {
+          padding-top: 26px;
+        }
+        nav {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="wrap">
+        <span class="pill done">Implementation roadmap</span>
+        <h1>Jira Workspace<br />Roadmap</h1>
+        <p>
+          Turn T3 Code into the developer's daily place for sprint focus, safe task actions,
+          confirmed comments, and coding-thread context.
+        </p>
+        <nav>
+          <a href="#flow">Flow</a><a href="#phases">Phases</a><a href="#state">Current vs future</a
+          ><a href="#acceptance">Acceptance</a><a href="#risks">Risks</a
+          ><a href="#validation">Validation</a>
+        </nav>
+      </div>
+    </header>
+    <main class="wrap">
+      <section id="flow">
+        <span class="eyebrow">Daily developer loop</span>
+        <h2>From sprint focus to coding context</h2>
+        <div class="flow">
+          <div class="node">Sprint<br /><small>focus</small></div>
+          <div class="arrow">→</div>
+          <div class="node">Task<br /><small>inspect</small></div>
+          <div class="arrow">→</div>
+          <div class="node">Action<br /><small>safe mutation</small></div>
+          <div class="arrow">→</div>
+          <div class="node">Comment<br /><small>confirmed</small></div>
+          <div class="arrow">→</div>
+          <div class="node">Thread<br /><small>coding context</small></div>
+        </div>
+      </section>
+      <section>
+        <span class="eyebrow">Goal</span>
+        <div class="grid cards">
+          <article class="card">
+            <span class="pill high">P0 reliability</span>
+            <h3>Trust every write</h3>
+            <p>
+              Comments immediately show sending, confirmation or retry; all successful actions
+              refresh affected Jira data.
+            </p>
+          </article>
+          <article class="card">
+            <span class="pill high">P0 focus</span>
+            <h3>Start with my sprint</h3>
+            <p>
+              Active-sprint presets, counts and Next up make the first screen actionable rather than
+              a generic issue browser.
+            </p>
+          </article>
+          <article class="card">
+            <span class="pill">P1 context</span>
+            <h3>Stay in the flow</h3>
+            <p>
+              Subtasks, related work and a protected Start thread flow bring the technical
+              discussion to the right project.
+            </p>
+          </article>
+        </div>
+      </section>
+      <section id="phases">
+        <span class="eyebrow">Timeline</span>
+        <h2>Delivery phases</h2>
+        <div class="timeline">
+          <article class="phase">
+            <div class="number">01</div>
+            <div>
+              <strong>Reliable activity</strong>
+              <ul>
+                <li>Decode ACLI comment envelopes and refetch after a write.</li>
+                <li>Show sending, sent-unverified and failed-with-retry states.</li>
+                <li>Centralize mutation refresh and safe feedback.</li>
+              </ul>
+            </div>
+            <span class="pill done">In progress</span>
+          </article>
+          <article class="phase">
+            <div class="number">02</div>
+            <div>
+              <strong>Sprint-first navigation</strong>
+              <ul>
+                <li>My active sprint, My open and All work item presets.</li>
+                <li>Summary metrics and a focused Next up queue.</li>
+                <li>URL-backed filters and clear no-sprint fallback.</li>
+              </ul>
+            </div>
+            <span class="pill high">P0</span>
+          </article>
+          <article class="phase">
+            <div class="number">03</div>
+            <div>
+              <strong>Real sprint groups</strong>
+              <ul>
+                <li>Load boards, sprints and sprint work items with ACLI only.</li>
+                <li>Group active/future sprints; separate work outside that scope.</li>
+                <li>Bound concurrency and communicate result limits.</li>
+              </ul>
+            </div>
+            <span class="pill high">P0</span>
+          </article>
+          <article class="phase">
+            <div class="number">04</div>
+            <div>
+              <strong>Safe detail workbench</strong>
+              <ul>
+                <li>Replace browser prompts with Edit, Assign and Change status dialogs.</li>
+                <li>Confirm reassignment/unassignment and workflow transitions.</li>
+                <li>Expose related work as read-only navigable context.</li>
+              </ul>
+            </div>
+            <span class="pill">P1</span>
+          </article>
+          <article class="phase">
+            <div class="number">05</div>
+            <div>
+              <strong>Thread hand-off</strong>
+              <ul>
+                <li>Searchable project picker and Jira-aware composer context.</li>
+                <li>Never silently replace an existing project draft.</li>
+                <li>Confirm where the thread was opened.</li>
+              </ul>
+            </div>
+            <span class="pill">P1</span>
+          </article>
+        </div>
+      </section>
+      <section id="state">
+        <span class="eyebrow">Product state</span>
+        <h2>What changes for a developer</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Area</th>
+              <th>Today</th>
+              <th>Future workspace</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Comments</td>
+              <td>Write can succeed but the list may look empty.</td>
+              <td>
+                Optimistic activity, read confirmation, retry and explicit verification state.
+              </td>
+            </tr>
+            <tr>
+              <td>Sprints</td>
+              <td>A filter can resemble a single “All sprints” group.</td>
+              <td>Concrete ACLI sprint groups plus an outside-sprint bucket.</td>
+            </tr>
+            <tr>
+              <td>Task actions</td>
+              <td>Mixed direct calls and browser prompts.</td>
+              <td>Consistent dialogs, validation, confirmation and one refresh policy.</td>
+            </tr>
+            <tr>
+              <td>Task context</td>
+              <td>Core fields and comments.</td>
+              <td>Subtasks, related work and safe hand-off to a coding thread.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <section id="acceptance">
+        <span class="eyebrow">Definition of done</span>
+        <h2>Acceptance criteria</h2>
+        <div class="grid cards">
+          <article class="card">
+            <h3>Reliable</h3>
+            <p>
+              A successful comment becomes confirmed from Jira or clearly says it needs
+              verification. A failed write preserves user text.
+            </p>
+          </article>
+          <article class="card">
+            <h3>Predictable</h3>
+            <p>
+              Every list group corresponds to a returned sprint or the explicit outside bucket. No
+              mass item-detail loading.
+            </p>
+          </article>
+          <article class="card">
+            <h3>Secure</h3>
+            <p>
+              Only argument-array ACLI calls; no REST credentials, raw stderr or CLI auth output in
+              the product.
+            </p>
+          </article>
+        </div>
+      </section>
+      <section id="risks">
+        <span class="eyebrow">Risks & mitigations</span>
+        <h2>Keep the integration dependable</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Risk</th>
+              <th>Mitigation</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>ACLI eventual consistency after comment creation</td>
+              <td>
+                Short bounded refetch sequence and an honest “Sent to Jira — refresh to verify”
+                state.
+              </td>
+            </tr>
+            <tr>
+              <td>Different Jira workflows and field support</td>
+              <td>
+                Server-side normalization; dialogs preserve previous UI state and display only safe
+                error categories.
+              </td>
+            </tr>
+            <tr>
+              <td>Many accessible boards and sprints</td>
+              <td>
+                Short-lived cache, limited batches and visible total caps; refine by project or
+                sprint.
+              </td>
+            </tr>
+            <tr>
+              <td>Existing coding draft</td>
+              <td>
+                Require a deliberate choice before opening/replacing a draft; never overwrite
+                silently.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <section id="validation">
+        <span class="eyebrow">Handoff checklist</span>
+        <h2>Validation</h2>
+        <div class="check card">
+          <label
+            ><input type="checkbox" /> Comment envelope, retry and confirmation tests pass.</label
+          ><label
+            ><input type="checkbox" /> Sprint command construction, grouping and deduplication tests
+            pass.</label
+          ><label
+            ><input type="checkbox" /> Detail dialogs validate fields and preserve state on
+            failure.</label
+          ><label
+            ><input type="checkbox" /> <code>vp check</code>, <code>vp run typecheck</code> and Jira
+            unit tests pass.</label
+          ><label
+            ><input type="checkbox" /> Desktop and mobile roadmap previews have no overflow or
+            contrast issues.</label
+          >
+        </div>
+      </section>
+    </main>
+    <footer>
+      <div class="wrap">T3 Code · Jira Workspace · Developer-first daily workflow</div>
+    </footer>
+  </body>
+</html>

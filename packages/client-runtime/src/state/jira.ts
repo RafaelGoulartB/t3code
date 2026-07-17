@@ -18,6 +18,14 @@ export function createJiraEnvironmentAtoms<R, E>(
       label: "environment-data:jira:projects",
       tag: WS_METHODS.jiraProjectsList,
     }),
+    sprints: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:jira:sprints",
+      tag: WS_METHODS.jiraSprintsList,
+    }),
+    sprintWorkItems: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:jira:sprints:work-items",
+      tag: WS_METHODS.jiraSprintsWorkItemsList,
+    }),
     list: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:jira:work-items:list",
       tag: WS_METHODS.jiraWorkItemsList,

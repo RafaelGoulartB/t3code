@@ -316,6 +316,8 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.jiraAuthLogout, AuthOrchestrationOperateScope],
   [WS_METHODS.jiraAuthSwitch, AuthOrchestrationOperateScope],
   [WS_METHODS.jiraProjectsList, AuthOrchestrationReadScope],
+  [WS_METHODS.jiraSprintsList, AuthOrchestrationReadScope],
+  [WS_METHODS.jiraSprintsWorkItemsList, AuthOrchestrationReadScope],
   [WS_METHODS.jiraWorkItemsList, AuthOrchestrationReadScope],
   [WS_METHODS.jiraWorkItemsGet, AuthOrchestrationReadScope],
   [WS_METHODS.jiraWorkItemsCommentsList, AuthOrchestrationReadScope],
@@ -1574,6 +1576,20 @@ const makeWsRpcLayer = (
           observeRpcEffect(
             WS_METHODS.jiraProjectsList,
             jiraConnection("list projects", (input) => jiraCli.projects(input)),
+            { "rpc.aggregate": "jira" },
+          ),
+        [WS_METHODS.jiraSprintsList]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.jiraSprintsList,
+            jiraConnection("list sprints", (context) => jiraCli.sprints({ ...context, ...input })),
+            { "rpc.aggregate": "jira" },
+          ),
+        [WS_METHODS.jiraSprintsWorkItemsList]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.jiraSprintsWorkItemsList,
+            jiraConnection("list sprint work items", (context) =>
+              jiraCli.listSprintWorkItems({ ...context, input }),
+            ),
             { "rpc.aggregate": "jira" },
           ),
         [WS_METHODS.jiraWorkItemsList]: (input) =>

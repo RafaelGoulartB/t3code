@@ -182,6 +182,10 @@ import {
   JiraConnectionStatus,
   JiraError,
   JiraProject,
+  JiraSprint,
+  JiraSprintListInput,
+  JiraSprintWorkItemGroup,
+  JiraSprintWorkItemsInput,
   JiraWorkItemAction,
   JiraWorkItemDetails,
   JiraWorkItemDetailsInput,
@@ -291,6 +295,8 @@ export const WS_METHODS = {
   jiraAuthLogout: "jira.auth.logout",
   jiraAuthSwitch: "jira.auth.switch",
   jiraProjectsList: "jira.projects.list",
+  jiraSprintsList: "jira.sprints.list",
+  jiraSprintsWorkItemsList: "jira.sprints.workItems.list",
   jiraWorkItemsList: "jira.workItems.list",
   jiraWorkItemsGet: "jira.workItems.get",
   jiraWorkItemsCommentsList: "jira.workItems.comments.list",
@@ -491,6 +497,18 @@ export const WsJiraAuthSwitchRpc = Rpc.make(WS_METHODS.jiraAuthSwitch, {
 export const WsJiraProjectsListRpc = Rpc.make(WS_METHODS.jiraProjectsList, {
   payload: Schema.Struct({}),
   success: Schema.Array(JiraProject),
+  error: Schema.Union([JiraError, EnvironmentAuthorizationError]),
+});
+
+export const WsJiraSprintsListRpc = Rpc.make(WS_METHODS.jiraSprintsList, {
+  payload: JiraSprintListInput,
+  success: Schema.Array(JiraSprint),
+  error: Schema.Union([JiraError, EnvironmentAuthorizationError]),
+});
+
+export const WsJiraSprintsWorkItemsListRpc = Rpc.make(WS_METHODS.jiraSprintsWorkItemsList, {
+  payload: JiraSprintWorkItemsInput,
+  success: Schema.Array(JiraSprintWorkItemGroup),
   error: Schema.Union([JiraError, EnvironmentAuthorizationError]),
 });
 
@@ -951,6 +969,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsJiraAuthLogoutRpc,
   WsJiraAuthSwitchRpc,
   WsJiraProjectsListRpc,
+  WsJiraSprintsListRpc,
+  WsJiraSprintsWorkItemsListRpc,
   WsJiraWorkItemsListRpc,
   WsJiraWorkItemsGetRpc,
   WsJiraWorkItemsCommentsListRpc,

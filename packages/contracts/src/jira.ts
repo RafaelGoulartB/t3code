@@ -33,6 +33,19 @@ export const JiraProject = Schema.Struct({
 });
 export type JiraProject = typeof JiraProject.Type;
 
+export const JiraSprint = Schema.Struct({
+  id: PositiveInt,
+  boardId: PositiveInt,
+  name: TrimmedNonEmptyString,
+  state: Schema.Literals(["active", "future", "closed"]),
+});
+export type JiraSprint = typeof JiraSprint.Type;
+
+export const JiraSprintListInput = Schema.Struct({
+  projectKey: Schema.optional(TrimmedNonEmptyString),
+});
+export type JiraSprintListInput = typeof JiraSprintListInput.Type;
+
 export const JiraAssigneeScope = Schema.Literals(["mine", "all"]);
 export type JiraAssigneeScope = typeof JiraAssigneeScope.Type;
 
@@ -42,6 +55,7 @@ export const JiraWorkItemListInput = Schema.Union([
     assignee: JiraAssigneeScope,
     openOnly: Schema.Boolean,
     projectKey: Schema.optional(TrimmedNonEmptyString),
+    sprintId: Schema.optional(PositiveInt),
     limit: PositiveInt,
   }),
   Schema.Struct({
@@ -51,6 +65,22 @@ export const JiraWorkItemListInput = Schema.Union([
   }),
 ]);
 export type JiraWorkItemListInput = typeof JiraWorkItemListInput.Type;
+
+/** A bounded set of concrete sprints queried through `sprint list-workitems`. */
+export const JiraSprintWorkItemsInput = Schema.Struct({
+  sprints: Schema.Array(JiraSprint),
+  input: Schema.Union([
+    Schema.Struct({
+      mode: Schema.Literal("filters"),
+      assignee: JiraAssigneeScope,
+      openOnly: Schema.Boolean,
+      projectKey: Schema.optional(TrimmedNonEmptyString),
+      limit: PositiveInt,
+    }),
+    Schema.Struct({ mode: Schema.Literal("jql"), jql: TrimmedNonEmptyString, limit: PositiveInt }),
+  ]),
+});
+export type JiraSprintWorkItemsInput = typeof JiraSprintWorkItemsInput.Type;
 
 export const JiraWorkItemSummary = Schema.Struct({
   key: TrimmedNonEmptyString,
@@ -71,6 +101,13 @@ export const JiraWorkItemListResult = Schema.Struct({
 });
 export type JiraWorkItemListResult = typeof JiraWorkItemListResult.Type;
 
+export const JiraSprintWorkItemGroup = Schema.Struct({
+  sprint: JiraSprint,
+  items: Schema.Array(JiraWorkItemSummary),
+  truncated: Schema.Boolean,
+});
+export type JiraSprintWorkItemGroup = typeof JiraSprintWorkItemGroup.Type;
+
 export const JiraWorkItemDetailsInput = Schema.Struct({ key: TrimmedNonEmptyString });
 export type JiraWorkItemDetailsInput = typeof JiraWorkItemDetailsInput.Type;
 
@@ -80,6 +117,22 @@ export const JiraAdditionalField = Schema.Struct({
 });
 export type JiraAdditionalField = typeof JiraAdditionalField.Type;
 
+/** Read-only context returned by `workitem view --fields *all`. */
+export const JiraSubtaskSummary = Schema.Struct({
+  key: TrimmedNonEmptyString,
+  summary: TrimmedNonEmptyString,
+  status: Schema.NullOr(Schema.String),
+});
+export type JiraSubtaskSummary = typeof JiraSubtaskSummary.Type;
+
+export const JiraRelatedWorkItem = Schema.Struct({
+  key: TrimmedNonEmptyString,
+  summary: TrimmedNonEmptyString,
+  status: Schema.NullOr(Schema.String),
+  relationship: Schema.NullOr(Schema.String),
+});
+export type JiraRelatedWorkItem = typeof JiraRelatedWorkItem.Type;
+
 export const JiraWorkItemDetails = Schema.Struct({
   ...JiraWorkItemSummary.fields,
   description: Schema.String,
@@ -87,6 +140,8 @@ export const JiraWorkItemDetails = Schema.Struct({
   labels: Schema.Array(Schema.String),
   createdAt: Schema.NullOr(Schema.String),
   additionalFields: Schema.Array(JiraAdditionalField),
+  subtasks: Schema.Array(JiraSubtaskSummary),
+  relatedWorkItems: Schema.Array(JiraRelatedWorkItem),
 });
 export type JiraWorkItemDetails = typeof JiraWorkItemDetails.Type;
 
