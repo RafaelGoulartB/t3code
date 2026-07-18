@@ -60,6 +60,7 @@ import {
   WS_METHODS,
   WsRpcGroup,
   GitHubPullRequestError,
+  JiraError,
 } from "@t3tools/contracts";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest, HttpServerRespondable } from "effect/unstable/http";
@@ -106,6 +107,7 @@ import * as SourceControlRepositoryService from "./sourceControl/SourceControlRe
 import * as AzureDevOpsCli from "./sourceControl/AzureDevOpsCli.ts";
 import * as BitbucketApi from "./sourceControl/BitbucketApi.ts";
 import * as GitHubCli from "./sourceControl/GitHubCli.ts";
+import * as JiraCli from "./jira/JiraCli.ts";
 import * as GitLabCli from "./sourceControl/GitLabCli.ts";
 import * as SourceControlProviderRegistry from "./sourceControl/SourceControlProviderRegistry.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
@@ -309,6 +311,18 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.githubPullRequestsDiff, AuthOrchestrationReadScope],
   [WS_METHODS.githubPullRequestsAction, AuthOrchestrationOperateScope],
   [WS_METHODS.githubPullRequestsCheckout, AuthOrchestrationOperateScope],
+  [WS_METHODS.jiraStatus, AuthOrchestrationReadScope],
+  [WS_METHODS.jiraAuthLogin, AuthOrchestrationOperateScope],
+  [WS_METHODS.jiraAuthLogout, AuthOrchestrationOperateScope],
+  [WS_METHODS.jiraAuthSwitch, AuthOrchestrationOperateScope],
+  [WS_METHODS.jiraProjectsList, AuthOrchestrationReadScope],
+  [WS_METHODS.jiraSprintsList, AuthOrchestrationReadScope],
+  [WS_METHODS.jiraSprintsWorkItemsList, AuthOrchestrationReadScope],
+  [WS_METHODS.jiraWorkItemsList, AuthOrchestrationReadScope],
+  [WS_METHODS.jiraWorkItemsGet, AuthOrchestrationReadScope],
+  [WS_METHODS.jiraWorkItemsCommentsList, AuthOrchestrationReadScope],
+  [WS_METHODS.jiraWorkItemsAction, AuthOrchestrationOperateScope],
+  [WS_METHODS.jiraWorkItemsOpenInBrowser, AuthOrchestrationOperateScope],
   [WS_METHODS.projectsListEntries, AuthOrchestrationReadScope],
   [WS_METHODS.projectsReadFile, AuthOrchestrationReadScope],
   [WS_METHODS.projectsSearchEntries, AuthOrchestrationReadScope],
@@ -422,6 +436,7 @@ const makeWsRpcLayer = (
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
       const githubCli = yield* GitHubCli.GitHubCli;
+      const jiraCli = yield* JiraCli.JiraCli;
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
@@ -487,6 +502,42 @@ const makeWsRpcLayer = (
           ...(target?.repository ? { repository: target.repository } : {}),
           ...(target?.number ? { number: target.number } : {}),
         });
+      const jiraConnection = <A>(
+        operation: string,
+        run: (input: {
+          readonly binaryPath: string;
+          readonly cwd: string;
+        }) => Effect.Effect<A, JiraError>,
+      ) =>
+        serverSettings.getSettings.pipe(
+          Effect.mapError(
+            () => new JiraError({ operation, detail: "Could not read Jira integration settings." }),
+          ),
+          Effect.flatMap((settings) =>
+            settings.jira.enabled
+              ? run({ binaryPath: settings.jira.binaryPath, cwd: config.cwd })
+              : Effect.fail(
+                  new JiraError({
+                    operation,
+                    detail: "Jira integration is disabled in Advanced settings.",
+                  }),
+                ),
+          ),
+        );
+      const jiraStatus = serverSettings.getSettings.pipe(
+        Effect.flatMap((settings) =>
+          settings.jira.enabled
+            ? jiraCli.status({ binaryPath: settings.jira.binaryPath, cwd: config.cwd })
+            : Effect.succeed({
+                state: "disabled" as const,
+                message: "Jira integration is disabled.",
+              }),
+        ),
+        Effect.orElseSucceed(() => ({
+          state: "error" as const,
+          message: "Connection check failed.",
+        })),
+      );
       const requiredScopeForMethod = (method: string): AuthEnvironmentScope => {
         const requiredScope = RPC_REQUIRED_SCOPE.get(method);
         if (requiredScope === undefined) {
@@ -1499,6 +1550,86 @@ const makeWsRpcLayer = (
               ),
             { "rpc.aggregate": "github" },
           ),
+        [WS_METHODS.jiraStatus]: () =>
+          observeRpcEffect(WS_METHODS.jiraStatus, jiraStatus, { "rpc.aggregate": "jira" }),
+        [WS_METHODS.jiraAuthLogin]: () =>
+          observeRpcEffect(
+            WS_METHODS.jiraAuthLogin,
+            jiraConnection("sign in", (input) => jiraCli.login(input)),
+            { "rpc.aggregate": "jira" },
+          ),
+        [WS_METHODS.jiraAuthLogout]: () =>
+          observeRpcEffect(
+            WS_METHODS.jiraAuthLogout,
+            jiraConnection("sign out", (input) => jiraCli.logout(input)),
+            { "rpc.aggregate": "jira" },
+          ),
+        [WS_METHODS.jiraAuthSwitch]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.jiraAuthSwitch,
+            jiraConnection("switch account", (context) =>
+              jiraCli.switchAccount({ ...context, ...input }),
+            ),
+            { "rpc.aggregate": "jira" },
+          ),
+        [WS_METHODS.jiraProjectsList]: () =>
+          observeRpcEffect(
+            WS_METHODS.jiraProjectsList,
+            jiraConnection("list projects", (input) => jiraCli.projects(input)),
+            { "rpc.aggregate": "jira" },
+          ),
+        [WS_METHODS.jiraSprintsList]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.jiraSprintsList,
+            jiraConnection("list sprints", (context) => jiraCli.sprints({ ...context, ...input })),
+            { "rpc.aggregate": "jira" },
+          ),
+        [WS_METHODS.jiraSprintsWorkItemsList]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.jiraSprintsWorkItemsList,
+            jiraConnection("list sprint work items", (context) =>
+              jiraCli.listSprintWorkItems({ ...context, input }),
+            ),
+            { "rpc.aggregate": "jira" },
+          ),
+        [WS_METHODS.jiraWorkItemsList]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.jiraWorkItemsList,
+            jiraConnection("list work items", (context) =>
+              jiraCli.listWorkItems({ ...context, input }),
+            ),
+            { "rpc.aggregate": "jira" },
+          ),
+        [WS_METHODS.jiraWorkItemsGet]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.jiraWorkItemsGet,
+            jiraConnection("get work item", (context) =>
+              jiraCli.getWorkItem({ ...context, key: input.key }),
+            ),
+            { "rpc.aggregate": "jira" },
+          ),
+        [WS_METHODS.jiraWorkItemsCommentsList]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.jiraWorkItemsCommentsList,
+            jiraConnection("list comments", (context) =>
+              jiraCli.comments({ ...context, key: input.key }),
+            ).pipe(Effect.map((comments) => ({ comments }))),
+            { "rpc.aggregate": "jira" },
+          ),
+        [WS_METHODS.jiraWorkItemsAction]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.jiraWorkItemsAction,
+            jiraConnection(input.kind, (context) => jiraCli.action({ ...context, action: input })),
+            { "rpc.aggregate": "jira" },
+          ),
+        [WS_METHODS.jiraWorkItemsOpenInBrowser]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.jiraWorkItemsOpenInBrowser,
+            jiraConnection("open in browser", (context) =>
+              jiraCli.openInBrowser({ ...context, key: input.key }),
+            ),
+            { "rpc.aggregate": "jira" },
+          ),
         [WS_METHODS.projectsSearchEntries]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsSearchEntries,
@@ -2115,6 +2246,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
               Layer.provideMerge(RpcSerialization.layerJson),
               Layer.provide(ProviderMaintenanceRunner.layer),
               Layer.provide(GitHubCli.layer.pipe(Layer.provide(VcsProcess.layer))),
+              Layer.provide(JiraCli.layer.pipe(Layer.provide(VcsProcess.layer))),
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(
                   Layer.provide(

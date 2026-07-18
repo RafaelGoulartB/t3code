@@ -15,6 +15,7 @@ import {
   SettingsIcon,
   SquarePenIcon,
   TerminalIcon,
+  TicketIcon,
   TriangleAlertIcon,
 } from "lucide-react";
 import {
@@ -49,6 +50,8 @@ import {
   type ContextMenuItem,
   DEFAULT_SIDEBAR_PROJECT_FOLDER_COLOR,
   DEFAULT_SERVER_SETTINGS,
+  type EnvironmentId,
+  type JiraConnectionState,
   ProjectId,
   type ScopedThreadRef,
   type ResolvedKeybindingsConfig,
@@ -119,6 +122,7 @@ import { readLocalApi } from "../localApi";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { useDesktopUpdateState } from "../state/desktopUpdate";
+import { jiraEnvironment } from "../state/jira";
 
 import { useThreadActions } from "../hooks/useThreadActions";
 import { projectEnvironment } from "../state/projects";
@@ -3270,6 +3274,21 @@ interface SidebarProjectsContentProps {
   projectsLength: number;
 }
 
+function JiraStatusProbe({
+  environmentId,
+  onStateChange,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly onStateChange: (environmentId: EnvironmentId, state: JiraConnectionState | null) => void;
+}) {
+  const status = useEnvironmentQuery(jiraEnvironment.status({ environmentId, input: {} }));
+  useEffect(
+    () => onStateChange(environmentId, status.data?.state ?? null),
+    [environmentId, onStateChange, status.data?.state],
+  );
+  return null;
+}
+
 const SidebarProjectsContent = memo(function SidebarProjectsContent(
   props: SidebarProjectsContentProps,
 ) {
@@ -3316,6 +3335,39 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
   const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
   const sidebarPathname = useLocation({ select: (location) => location.pathname });
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const { environments } = useEnvironments();
+  const [jiraStates, setJiraStates] = useState<
+    ReadonlyMap<EnvironmentId, JiraConnectionState | null>
+  >(() => new Map());
+  const onJiraStateChange = useCallback(
+    (environmentId: EnvironmentId, state: JiraConnectionState | null) => {
+      setJiraStates((previous) => {
+        if (previous.get(environmentId) === state) return previous;
+        const next = new Map(previous);
+        next.set(environmentId, state);
+        return next;
+      });
+    },
+    [],
+  );
+  const jiraEnvironmentId = useMemo(() => {
+    if (primaryEnvironmentId && jiraStates.get(primaryEnvironmentId) === "authenticated") {
+      return primaryEnvironmentId;
+    }
+    return (
+      environments.find(
+        (environment) => jiraStates.get(environment.environmentId) === "authenticated",
+      )?.environmentId ?? null
+    );
+  }, [environments, jiraStates, primaryEnvironmentId]);
+  const openJira = useCallback(() => {
+    if (isMobile) setOpenMobile(false);
+    void navigate({
+      to: "/jira",
+      ...(jiraEnvironmentId ? { search: { environment: jiraEnvironmentId } } : {}),
+    });
+  }, [isMobile, jiraEnvironmentId, navigate, setOpenMobile]);
   const openPullRequests = useCallback(() => {
     if (isMobile) setOpenMobile(false);
     void navigate({ to: "/pull-requests" });
@@ -3506,6 +3558,13 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
         </SidebarGroup>
       ) : null}
       <LocalSecondaryStatus />
+      {environments.map((environment) => (
+        <JiraStatusProbe
+          key={environment.environmentId}
+          environmentId={environment.environmentId}
+          onStateChange={onJiraStateChange}
+        />
+      ))}
       <SidebarGroup className="px-2 pt-1 pb-0">
         <SidebarMenu>
           <SidebarMenuItem>
@@ -3519,6 +3578,19 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
               <span className="truncate text-xs">Pull Requests</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
+          {jiraEnvironmentId ? (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                size="sm"
+                isActive={sidebarPathname.startsWith("/jira")}
+                className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                onClick={openJira}
+              >
+                <TicketIcon className="size-3.5" />
+                <span className="truncate text-xs">Jira</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ) : null}
         </SidebarMenu>
       </SidebarGroup>
       <SidebarGroup className="px-2 py-2">

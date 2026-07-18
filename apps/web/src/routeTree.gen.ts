@@ -13,6 +13,7 @@ import { Route as WorktreesRouteImport } from './routes/worktrees'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PullRequestsRouteImport } from './routes/pull-requests'
 import { Route as PairRouteImport } from './routes/pair'
+import { Route as JiraRouteImport } from './routes/jira'
 import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as SettingsSourceControlRouteImport } from './routes/settings.source-control'
@@ -23,6 +24,7 @@ import { Route as SettingsDiagnosticsRouteImport } from './routes/settings.diagn
 import { Route as SettingsConnectionsRouteImport } from './routes/settings.connections'
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
 import { Route as SettingsAdvancedRouteImport } from './routes/settings.advanced'
+import { Route as JiraWorkItemKeyRouteImport } from './routes/jira_.$workItemKey'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
 import { Route as PullRequestsOwnerRepoNumberRouteImport } from './routes/pull-requests_.$owner.$repo.$number'
@@ -45,6 +47,11 @@ const PullRequestsRoute = PullRequestsRouteImport.update({
 const PairRoute = PairRouteImport.update({
   id: '/pair',
   path: '/pair',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const JiraRoute = JiraRouteImport.update({
+  id: '/jira',
+  path: '/jira',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChatRoute = ChatRouteImport.update({
@@ -96,6 +103,11 @@ const SettingsAdvancedRoute = SettingsAdvancedRouteImport.update({
   path: '/advanced',
   getParentRoute: () => SettingsRoute,
 } as any)
+const JiraWorkItemKeyRoute = JiraWorkItemKeyRouteImport.update({
+  id: '/jira_/$workItemKey',
+  path: '/jira/$workItemKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ChatDraftDraftIdRoute = ChatDraftDraftIdRouteImport.update({
   id: '/draft/$draftId',
   path: '/draft/$draftId',
@@ -116,10 +128,12 @@ const PullRequestsOwnerRepoNumberRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
+  '/jira': typeof JiraRoute
   '/pair': typeof PairRoute
   '/pull-requests': typeof PullRequestsRoute
   '/settings': typeof SettingsRouteWithChildren
   '/worktrees': typeof WorktreesRoute
+  '/jira/$workItemKey': typeof JiraWorkItemKeyRoute
   '/settings/advanced': typeof SettingsAdvancedRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/connections': typeof SettingsConnectionsRoute
@@ -133,10 +147,12 @@ export interface FileRoutesByFullPath {
   '/pull-requests/$owner/$repo/$number': typeof PullRequestsOwnerRepoNumberRoute
 }
 export interface FileRoutesByTo {
+  '/jira': typeof JiraRoute
   '/pair': typeof PairRoute
   '/pull-requests': typeof PullRequestsRoute
   '/settings': typeof SettingsRouteWithChildren
   '/worktrees': typeof WorktreesRoute
+  '/jira/$workItemKey': typeof JiraWorkItemKeyRoute
   '/settings/advanced': typeof SettingsAdvancedRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/connections': typeof SettingsConnectionsRoute
@@ -153,10 +169,12 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_chat': typeof ChatRouteWithChildren
+  '/jira': typeof JiraRoute
   '/pair': typeof PairRoute
   '/pull-requests': typeof PullRequestsRoute
   '/settings': typeof SettingsRouteWithChildren
   '/worktrees': typeof WorktreesRoute
+  '/jira_/$workItemKey': typeof JiraWorkItemKeyRoute
   '/settings/advanced': typeof SettingsAdvancedRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/connections': typeof SettingsConnectionsRoute
@@ -174,10 +192,12 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/jira'
     | '/pair'
     | '/pull-requests'
     | '/settings'
     | '/worktrees'
+    | '/jira/$workItemKey'
     | '/settings/advanced'
     | '/settings/archived'
     | '/settings/connections'
@@ -191,10 +211,12 @@ export interface FileRouteTypes {
     | '/pull-requests/$owner/$repo/$number'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/jira'
     | '/pair'
     | '/pull-requests'
     | '/settings'
     | '/worktrees'
+    | '/jira/$workItemKey'
     | '/settings/advanced'
     | '/settings/archived'
     | '/settings/connections'
@@ -210,10 +232,12 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_chat'
+    | '/jira'
     | '/pair'
     | '/pull-requests'
     | '/settings'
     | '/worktrees'
+    | '/jira_/$workItemKey'
     | '/settings/advanced'
     | '/settings/archived'
     | '/settings/connections'
@@ -230,10 +254,12 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   ChatRoute: typeof ChatRouteWithChildren
+  JiraRoute: typeof JiraRoute
   PairRoute: typeof PairRoute
   PullRequestsRoute: typeof PullRequestsRoute
   SettingsRoute: typeof SettingsRouteWithChildren
   WorktreesRoute: typeof WorktreesRoute
+  JiraWorkItemKeyRoute: typeof JiraWorkItemKeyRoute
   PullRequestsOwnerRepoNumberRoute: typeof PullRequestsOwnerRepoNumberRoute
 }
 
@@ -265,6 +291,13 @@ declare module '@tanstack/react-router' {
       path: '/pair'
       fullPath: '/pair'
       preLoaderRoute: typeof PairRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/jira': {
+      id: '/jira'
+      path: '/jira'
+      fullPath: '/jira'
+      preLoaderRoute: typeof JiraRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_chat': {
@@ -337,6 +370,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsAdvancedRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/jira_/$workItemKey': {
+      id: '/jira_/$workItemKey'
+      path: '/jira/$workItemKey'
+      fullPath: '/jira/$workItemKey'
+      preLoaderRoute: typeof JiraWorkItemKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_chat/draft/$draftId': {
       id: '/_chat/draft/$draftId'
       path: '/draft/$draftId'
@@ -403,10 +443,12 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRouteWithChildren,
+  JiraRoute: JiraRoute,
   PairRoute: PairRoute,
   PullRequestsRoute: PullRequestsRoute,
   SettingsRoute: SettingsRouteWithChildren,
   WorktreesRoute: WorktreesRoute,
+  JiraWorkItemKeyRoute: JiraWorkItemKeyRoute,
   PullRequestsOwnerRepoNumberRoute: PullRequestsOwnerRepoNumberRoute,
 }
 export const routeTree = rootRouteImport
