@@ -818,7 +818,7 @@ export function JiraPage() {
                   </div>
                 </div>
               ) : (
-                <>
+                <div className="space-y-3">
                   {(sprintGroups.data ?? []).map((group) => (
                     <section
                       key={`${group.sprint.boardId}-${group.sprint.id}`}
@@ -910,7 +910,7 @@ export function JiraPage() {
                       ))}
                     </section>
                   ) : null}
-                </>
+                </div>
               )}
               {workItems.data?.truncated ? (
                 <p className="mt-4 text-center text-xs text-muted-foreground">
@@ -1148,6 +1148,20 @@ export function JiraWorkItemDetailsPage() {
             onSave={runWorkItemAction}
             pending={pendingKind === "transition"}
           />
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={detail.isPending || comments.isPending}
+            onClick={() => {
+              detail.refresh();
+              comments.refresh();
+            }}
+          >
+            <RefreshCwIcon
+              className={cn("size-3.5", (detail.isPending || comments.isPending) && "animate-spin")}
+            />
+            Refresh
+          </Button>
           <JiraWorkItemOverflowMenu item={item} workItemKey={workItemKey} />
           <Button
             size="xs"
@@ -1160,15 +1174,20 @@ export function JiraWorkItemDetailsPage() {
         </header>
         <main className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">
           <div className="mx-auto grid max-w-5xl gap-6 lg:grid-cols-[minmax(0,1fr)_16rem]">
-            <section className="space-y-5">
+            <section className="flex flex-col gap-5">
               <div>
                 <h2 className="text-sm font-semibold">Description</h2>
                 <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
                   {item?.description || "No description."}
                 </p>
               </div>
-              <div>
+              <div className="order-last">
                 <h2 className="text-sm font-semibold">Comments</h2>
+                {comments.error ? (
+                  <p className="mt-3 rounded-lg border border-destructive/40 p-3 text-sm text-destructive">
+                    Could not load comments from Jira. {comments.error}
+                  </p>
+                ) : null}
                 <div className="mt-3 grid gap-3">
                   {comments.data?.comments.map((entry, index) => (
                     <article key={entry.id ?? index} className="rounded-xl border p-3">
@@ -1203,6 +1222,13 @@ export function JiraWorkItemDetailsPage() {
                       ) : null}
                     </article>
                   ))}
+                  {!comments.error &&
+                  comments.data?.comments.length === 0 &&
+                  localComments.length === 0 ? (
+                    <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                      No comments yet.
+                    </p>
+                  ) : null}
                 </div>
                 <div className="mt-3 grid gap-2">
                   <Textarea

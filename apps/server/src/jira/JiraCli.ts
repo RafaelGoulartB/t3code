@@ -62,7 +62,25 @@ function display(value: unknown): string | null {
 }
 
 function parseJson(value: string, operation: string): Effect.Effect<unknown, JiraError> {
-  return decodeJson(value).pipe(
+  // Some Windows ACLI builds print a BOM or a short prelude before their JSON
+  // payload. Try only bounded JSON-shaped substrings and never forward output.
+  const normalized = value.replace(/^\uFEFF/, "").trim();
+  const candidates = [normalized];
+  for (const [startToken, endToken] of [
+    ["{", "}"],
+    ["[", "]"],
+  ] as const) {
+    const start = normalized.indexOf(startToken);
+    const end = normalized.lastIndexOf(endToken);
+    if (start >= 0 && end > start) candidates.push(normalized.slice(start, end + 1));
+  }
+  const decoded = candidates
+    .slice(1)
+    .reduce(
+      (attempt, candidate) => attempt.pipe(Effect.catch(() => decodeJson(candidate))),
+      decodeJson(candidates[0] ?? ""),
+    );
+  return decoded.pipe(
     Effect.mapError(
       (cause) =>
         new JiraError({ operation, detail: "Atlassian CLI returned invalid JSON.", cause }),
@@ -100,8 +118,47 @@ export function workItemsFromCliJson(value: unknown): ReadonlyArray<unknown> {
   return collection(value, ["issues", "workItems", "values", "items"]);
 }
 
-export function commentsFromCliJson(value: unknown): ReadonlyArray<unknown> {
-  return collection(value, ["comments", "values", "items"]);
+export function commentsFromCliJson(value: unknown, depth = 0): ReadonlyArray<unknown> {
+  const entries = collection(value, ["comments", "values", "items", "results"]);
+  if (entries.length > 0 || depth >= 3) return entries;
+
+  // ACLI has returned both `{ comments: [...] }` and nested work-item/result
+  // envelopes across releases. Only descend through known container keys.
+  const container = record(value);
+  for (const name of ["comments", "comment", "result", "data", "issue", "workItem", "fields"]) {
+    const nested = container[name];
+    if (nested !== undefined) {
+      const nestedEntries = commentsFromCliJson(nested, depth + 1);
+      if (nestedEntries.length > 0) return nestedEntries;
+    }
+  }
+  return [];
+}
+
+function plainText(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    const parts = value
+      .map(plainText)
+      .filter((part): part is string => part !== null && part !== "");
+    return parts.length > 0 ? parts.join("\n") : null;
+  }
+  const entry = record(value);
+  const text = string(entry.text);
+  if (text) return text;
+  return entry.content === undefined ? null : plainText(entry.content);
+}
+
+function normalizeComments(output: unknown): ReadonlyArray<JiraComment> {
+  return commentsFromCliJson(output).map((entry) => {
+    const value = record(entry);
+    return {
+      id: string(value.id),
+      author: display(value.author),
+      body: plainText(value.body) ?? "",
+      createdAt: string(value.created) ?? string(value.createdAt),
+    };
+  });
 }
 
 export function sprintsFromCliJson(value: unknown): ReadonlyArray<unknown> {
@@ -500,28 +557,27 @@ export const make = Effect.gen(function* () {
         ),
       ),
     );
-  const comments = (input: CliContext & { readonly key: string }) =>
-    run({
+  const comments = (input: CliContext & { readonly key: string }) => {
+    const decodeComments = (stdout: string, operation: string) =>
+      parseJson(stdout, operation).pipe(Effect.map(normalizeComments));
+    const fallback = run({
+      ...input,
+      operation: "get comments from work item",
+      args: ["jira", "workitem", "view", input.key, "--fields", "*all", "--json"],
+    }).pipe(
+      Effect.flatMap((result) => decodeComments(result.stdout, "get comments from work item")),
+    );
+    return run({
       ...input,
       operation: "list comments",
-      args: ["jira", "workitem", "comment", "list", "--key", input.key, "--limit", "100", "--json"],
+      args: ["jira", "workitem", "comment", "list", "--key", input.key, "--paginate", "--json"],
     }).pipe(
-      Effect.flatMap((result) =>
-        parseJson(result.stdout, "list comments").pipe(
-          Effect.map((output) =>
-            commentsFromCliJson(output).map((entry) => {
-              const value = record(entry);
-              return {
-                id: string(value.id),
-                author: display(value.author),
-                body: string(value.body) ?? "",
-                createdAt: string(value.created) ?? string(value.createdAt),
-              };
-            }),
-          ),
-        ),
+      Effect.flatMap((result) => decodeComments(result.stdout, "list comments")),
+      Effect.catch((error) =>
+        error.detail === "Atlassian CLI returned invalid JSON." ? fallback : Effect.fail(error),
       ),
     );
+  };
   const action = (input: CliContext & { readonly action: JiraWorkItemAction }) => {
     const action = input.action;
     const args = ["jira", "workitem"];
