@@ -12,6 +12,10 @@ const PREVIEW_PANEL_WIDTH_STORAGE_KEY = "t3code:preview-panel-width";
 const PREVIEW_PANEL_MIN_WIDTH = 360;
 const PREVIEW_PANEL_DEFAULT_WIDTH = 540;
 
+export function getPreviewPanelMaxWidth(viewportWidth: number): number {
+  return viewportWidth;
+}
+
 /**
  * Shell for the preview panel. In inline mode the panel is user-resizable
  * via a drag handle on the left edge; width persists per browser. In
@@ -78,5 +82,5 @@ function useViewportWidth(): number {
       if (frame !== 0) window.cancelAnimationFrame(frame);
     };
   }, []);
-  return vw;
+  return getPreviewPanelMaxWidth(vw);
 }
