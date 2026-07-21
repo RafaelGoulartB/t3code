@@ -13,7 +13,16 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { ChevronRight, Code2, Eye, FolderTree, Globe2, LoaderCircle } from "lucide-react";
 import * as Schema from "effect/Schema";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
 import ChatMarkdown from "~/components/ChatMarkdown";
@@ -39,6 +48,21 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 
 import FileBrowserPanel from "./FileBrowserPanel";
+import { FileFindBar } from "./FileFindBar";
+import {
+  type FileFindDirection,
+  findFileMatches,
+  isFileFindShortcut,
+  navigateFileFindIndex,
+  reconcileFileFindIndex,
+} from "./fileFind";
+import {
+  applyFileFindHighlights,
+  clearFileFindHighlights,
+  createCodeMatchRanges,
+  createDomFileFindMatches,
+  scrollRangeIntoView,
+} from "./fileFindDom";
 import {
   type FileCommentAnnotationEntry,
   type FileCommentAnnotationGroup,
@@ -109,6 +133,15 @@ const FILE_LINK_REVEAL_UNSAFE_CSS = `
       )
     ) !important;
     color: var(--diffs-selection-number-fg) !important;
+  }
+
+  ::highlight(t3-file-find-match) {
+    background-color: light-dark(rgb(245 158 11 / 38%), rgb(251 191 36 / 32%));
+  }
+
+  ::highlight(t3-file-find-current) {
+    background-color: light-dark(rgb(249 115 22 / 72%), rgb(251 146 60 / 68%));
+    color: inherit;
   }
 `;
 type FilePostRender = NonNullable<FileOptions<unknown>["onPostRender"]>;
@@ -238,6 +271,226 @@ function useFileLineReveal(
       revealLine,
       revealRequestId,
     ],
+  );
+}
+
+function useFileFindKeyboardShortcut(
+  surfaceRef: RefObject<HTMLElement | null>,
+  inputRef: RefObject<HTMLInputElement | null>,
+  open: boolean,
+  onOpen: () => void,
+  onClose: () => void,
+): void {
+  useEffect(() => {
+    const surface = surfaceRef.current;
+    if (!surface) return;
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (open && event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+        return;
+      }
+      if (!isFileFindShortcut(event, navigator.platform)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onOpen();
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      });
+    };
+    surface.addEventListener("keydown", handleKeyDown, true);
+    return () => surface.removeEventListener("keydown", handleKeyDown, true);
+  }, [inputRef, onClose, onOpen, open, surfaceRef]);
+}
+
+interface SourceFileFindSurfaceProps {
+  contents: string;
+  onPostRender: FilePostRender;
+  children: (onPostRender: FilePostRender) => ReactNode;
+}
+
+function SourceFileFindSurface({ contents, onPostRender, children }: SourceFileFindSurfaceProps) {
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const fileContainerRef = useRef<HTMLElement | null>(null);
+  const fileInstanceRef = useRef<VirtualizedFile | null>(null);
+  const highlightFrameRef = useRef<number | null>(null);
+  const previousSearchRef = useRef<{
+    query: string;
+    matches: ReturnType<typeof findFileMatches>;
+  }>({ query: "", matches: [] });
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [navigationRequestId, setNavigationRequestId] = useState(0);
+  const matches = useMemo(() => findFileMatches(contents, query), [contents, query]);
+  const resolvedActiveIndex =
+    matches.length === 0
+      ? null
+      : activeIndex === null
+        ? 0
+        : Math.min(activeIndex, matches.length - 1);
+
+  useEffect(() => {
+    const previous = previousSearchRef.current;
+    setActiveIndex((current) =>
+      previous.query === query
+        ? reconcileFileFindIndex(previous.matches, matches, current)
+        : matches.length > 0
+          ? 0
+          : null,
+    );
+    previousSearchRef.current = { query, matches };
+  }, [matches, query]);
+
+  const applyHighlights = useCallback((): Range | null => {
+    const fileContainer = fileContainerRef.current;
+    if (!open || !fileContainer) {
+      clearFileFindHighlights();
+      return null;
+    }
+    const root = fileContainer.shadowRoot ?? fileContainer;
+    const rangesByIndex = createCodeMatchRanges(root, matches);
+    const currentRange =
+      resolvedActiveIndex === null ? null : (rangesByIndex.get(resolvedActiveIndex) ?? null);
+    applyFileFindHighlights([...rangesByIndex.values()], currentRange);
+    return currentRange;
+  }, [matches, open, resolvedActiveIndex]);
+
+  const revealActiveMatch = useCallback(() => {
+    if (highlightFrameRef.current !== null) {
+      cancelAnimationFrame(highlightFrameRef.current);
+      highlightFrameRef.current = null;
+    }
+    if (!open || resolvedActiveIndex === null) {
+      applyHighlights();
+      return;
+    }
+
+    const fileContainer = fileContainerRef.current;
+    const instance = fileInstanceRef.current;
+    const match = matches[resolvedActiveIndex];
+    const scrollContainer = fileContainer?.closest<HTMLElement>(".file-preview-virtualizer");
+    if (fileContainer && instance && match && scrollContainer) {
+      const linePosition = instance.getLinePosition(match.lineNumber);
+      if (linePosition) {
+        const fileTop =
+          scrollContainer.scrollTop +
+          fileContainer.getBoundingClientRect().top -
+          scrollContainer.getBoundingClientRect().top;
+        const centeredTop = Math.max(
+          0,
+          fileTop +
+            linePosition.top -
+            Math.max(0, (scrollContainer.clientHeight - linePosition.height) / 2),
+        );
+        scrollContainer.scrollTop = Math.min(
+          centeredTop,
+          Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight),
+        );
+      }
+    }
+
+    highlightFrameRef.current = requestAnimationFrame(() => {
+      highlightFrameRef.current = null;
+      const currentRange = applyHighlights();
+      if (currentRange) scrollRangeIntoView(currentRange);
+    });
+  }, [applyHighlights, matches, open, resolvedActiveIndex]);
+
+  useLayoutEffect(() => {
+    revealActiveMatch();
+  }, [navigationRequestId, revealActiveMatch]);
+
+  useEffect(
+    () => () => {
+      if (highlightFrameRef.current !== null) cancelAnimationFrame(highlightFrameRef.current);
+      clearFileFindHighlights();
+    },
+    [],
+  );
+
+  const focusSurface = useCallback(() => {
+    const fileContainer = fileContainerRef.current;
+    const content = (fileContainer?.shadowRoot ?? fileContainer)?.querySelector<HTMLElement>(
+      "[data-content]",
+    );
+    (content ?? surfaceRef.current)?.focus({ preventScroll: true });
+  }, []);
+
+  const closeFind = useCallback(() => {
+    setOpen(false);
+    setQuery("");
+    setActiveIndex(null);
+    clearFileFindHighlights();
+    requestAnimationFrame(focusSurface);
+  }, [focusSurface]);
+
+  const navigate = useCallback(
+    (direction: FileFindDirection) => {
+      setActiveIndex((current) => navigateFileFindIndex(current, matches.length, direction));
+      setNavigationRequestId((current) => current + 1);
+    },
+    [matches.length],
+  );
+
+  const openFind = useCallback(() => setOpen(true), []);
+  useFileFindKeyboardShortcut(surfaceRef, inputRef, open, openFind, closeFind);
+
+  const handlePostRender = useCallback<FilePostRender>(
+    (fileContainer, instance, phase) => {
+      onPostRender(fileContainer, instance, phase);
+      if (phase === "unmount") {
+        if (fileContainerRef.current === fileContainer) {
+          fileContainerRef.current = null;
+          fileInstanceRef.current = null;
+        }
+        clearFileFindHighlights();
+        return;
+      }
+      fileContainerRef.current = fileContainer;
+      fileInstanceRef.current = instance instanceof VirtualizedFile ? instance : null;
+      applyHighlights();
+    },
+    [applyHighlights, onPostRender],
+  );
+
+  return (
+    <div
+      ref={surfaceRef}
+      className="relative flex min-h-0 flex-1 outline-none"
+      data-file-find-surface="source"
+      tabIndex={-1}
+      onPointerDown={(event) => {
+        const path = event.nativeEvent.composedPath();
+        const hasInteractiveTarget = path.some(
+          (target) =>
+            target instanceof HTMLElement &&
+            (target.isContentEditable ||
+              target.matches("a,button,input,select,textarea,[contenteditable='true']")),
+        );
+        if (!hasInteractiveTarget) surfaceRef.current?.focus({ preventScroll: true });
+      }}
+    >
+      {open ? (
+        <FileFindBar
+          inputRef={inputRef}
+          query={query}
+          matchCount={matches.length}
+          currentIndex={resolvedActiveIndex}
+          onQueryChange={(nextQuery) => {
+            setQuery(nextQuery);
+            setActiveIndex(nextQuery.length > 0 ? 0 : null);
+            setNavigationRequestId((current) => current + 1);
+          }}
+          onNavigate={navigate}
+          onClose={closeFind}
+        />
+      ) : null}
+      {children(handlePostRender)}
+    </div>
   );
 }
 
@@ -576,24 +829,128 @@ function RenderedMarkdownSurface({
     onPendingChange,
   });
 
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const previousSearchRef = useRef<{
+    query: string;
+    matches: ReturnType<typeof createDomFileFindMatches>;
+  }>({ query: "", matches: [] });
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [matches, setMatches] = useState<ReturnType<typeof createDomFileFindMatches>>([]);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [navigationRequestId, setNavigationRequestId] = useState(0);
+  const resolvedActiveIndex =
+    matches.length === 0
+      ? null
+      : activeIndex === null
+        ? 0
+        : Math.min(activeIndex, matches.length - 1);
+
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    const nextMatches = open && content ? createDomFileFindMatches(content, query) : [];
+    const previous = previousSearchRef.current;
+    setActiveIndex((current) =>
+      previous.query === query
+        ? reconcileFileFindIndex(previous.matches, nextMatches, current)
+        : nextMatches.length > 0
+          ? 0
+          : null,
+    );
+    previousSearchRef.current = { query, matches: nextMatches };
+    setMatches(nextMatches);
+  }, [contents, open, query]);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      clearFileFindHighlights();
+      return;
+    }
+    const currentRange =
+      resolvedActiveIndex === null ? null : (matches[resolvedActiveIndex]?.range ?? null);
+    applyFileFindHighlights(
+      matches.map((match) => match.range),
+      currentRange,
+    );
+    if (currentRange) scrollRangeIntoView(currentRange);
+  }, [matches, navigationRequestId, open, resolvedActiveIndex]);
+
+  useEffect(() => () => clearFileFindHighlights(), []);
+
+  const closeFind = useCallback(() => {
+    setOpen(false);
+    setQuery("");
+    setMatches([]);
+    setActiveIndex(null);
+    clearFileFindHighlights();
+    requestAnimationFrame(() => surfaceRef.current?.focus({ preventScroll: true }));
+  }, []);
+
+  const navigate = useCallback(
+    (direction: FileFindDirection) => {
+      setActiveIndex((current) => navigateFileFindIndex(current, matches.length, direction));
+      setNavigationRequestId((current) => current + 1);
+    },
+    [matches.length],
+  );
+
+  const openFind = useCallback(() => setOpen(true), []);
+  useFileFindKeyboardShortcut(surfaceRef, inputRef, open, openFind, closeFind);
+
   return (
-    <ScrollArea className="min-h-0 flex-1">
-      <ChatMarkdown
-        text={contents}
-        cwd={cwd}
-        threadRef={threadRef}
-        className="mx-auto max-w-4xl px-6 py-5"
-        onTaskListChange={({ markerOffset, checked }) => {
-          const currentContents =
-            getOptimisticProjectFileQueryData(environmentId, cwd, relativePath)?.contents ??
-            contents;
-          const nextContents = setMarkdownTaskChecked(currentContents, markerOffset, checked);
-          if (nextContents === currentContents) return;
-          setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
-          saveCoordinator.change(nextContents);
-        }}
-      />
-    </ScrollArea>
+    <div
+      ref={surfaceRef}
+      className="relative flex min-h-0 flex-1 outline-none"
+      data-file-find-surface="markdown"
+      tabIndex={0}
+      onPointerDown={(event) => {
+        const target = event.target;
+        if (
+          target instanceof Element &&
+          target.closest("a,button,input,select,textarea,[contenteditable='true']")
+        ) {
+          return;
+        }
+        surfaceRef.current?.focus({ preventScroll: true });
+      }}
+    >
+      {open ? (
+        <FileFindBar
+          inputRef={inputRef}
+          query={query}
+          matchCount={matches.length}
+          currentIndex={resolvedActiveIndex}
+          onQueryChange={(nextQuery) => {
+            setQuery(nextQuery);
+            setActiveIndex(nextQuery.length > 0 ? 0 : null);
+            setNavigationRequestId((current) => current + 1);
+          }}
+          onNavigate={navigate}
+          onClose={closeFind}
+        />
+      ) : null}
+      <ScrollArea className="min-h-0 flex-1">
+        <div ref={contentRef} data-file-find-content>
+          <ChatMarkdown
+            text={contents}
+            cwd={cwd}
+            threadRef={threadRef}
+            className="mx-auto max-w-4xl px-6 py-5"
+            onTaskListChange={({ markerOffset, checked }) => {
+              const currentContents =
+                getOptimisticProjectFileQueryData(environmentId, cwd, relativePath)?.contents ??
+                contents;
+              const nextContents = setMarkdownTaskChecked(currentContents, markerOffset, checked);
+              if (nextContents === currentContents) return;
+              setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
+              saveCoordinator.change(nextContents);
+            }}
+          />
+        </div>
+      </ScrollArea>
+    </div>
   );
 }
 
@@ -829,6 +1186,7 @@ export default function FilePreviewPanel({
           ) : relativePath && file.data ? (
             isMarkdown && renderMarkdown ? (
               <RenderedMarkdownSurface
+                key={`${relativePath}:${resolvedTheme}:rendered`}
                 environmentId={environmentId}
                 cwd={cwd}
                 relativePath={relativePath}
@@ -836,46 +1194,56 @@ export default function FilePreviewPanel({
                 contents={file.data.contents}
                 onPendingChange={onPendingChange}
               />
-            ) : file.data.truncated ? (
-              <Virtualizer
-                key={`${relativePath}:${resolvedTheme}:${file.data.byteLength}`}
-                className="file-preview-virtualizer min-h-0 flex-1 overflow-auto"
-                config={{
-                  overscrollSize: 600,
-                  intersectionObserverMargin: 1200,
-                }}
-              >
-                <File
-                  file={{
-                    name: relativePath,
-                    contents: file.data.contents,
-                    cacheKey: projectFileCacheKey(cwd, relativePath, file.data.contents),
-                  }}
-                  options={{
-                    disableFileHeader: true,
-                    overflow: wordWrap ? "wrap" : "scroll",
-                    theme: resolveDiffThemeName(resolvedTheme),
-                    themeType: resolvedTheme,
-                    unsafeCSS: FILE_LINK_REVEAL_UNSAFE_CSS,
-                    onPostRender: onFilePostRender,
-                  }}
-                  className="min-h-full"
-                />
-              </Virtualizer>
             ) : (
-              <EditableFileSurface
-                key={`${relativePath}:${resolvedTheme}`}
-                environmentId={environmentId}
-                cwd={cwd}
-                relativePath={relativePath}
-                composerDraftTarget={composerDraftTarget}
+              <SourceFileFindSurface
+                key={`${relativePath}:${resolvedTheme}:source`}
                 contents={file.data.contents}
-                resolvedTheme={resolvedTheme}
-                revealRequestId={revealRequestId}
-                wordWrap={wordWrap}
                 onPostRender={onFilePostRender}
-                onPendingChange={onPendingChange}
-              />
+              >
+                {(findPostRender) => {
+                  const fileData = file.data;
+                  if (!fileData) return null;
+                  return fileData.truncated ? (
+                    <Virtualizer
+                      className="file-preview-virtualizer min-h-0 flex-1 overflow-auto"
+                      config={{
+                        overscrollSize: 600,
+                        intersectionObserverMargin: 1200,
+                      }}
+                    >
+                      <File
+                        file={{
+                          name: relativePath,
+                          contents: fileData.contents,
+                          cacheKey: projectFileCacheKey(cwd, relativePath, fileData.contents),
+                        }}
+                        options={{
+                          disableFileHeader: true,
+                          overflow: wordWrap ? "wrap" : "scroll",
+                          theme: resolveDiffThemeName(resolvedTheme),
+                          themeType: resolvedTheme,
+                          unsafeCSS: FILE_LINK_REVEAL_UNSAFE_CSS,
+                          onPostRender: findPostRender,
+                        }}
+                        className="min-h-full"
+                      />
+                    </Virtualizer>
+                  ) : (
+                    <EditableFileSurface
+                      environmentId={environmentId}
+                      cwd={cwd}
+                      relativePath={relativePath}
+                      composerDraftTarget={composerDraftTarget}
+                      contents={fileData.contents}
+                      resolvedTheme={resolvedTheme}
+                      revealRequestId={revealRequestId}
+                      wordWrap={wordWrap}
+                      onPostRender={findPostRender}
+                      onPendingChange={onPendingChange}
+                    />
+                  );
+                }}
+              </SourceFileFindSurface>
             )
           ) : null}
         </div>

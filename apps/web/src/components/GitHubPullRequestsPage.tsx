@@ -726,6 +726,7 @@ function PullRequestCard({
               {REVIEW_STATUS_SHORT_LABELS[item.reviewStatus]}
             </span>
           </span>
+          {item.hasConflicts ? <PullRequestConflictPill /> : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button size="xs" onClick={() => onOpenChat(item)}>
@@ -987,6 +988,7 @@ function PullRequestCardDetails({
               <span className="text-muted-foreground">Review</span>
               <span className="text-foreground">{detail.reviewDecision ?? "Pendente"}</span>
             </div>
+            {detail.hasConflicts ? <PullRequestConflictPill /> : null}
             <div className="flex items-center justify-between gap-2">
               <span className="text-muted-foreground">Criada</span>
               <span className="text-foreground">{formatDate(detail.createdAt)}</span>
@@ -1271,6 +1273,15 @@ function PullRequestDraftPill() {
     <Badge size="sm" className="gap-1 border-border bg-muted text-muted-foreground">
       <GitPullRequestDraftIcon className="size-3" />
       Rascunho
+    </Badge>
+  );
+}
+
+function PullRequestConflictPill() {
+  return (
+    <Badge size="sm" className="gap-1 border-destructive/30 bg-destructive/10 text-destructive">
+      <AlertCircleIcon className="size-3" />
+      Com conflitos
     </Badge>
   );
 }
@@ -1916,6 +1927,10 @@ function PullRequestSidebar({
           />
           <SidebarRow label="Review" value={detail.reviewDecision ?? "Pendente"} />
           <SidebarRow label="Mergeable" value={detail.mergeable ?? "—"} />
+          <SidebarRow
+            label="Conflitos"
+            value={detail.hasConflicts ? "Há conflitos" : "Sem conflitos"}
+          />
         </dl>
       </section>
       <section className="rounded-xl border border-border p-4 text-xs">
@@ -2065,6 +2080,7 @@ export function GitHubPullRequestDetailsPage() {
               <span className="font-mono">#{number}</span>
               {detail ? <PullRequestStatePill state={detail.state} /> : null}
               {detail?.isDraft ? <PullRequestDraftPill /> : null}
+              {detail?.hasConflicts ? <PullRequestConflictPill /> : null}
               {detail ? <PullRequestReviewPill decision={detail.reviewDecision} /> : null}
               {localReviewAction === "approve" ? (
                 <PullRequestLocalReviewPill variant="approve" />

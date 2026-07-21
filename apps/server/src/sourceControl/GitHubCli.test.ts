@@ -197,6 +197,7 @@ describe("GitHubCli.layer", () => {
                       labels: [],
                       reviewDecision: "CHANGES_REQUESTED",
                       statusCheckRollup: { state: "FAILURE" },
+                      mergeable: "CONFLICTING",
                     },
                     {
                       number: 9,
@@ -209,6 +210,7 @@ describe("GitHubCli.layer", () => {
                       labels: [],
                       reviewDecision: "REVIEW_REQUIRED",
                       statusCheckRollup: { state: "PENDING" },
+                      mergeStateStatus: "DIRTY",
                     },
                   ],
                 },
@@ -225,10 +227,14 @@ describe("GitHubCli.layer", () => {
       });
 
       assert.deepStrictEqual(
-        result.items.map((item) => ({ ciStatus: item.ciStatus, reviewStatus: item.reviewStatus })),
+        result.items.map((item) => ({
+          ciStatus: item.ciStatus,
+          reviewStatus: item.reviewStatus,
+          hasConflicts: item.hasConflicts,
+        })),
         [
-          { ciStatus: "failure", reviewStatus: "changes_requested" },
-          { ciStatus: "pending", reviewStatus: "pending" },
+          { ciStatus: "failure", reviewStatus: "changes_requested", hasConflicts: true },
+          { ciStatus: "pending", reviewStatus: "pending", hasConflicts: true },
         ],
       );
     }).pipe(Effect.provide(layer)),
@@ -317,6 +323,7 @@ describe("GitHubCli.layer", () => {
 
       assert.equal(result.title, "Detailed PR");
       assert.equal(result.reviewDecision, "REVIEW_REQUIRED");
+      assert.equal(result.hasConflicts, false);
       assert.equal(result.checks[0]?.bucket, "pass");
       assert.equal(result.reviewThreads[0]?.path, "src/main.ts");
       assert.equal(result.reviewThreads[0]?.comments[0]?.body, "Please extract this helper.");

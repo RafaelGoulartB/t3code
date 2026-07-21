@@ -87,6 +87,15 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --workspace-titlebar-control-gap: 0.75rem;
 }
 
+::highlight(t3-file-find-match) {
+  background-color: light-dark(rgb(245 158 11 / 38%), rgb(251 191 36 / 32%));
+}
+
+::highlight(t3-file-find-current) {
+  color: inherit;
+  background-color: light-dark(rgb(249 115 22 / 72%), rgb(251 146 60 / 68%));
+}
+
 [data-slot="sidebar-wrapper"] {
   --workspace-titlebar-content-left: calc(
     var(--workspace-controls-left) + var(--workspace-titlebar-control-size) +

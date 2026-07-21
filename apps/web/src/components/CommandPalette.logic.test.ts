@@ -30,6 +30,7 @@ const pullRequest: GitHubPullRequestListItem = {
   labels: [],
   ciStatus: "success",
   reviewStatus: "approved",
+  hasConflicts: false,
 };
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {

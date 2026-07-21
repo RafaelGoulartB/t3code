@@ -85,6 +85,7 @@ export const GitHubPullRequestListItem = Schema.Struct({
   labels: Schema.Array(GitHubPullRequestLabel),
   ciStatus: GitHubPullRequestCiStatus,
   reviewStatus: GitHubPullRequestReviewStatus,
+  hasConflicts: Schema.Boolean,
 });
 export type GitHubPullRequestListItem = typeof GitHubPullRequestListItem.Type;
 
@@ -158,6 +159,7 @@ export const GitHubPullRequestDetails = Schema.Struct({
   reviewDecision: Schema.NullOr(Schema.String),
   mergeable: Schema.NullOr(Schema.String),
   mergeStateStatus: Schema.NullOr(Schema.String),
+  hasConflicts: Schema.Boolean,
   labels: Schema.Array(GitHubPullRequestLabel),
   assignees: Schema.Array(GitHubActor),
   reviewRequests: Schema.Array(GitHubActor),
