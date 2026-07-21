@@ -25,11 +25,13 @@ import {
   EyeIcon,
   ExternalLinkIcon,
   FileTextIcon,
+  FolderGit2Icon,
   GitMergeIcon,
   GitPullRequestArrowIcon,
   GitPullRequestClosedIcon,
   GitPullRequestDraftIcon,
   GitPullRequestIcon,
+  ListIcon,
   MessageCircleDashedIcon,
   MessageCircleIcon,
   MessageCircleWarningIcon,
@@ -48,6 +50,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useTheme } from "../hooks/useTheme";
+import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { usePreparePullRequestThreadAction } from "../lib/sourceControlActions";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
 import {
@@ -78,6 +81,7 @@ import { Textarea } from "./ui/textarea";
 import { Badge } from "./ui/badge";
 import { Switch } from "./ui/switch";
 import { Toggle } from "./ui/toggle";
+import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group";
 import { cn } from "../lib/utils";
 import { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 import {
@@ -425,6 +429,23 @@ function normalizeRepositoryName(value: string): string {
     .trim()
     .toLowerCase()
     .replace(/\.git$/, "");
+}
+
+function groupPullRequestsByRepository(
+  items: ReadonlyArray<GitHubPullRequestListItem>,
+): Array<{ readonly repository: string; readonly items: GitHubPullRequestListItem[] }> {
+  const groups = new Map<string, GitHubPullRequestListItem[]>();
+  for (const item of items) {
+    const existing = groups.get(item.repository);
+    if (existing) {
+      existing.push(item);
+    } else {
+      groups.set(item.repository, [item]);
+    }
+  }
+  return Array.from(groups.entries())
+    .map(([repository, groupItems]) => ({ repository, items: groupItems }))
+    .sort((a, b) => a.repository.localeCompare(b.repository));
 }
 
 function projectMatchesPullRequest(
@@ -998,6 +1019,8 @@ export function GitHubPullRequestsPage() {
       : null,
   );
   const [chatItem, setChatItem] = useState<GitHubPullRequestListItem | null>(null);
+  const groupingMode = useClientSettings((settings) => settings.pullRequestGroupingMode);
+  const updateClientSettings = useUpdateClientSettings();
 
   const clear = () => updateSearch(navigate, search, clearPullRequestFilters(search));
   const selectPreset = (preset: PullRequestSearch["preset"]) => {
@@ -1027,6 +1050,26 @@ export function GitHubPullRequestsPage() {
             environmentId={environmentId}
             onChange={(value) => updateSearch(navigate, search, { environment: value })}
           />
+          <ToggleGroup
+            variant="outline"
+            size="xs"
+            value={[groupingMode]}
+            onValueChange={(value) => {
+              const next = value[0];
+              if (next === "flat" || next === "repository") {
+                updateClientSettings({ pullRequestGroupingMode: next });
+              }
+            }}
+          >
+            <ToggleGroupItem aria-label="Listagem normal" value="flat">
+              <ListIcon className="size-3" />
+              Lista
+            </ToggleGroupItem>
+            <ToggleGroupItem aria-label="Agrupar por repositório" value="repository">
+              <FolderGit2Icon className="size-3" />
+              Por repositório
+            </ToggleGroupItem>
+          </ToggleGroup>
           <Button size="xs" variant="outline" onClick={query.refresh} disabled={query.isPending}>
             <RefreshCwIcon className={cn("size-3.5", query.isPending && "animate-spin")} />
             Atualizar
@@ -1142,17 +1185,44 @@ export function GitHubPullRequestsPage() {
               Nenhuma PR encontrada para os filtros atuais.
             </div>
           ) : null}
-          <div className="grid gap-2">
-            {list?.items.map((item) => (
-              <PullRequestCard
-                key={`${item.repository}#${item.number}`}
-                item={item}
-                search={search}
-                environmentId={environmentIdForRpc}
-                onOpenChat={setChatItem}
-              />
-            ))}
-          </div>
+          {groupingMode === "repository" ? (
+            <div className="grid gap-6">
+              {groupPullRequestsByRepository(list?.items ?? []).map((group) => (
+                <section key={group.repository} aria-label={`Pull requests de ${group.repository}`}>
+                  <div className="mb-2 flex items-center gap-2 text-xs">
+                    <FolderGit2Icon className="size-3.5 text-muted-foreground" />
+                    <span className="font-medium text-foreground">{group.repository}</span>
+                    <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                      {group.items.length}
+                    </span>
+                  </div>
+                  <div className="grid gap-2">
+                    {group.items.map((item) => (
+                      <PullRequestCard
+                        key={`${item.repository}#${item.number}`}
+                        item={item}
+                        search={search}
+                        environmentId={environmentIdForRpc}
+                        onOpenChat={setChatItem}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              {list?.items.map((item) => (
+                <PullRequestCard
+                  key={`${item.repository}#${item.number}`}
+                  item={item}
+                  search={search}
+                  environmentId={environmentIdForRpc}
+                  onOpenChat={setChatItem}
+                />
+              ))}
+            </div>
+          )}
           {list?.truncated ? (
             <div className="mt-4 flex justify-center">
               <Button

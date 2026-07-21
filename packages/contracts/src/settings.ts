@@ -90,6 +90,11 @@ export const RightPanelSharingMode = Schema.Literals(["thread", "worktree"]);
 export type RightPanelSharingMode = typeof RightPanelSharingMode.Type;
 export const DEFAULT_RIGHT_PANEL_SHARING_MODE: RightPanelSharingMode = "thread";
 
+/** Determines whether the pull requests page shows a flat list or groups items by repository. */
+export const PullRequestGroupingMode = Schema.Literals(["flat", "repository"]);
+export type PullRequestGroupingMode = typeof PullRequestGroupingMode.Type;
+export const DEFAULT_PULL_REQUEST_GROUPING_MODE: PullRequestGroupingMode = "flat";
+
 export const ClientSettingsSchema = Schema.Struct({
   autoOpenPlanSidebar: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -154,6 +159,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   rightPanelSharingMode: RightPanelSharingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_RIGHT_PANEL_SHARING_MODE)),
+  ),
+  pullRequestGroupingMode: PullRequestGroupingMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_PULL_REQUEST_GROUPING_MODE)),
   ),
   timestampFormat: TimestampFormat.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
@@ -694,6 +702,7 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
   rightPanelSharingMode: Schema.optionalKey(RightPanelSharingMode),
+  pullRequestGroupingMode: Schema.optionalKey(PullRequestGroupingMode),
   timestampFormat: Schema.optionalKey(TimestampFormat),
   terminalFontSize: Schema.optionalKey(TerminalFontSize),
   wordWrap: Schema.optionalKey(Schema.Boolean),
