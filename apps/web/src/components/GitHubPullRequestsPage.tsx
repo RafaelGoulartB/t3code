@@ -1061,11 +1061,15 @@ export function GitHubPullRequestsPage() {
               }
             }}
           >
-            <ToggleGroupItem aria-label="Listagem normal" value="flat">
+            <ToggleGroupItem aria-label="Listagem normal" value="flat" className="gap-1.5 px-2.5">
               <ListIcon className="size-3" />
               Lista
             </ToggleGroupItem>
-            <ToggleGroupItem aria-label="Agrupar por repositório" value="repository">
+            <ToggleGroupItem
+              aria-label="Agrupar por repositório"
+              value="repository"
+              className="gap-1.5 px-2.5"
+            >
               <FolderGit2Icon className="size-3" />
               Por repositório
             </ToggleGroupItem>
