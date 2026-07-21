@@ -5,7 +5,7 @@ import {
   type KnownTerminalSession,
   type TerminalSessionState,
 } from "@t3tools/client-runtime/state/terminal";
-import { ThreadId, type EnvironmentId, type TerminalAttachInput } from "@t3tools/contracts";
+import { ProjectId, type EnvironmentId, type TerminalAttachInput } from "@t3tools/contracts";
 import { useMemo } from "react";
 
 import { useEnvironmentQuery } from "./query";
@@ -15,11 +15,18 @@ export function useAttachedTerminalSession(input: {
   readonly environmentId: EnvironmentId | null;
   readonly terminal: TerminalAttachInput | null;
 }): TerminalSessionState {
+  const terminal =
+    input.terminal === null
+      ? null
+      : {
+          ...input.terminal,
+          projectId: ProjectId.make(input.terminal.projectId),
+        };
   const attach = useEnvironmentQuery(
-    input.environmentId !== null && input.terminal !== null
+    input.environmentId !== null && terminal !== null
       ? terminalEnvironment.attach({
           environmentId: input.environmentId,
-          input: input.terminal,
+          input: terminal,
         })
       : null,
   );
@@ -39,7 +46,8 @@ export function useAttachedTerminalSession(input: {
     const summary =
       metadata.data?.find(
         (terminal) =>
-          terminal.threadId === input.terminal?.threadId &&
+          terminal.projectId === input.terminal?.projectId &&
+          terminal.worktreePath === (input.terminal?.worktreePath ?? null) &&
           terminal.terminalId === input.terminal?.terminalId,
       ) ?? null;
     const state = combineTerminalSessionState(summary, attach.data ?? EMPTY_TERMINAL_BUFFER_STATE);
@@ -49,7 +57,8 @@ export function useAttachedTerminalSession(input: {
 
 export function useKnownTerminalSessions(input: {
   readonly environmentId: EnvironmentId | null;
-  readonly threadId: ThreadId | null;
+  readonly projectId: ProjectId | null;
+  readonly worktreePath: string | null;
 }): ReadonlyArray<KnownTerminalSession> {
   const metadata = useEnvironmentQuery(
     input.environmentId === null
@@ -64,11 +73,16 @@ export function useKnownTerminalSessions(input: {
       return [];
     }
     return (metadata.data ?? [])
-      .filter((summary) => input.threadId === null || summary.threadId === input.threadId)
+      .filter(
+        (summary) =>
+          input.projectId === null ||
+          (summary.projectId === input.projectId && summary.worktreePath === input.worktreePath),
+      )
       .map((summary) => ({
         target: {
           environmentId: input.environmentId!,
-          threadId: ThreadId.make(summary.threadId),
+          projectId: ProjectId.make(summary.projectId),
+          worktreePath: summary.worktreePath,
           terminalId: summary.terminalId,
         },
         state: combineTerminalSessionState(summary, EMPTY_TERMINAL_BUFFER_STATE),
@@ -78,5 +92,5 @@ export function useKnownTerminalSessions(input: {
           numeric: true,
         }),
       );
-  }, [input.environmentId, input.threadId, metadata.data]);
+  }, [input.environmentId, input.projectId, input.worktreePath, metadata.data]);
 }

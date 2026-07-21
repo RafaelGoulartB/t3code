@@ -234,6 +234,64 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
       }),
     );
 
+    it.effect("lists the current branch commit history in pages", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        yield* writeTextFile(cwd, "second.txt", "second\n");
+        yield* git(cwd, ["add", "second.txt"]);
+        yield* git(cwd, ["commit", "-m", "second commit"]);
+        yield* writeTextFile(cwd, "third.txt", "third\n");
+        yield* git(cwd, ["add", "third.txt"]);
+        yield* git(cwd, ["commit", "-m", "third commit"]);
+        yield* git(cwd, ["remote", "add", "origin", "https://github.com/t3tools/t3code.git"]);
+
+        const firstPage = yield* driver.listCommits({ cwd, limit: 2 });
+        assert.equal(firstPage.isRepo, true);
+        assert.equal(firstPage.refName, initialBranch);
+        assert.deepStrictEqual(
+          firstPage.commits.map((commit) => commit.subject),
+          ["third commit", "second commit"],
+        );
+        assert.equal(firstPage.commits[0]?.hash.length, 40);
+        assert.isAbove(firstPage.commits[0]?.shortHash.length ?? 0, 0);
+        assert.isBelow(firstPage.commits[0]?.shortHash.length ?? 40, 40);
+        assert.equal(
+          firstPage.commits[0]?.url,
+          `https://github.com/t3tools/t3code/commit/${firstPage.commits[0]?.hash}`,
+        );
+        assert.equal(firstPage.nextCursor, 2);
+
+        const secondPage = yield* driver.listCommits({
+          cwd,
+          limit: 2,
+          cursor: firstPage.nextCursor ?? 0,
+        });
+        assert.deepStrictEqual(
+          secondPage.commits.map((commit) => commit.subject),
+          ["initial commit"],
+        );
+        assert.equal(secondPage.nextCursor, null);
+      }),
+    );
+
+    it.effect("returns an empty history for a repository without commits", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* driver.initRepo({ cwd });
+
+        const history = yield* driver.listCommits({ cwd, limit: 50 });
+        assert.deepStrictEqual(history, {
+          isRepo: true,
+          refName: null,
+          commits: [],
+          nextCursor: null,
+        });
+      }),
+    );
+
     it.effect("does not wrap a remove-worktree command failure in a synthetic error", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
@@ -895,6 +953,60 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
           timeoutMs: 10_000,
         });
         assert.notEqual(originMain.exitCode, 0);
+      }),
+    );
+  });
+
+  describe("worktree management actions", () => {
+    it.effect("discards only selected changed files", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        yield* writeTextFile(cwd, "README.md", "# changed\n");
+        yield* writeTextFile(cwd, "scratch.txt", "scratch\n");
+
+        yield* driver.discardChanges({ cwd, filePaths: ["README.md"] });
+
+        const readme = yield* fileSystem.readFileString(pathService.join(cwd, "README.md"));
+        const scratch = yield* fileSystem.readFileString(pathService.join(cwd, "scratch.txt"));
+        const status = yield* git(cwd, ["status", "--porcelain"]);
+
+        assert.equal(readme, "# test\n");
+        assert.equal(scratch, "scratch\n");
+        assert.include(status, "scratch.txt");
+        assert.notInclude(status, "README.md");
+      }),
+    );
+
+    it.effect("stashes only selected files", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        yield* writeTextFile(cwd, "README.md", "# stashed\n");
+        yield* writeTextFile(cwd, "keep.txt", "keep\n");
+
+        const result = yield* driver.stashPush({
+          cwd,
+          message: "selected stash",
+          filePaths: ["README.md"],
+        });
+        const readme = yield* fileSystem.readFileString(pathService.join(cwd, "README.md"));
+        const keep = yield* fileSystem.readFileString(pathService.join(cwd, "keep.txt"));
+        const stashes = yield* driver.stashList({ cwd });
+
+        assert.equal(result.status, "stashed");
+        assert.equal(readme, "# test\n");
+        assert.equal(keep, "keep\n");
+        assert.isAtLeast(stashes.stashes.length, 1);
+        assert.include(stashes.stashes[0]?.subject ?? "", "selected stash");
       }),
     );
   });

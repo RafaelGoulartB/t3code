@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { EnvironmentId, TerminalSessionSnapshot, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, TerminalSessionSnapshot } from "@t3tools/contracts";
 
 import {
   applyTerminalAttachStreamEvent,
@@ -12,15 +12,16 @@ import {
 
 const TARGET = {
   environmentId: EnvironmentId.make("env-local"),
-  threadId: ThreadId.make("thread-1"),
+  projectId: ProjectId.make("project-1"),
+  worktreePath: null,
   terminalId: "term-1",
 } as const;
 
 const BASE_SNAPSHOT: TerminalSessionSnapshot = {
-  threadId: TARGET.threadId,
+  projectId: TARGET.projectId,
   terminalId: TARGET.terminalId,
   cwd: "/repo",
-  worktreePath: null,
+  worktreePath: TARGET.worktreePath,
   status: "running",
   pid: 123,
   history: "hello",
@@ -36,7 +37,7 @@ describe("terminal session reducers", () => {
       type: "snapshot",
       terminals: [
         {
-          threadId: BASE_SNAPSHOT.threadId,
+          projectId: BASE_SNAPSHOT.projectId,
           terminalId: BASE_SNAPSHOT.terminalId,
           cwd: BASE_SNAPSHOT.cwd,
           worktreePath: BASE_SNAPSHOT.worktreePath,
@@ -52,7 +53,8 @@ describe("terminal session reducers", () => {
     })[0]!;
     const attached = applyTerminalAttachStreamEvent(EMPTY_TERMINAL_BUFFER_STATE, {
       type: "error",
-      threadId: TARGET.threadId,
+      projectId: TARGET.projectId,
+      worktreePath: TARGET.worktreePath,
       terminalId: TARGET.terminalId,
       message: "Terminal disconnected.",
     });
@@ -69,7 +71,7 @@ describe("terminal session reducers", () => {
       type: "snapshot",
       terminals: [
         {
-          threadId: BASE_SNAPSHOT.threadId,
+          projectId: BASE_SNAPSHOT.projectId,
           terminalId: BASE_SNAPSHOT.terminalId,
           cwd: BASE_SNAPSHOT.cwd,
           worktreePath: BASE_SNAPSHOT.worktreePath,
@@ -118,7 +120,8 @@ describe("terminal session reducers", () => {
       snapshot,
       {
         type: "output",
-        threadId: TARGET.threadId,
+        projectId: TARGET.projectId,
+        worktreePath: TARGET.worktreePath,
         terminalId: TARGET.terminalId,
         data: " world",
       },
@@ -138,7 +141,7 @@ describe("terminal session reducers", () => {
       type: "snapshot",
       terminals: [
         {
-          threadId: BASE_SNAPSHOT.threadId,
+          projectId: BASE_SNAPSHOT.projectId,
           terminalId: BASE_SNAPSHOT.terminalId,
           cwd: BASE_SNAPSHOT.cwd,
           worktreePath: BASE_SNAPSHOT.worktreePath,
@@ -161,7 +164,8 @@ describe("terminal session reducers", () => {
     });
     const removed = applyTerminalMetadataStreamEvent(updated, {
       type: "remove",
-      threadId: TARGET.threadId,
+      projectId: TARGET.projectId,
+      worktreePath: TARGET.worktreePath,
       terminalId: TARGET.terminalId,
     });
 
@@ -175,7 +179,8 @@ describe("terminal session reducers", () => {
       EMPTY_TERMINAL_BUFFER_STATE,
       {
         type: "output",
-        threadId: TARGET.threadId,
+        projectId: TARGET.projectId,
+        worktreePath: TARGET.worktreePath,
         terminalId: TARGET.terminalId,
         data: "🙂🙂",
       },

@@ -26,15 +26,29 @@ export function createTerminalEnvironmentAtoms<R, E>(
     input,
   }: {
     readonly environmentId: string;
-    readonly input: { readonly threadId: string; readonly terminalId?: string | undefined };
-  }) => JSON.stringify([environmentId, input.threadId]);
+    readonly input: {
+      readonly projectId: string;
+      readonly worktreePath?: string | null | undefined;
+      readonly terminalId?: string | undefined;
+    };
+  }) => JSON.stringify([environmentId, input.projectId, input.worktreePath ?? null]);
   const terminalSessionKey = ({
     environmentId,
     input,
   }: {
     readonly environmentId: string;
-    readonly input: { readonly threadId: string; readonly terminalId?: string | undefined };
-  }) => JSON.stringify([environmentId, input.threadId, input.terminalId ?? null]);
+    readonly input: {
+      readonly projectId: string;
+      readonly worktreePath?: string | null | undefined;
+      readonly terminalId?: string | undefined;
+    };
+  }) =>
+    JSON.stringify([
+      environmentId,
+      input.projectId,
+      input.worktreePath ?? null,
+      input.terminalId ?? null,
+    ]);
   const lifecycleConcurrency = { mode: "serial" as const, key: terminalThreadKey };
   return {
     attach: createEnvironmentSubscriptionAtomFamily(runtime, {

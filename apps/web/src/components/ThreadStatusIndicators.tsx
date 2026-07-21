@@ -249,7 +249,8 @@ export function ThreadRowLeadingStatus({ thread }: { thread: SidebarThreadSummar
 export function ThreadRowTrailingStatus({ thread }: { thread: SidebarThreadSummary }) {
   const runningTerminalIds = useThreadRunningTerminalIds({
     environmentId: thread.environmentId,
-    threadId: thread.id,
+    projectId: thread.projectId,
+    worktreePath: thread.worktreePath ?? null,
   });
   const environment = useEnvironment(thread.environmentId);
   const primaryEnvironmentId = usePrimaryEnvironmentId();

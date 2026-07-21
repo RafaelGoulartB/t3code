@@ -272,6 +272,8 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
         stagedSummary: input.stagedSummary,
         stagedPatch: input.stagedPatch,
         includeBranch: input.includeBranch === true,
+        policy: input.policy,
+        ...(input.recentCommits ? { recentCommits: input.recentCommits } : {}),
       });
 
       const generated = yield* runClaudeJson({
@@ -299,6 +301,10 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
         commitSummary: input.commitSummary,
         diffSummary: input.diffSummary,
         diffPatch: input.diffPatch,
+        policy: input.policy,
+        systemPrompt: input.systemPrompt,
+        includeConventionInstructions: input.includeConventionInstructions,
+        ...(input.recentCommits ? { recentCommits: input.recentCommits } : {}),
       });
 
       const generated = yield* runClaudeJson({
@@ -320,6 +326,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       const { prompt, outputSchema } = buildBranchNamePrompt({
         message: input.message,
         attachments: input.attachments,
+        policy: input.policy,
       });
 
       const generated = yield* runClaudeJson({
@@ -340,6 +347,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       const { prompt, outputSchema } = buildThreadTitlePrompt({
         message: input.message,
         attachments: input.attachments,
+        policy: input.policy,
       });
 
       const generated = yield* runClaudeJson({

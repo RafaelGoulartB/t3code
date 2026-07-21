@@ -9,6 +9,7 @@ import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import { normalizeWorktreePath } from "@t3tools/shared/worktreePath";
 import {
   DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL,
   AuthOrchestrationOperateScope,
@@ -59,6 +60,7 @@ import {
   type TerminalMetadataStreamEvent,
   WS_METHODS,
   WsRpcGroup,
+  GitHubPullRequestError,
 } from "@t3tools/contracts";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest, HttpServerRespondable } from "effect/unstable/http";
@@ -310,6 +312,12 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.sourceControlLookupRepository, AuthOrchestrationReadScope],
   [WS_METHODS.sourceControlCloneRepository, AuthOrchestrationOperateScope],
   [WS_METHODS.sourceControlPublishRepository, AuthOrchestrationOperateScope],
+  [WS_METHODS.githubPullRequestsList, AuthOrchestrationReadScope],
+  [WS_METHODS.githubPullRequestsGet, AuthOrchestrationReadScope],
+  [WS_METHODS.githubPullRequestsChecks, AuthOrchestrationReadScope],
+  [WS_METHODS.githubPullRequestsDiff, AuthOrchestrationReadScope],
+  [WS_METHODS.githubPullRequestsAction, AuthOrchestrationOperateScope],
+  [WS_METHODS.githubPullRequestsCheckout, AuthOrchestrationOperateScope],
   [WS_METHODS.projectsListEntries, AuthOrchestrationReadScope],
   [WS_METHODS.projectsReadFile, AuthOrchestrationReadScope],
   [WS_METHODS.projectsSearchEntries, AuthOrchestrationReadScope],
@@ -320,14 +328,25 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.subscribeVcsStatus, AuthOrchestrationReadScope],
   [WS_METHODS.vcsRefreshStatus, AuthOrchestrationReadScope],
   [WS_METHODS.vcsPull, AuthOrchestrationOperateScope],
+  [WS_METHODS.vcsFetch, AuthOrchestrationOperateScope],
   [WS_METHODS.gitRunStackedAction, AuthOrchestrationOperateScope],
   [WS_METHODS.gitResolvePullRequest, AuthOrchestrationOperateScope],
   [WS_METHODS.gitPreparePullRequestThread, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsListRefs, AuthOrchestrationReadScope],
+  [WS_METHODS.vcsListWorktrees, AuthOrchestrationReadScope],
+  [WS_METHODS.vcsListCommits, AuthOrchestrationReadScope],
   [WS_METHODS.vcsCreateWorktree, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsRemoveWorktree, AuthOrchestrationOperateScope],
+  [WS_METHODS.vcsDeleteWorktreeWithThreads, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsCreateRef, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsSwitchRef, AuthOrchestrationOperateScope],
+  [WS_METHODS.vcsRenameBranch, AuthOrchestrationOperateScope],
+  [WS_METHODS.vcsDeleteBranch, AuthOrchestrationOperateScope],
+  [WS_METHODS.vcsDiscardChanges, AuthOrchestrationOperateScope],
+  [WS_METHODS.vcsStashPush, AuthOrchestrationOperateScope],
+  [WS_METHODS.vcsStashList, AuthOrchestrationReadScope],
+  [WS_METHODS.vcsStashApply, AuthOrchestrationOperateScope],
+  [WS_METHODS.vcsStashDrop, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsInit, AuthOrchestrationOperateScope],
   [WS_METHODS.reviewGetDiffPreview, AuthReviewWriteScope],
   [WS_METHODS.terminalOpen, AuthTerminalOperateScope],
@@ -346,6 +365,7 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.previewClose, AuthOrchestrationOperateScope],
   [WS_METHODS.previewList, AuthOrchestrationReadScope],
   [WS_METHODS.previewReportStatus, AuthOrchestrationOperateScope],
+  [WS_METHODS.previewReset, AuthOrchestrationOperateScope],
   [WS_METHODS.previewAutomationConnect, AuthOrchestrationOperateScope],
   [WS_METHODS.previewAutomationRespond, AuthOrchestrationOperateScope],
   [WS_METHODS.previewAutomationFocusHost, AuthOrchestrationOperateScope],
@@ -410,6 +430,7 @@ const makeWsRpcLayer = (
       const keybindings = yield* Keybindings.Keybindings;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
+      const githubCli = yield* GitHubCli.GitHubCli;
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
@@ -464,6 +485,17 @@ const makeWsRpcLayer = (
         currentSession.scopes.includes(requiredScope)
           ? stream
           : Stream.fail(authorizationError(requiredScope));
+      const githubPullRequestError = (
+        operation: string,
+        error: GitHubCli.GitHubCliError,
+        target?: { readonly repository?: string; readonly number?: number },
+      ) =>
+        new GitHubPullRequestError({
+          operation,
+          detail: error.detail,
+          ...(target?.repository ? { repository: target.repository } : {}),
+          ...(target?.number ? { number: target.number } : {}),
+        });
       const requiredScopeForMethod = (method: string): AuthEnvironmentScope => {
         const requiredScope = RPC_REQUIRED_SCOPE.get(method);
         if (requiredScope === undefined) {
@@ -1020,6 +1052,7 @@ const makeWsRpcLayer = (
                 threadId: command.threadId,
                 branch: worktree.worktree.refName,
                 worktreePath: targetWorktreePath,
+                worktreeBranchPrefix: bootstrap.prepareWorktree.worktreeBranchPrefix ?? null,
               });
               yield* refreshGitStatus(targetWorktreePath);
             }
@@ -1146,15 +1179,6 @@ const makeWsRpcLayer = (
                     ),
                   );
                 }
-
-                yield* terminalManager.close({ threadId: normalizedCommand.threadId }).pipe(
-                  Effect.catch((error) =>
-                    Effect.logWarning("failed to close thread terminals after archive", {
-                      threadId: normalizedCommand.threadId,
-                      error: error.message,
-                    }),
-                  ),
-                );
               }
               return result;
             }).pipe(
@@ -1608,6 +1632,90 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "source-control",
             },
           ),
+        [WS_METHODS.githubPullRequestsList]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubPullRequestsList,
+            githubCli
+              .searchPullRequests({ cwd: config.cwd, filters: input })
+              .pipe(Effect.mapError((error) => githubPullRequestError("list", error))),
+            { "rpc.aggregate": "github" },
+          ),
+        [WS_METHODS.githubPullRequestsGet]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubPullRequestsGet,
+            githubCli.getPullRequestDetails({ cwd: config.cwd, reference: input }).pipe(
+              Effect.mapError((error) =>
+                githubPullRequestError("get", error, {
+                  repository: input.repository,
+                  number: input.number,
+                }),
+              ),
+            ),
+            { "rpc.aggregate": "github" },
+          ),
+        [WS_METHODS.githubPullRequestsChecks]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubPullRequestsChecks,
+            githubCli.getPullRequestChecks({ cwd: config.cwd, reference: input }).pipe(
+              Effect.mapError((error) =>
+                githubPullRequestError("checks", error, {
+                  repository: input.repository,
+                  number: input.number,
+                }),
+              ),
+            ),
+            { "rpc.aggregate": "github" },
+          ),
+        [WS_METHODS.githubPullRequestsDiff]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubPullRequestsDiff,
+            githubCli.getPullRequestDiff({ cwd: config.cwd, reference: input }).pipe(
+              Effect.mapError((error) =>
+                githubPullRequestError("diff", error, {
+                  repository: input.repository,
+                  number: input.number,
+                }),
+              ),
+            ),
+            { "rpc.aggregate": "github" },
+          ),
+        [WS_METHODS.githubPullRequestsAction]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubPullRequestsAction,
+            githubCli.runPullRequestAction({ cwd: config.cwd, action: input }).pipe(
+              Effect.mapError((error) =>
+                githubPullRequestError(input.kind, error, {
+                  repository: input.repository,
+                  number: input.number,
+                }),
+              ),
+            ),
+            { "rpc.aggregate": "github" },
+          ),
+        [WS_METHODS.githubPullRequestsCheckout]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubPullRequestsCheckout,
+            githubCli
+              .checkoutPullRequest({
+                cwd: input.cwd,
+                reference: `${input.repository}#${input.number}`,
+                ...(input.force === undefined ? {} : { force: input.force }),
+              })
+              .pipe(
+                Effect.map(() => ({
+                  repository: input.repository,
+                  number: input.number,
+                  cwd: input.cwd,
+                })),
+                Effect.mapError((error) =>
+                  githubPullRequestError("checkout", error, {
+                    repository: input.repository,
+                    number: input.number,
+                  }),
+                ),
+              ),
+            { "rpc.aggregate": "github" },
+          ),
         [WS_METHODS.projectsSearchEntries]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsSearchEntries,
@@ -1766,6 +1874,18 @@ const makeWsRpcLayer = (
             ),
             { "rpc.aggregate": "git" },
           ),
+        [WS_METHODS.vcsFetch]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsFetch,
+            gitWorkflow.fetchPrimaryRemote(input.cwd).pipe(
+              Effect.matchCauseEffect({
+                onFailure: (cause) => Effect.failCause(cause),
+                onSuccess: (result) =>
+                  refreshGitStatus(input.cwd).pipe(Effect.ignore({ log: true }), Effect.as(result)),
+              }),
+            ),
+            { "rpc.aggregate": "git" },
+          ),
         [WS_METHODS.gitRunStackedAction]: (input) =>
           observeRpcStream(
             WS_METHODS.gitRunStackedAction,
@@ -1809,6 +1929,14 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.vcsListRefs, gitWorkflow.listRefs(input), {
             "rpc.aggregate": "vcs",
           }),
+        [WS_METHODS.vcsListWorktrees]: (input) =>
+          observeRpcEffect(WS_METHODS.vcsListWorktrees, gitWorkflow.listWorktrees(input), {
+            "rpc.aggregate": "vcs",
+          }),
+        [WS_METHODS.vcsListCommits]: (input) =>
+          observeRpcEffect(WS_METHODS.vcsListCommits, gitWorkflow.listCommits(input), {
+            "rpc.aggregate": "vcs",
+          }),
         [WS_METHODS.vcsCreateWorktree]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsCreateWorktree,
@@ -1821,6 +1949,64 @@ const makeWsRpcLayer = (
             gitWorkflow.removeWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
+        [WS_METHODS.vcsDeleteWorktreeWithThreads]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsDeleteWorktreeWithThreads,
+            Effect.gen(function* () {
+              const worktrees = yield* gitWorkflow.listWorktrees({ cwd: input.cwd });
+              const targetPath = normalizeWorktreePath(input.path);
+              const target = worktrees.worktrees.find(
+                (worktree) => normalizeWorktreePath(worktree.path) === targetPath,
+              );
+              if (!target || target.isMain) {
+                return yield* new OrchestrationDispatchCommandError({
+                  message: "Worktree not found or cannot be removed.",
+                  cause: input,
+                });
+              }
+              const snapshot = yield* projectionSnapshotQuery.getSnapshot().pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new OrchestrationDispatchCommandError({
+                      message: "Could not validate threads using this worktree.",
+                      cause,
+                    }),
+                ),
+              );
+              const threads = snapshot.threads.filter(
+                (thread) =>
+                  thread.projectId === input.projectId &&
+                  normalizeWorktreePath(thread.worktreePath) === targetPath,
+              );
+              const running = threads.find(
+                (thread) =>
+                  thread.session?.status === "running" && thread.session.activeTurnId !== null,
+              );
+              if (running) {
+                return yield* new OrchestrationDispatchCommandError({
+                  message: `Stop thread ${running.title} before deleting its worktree.`,
+                  cause: running.id,
+                });
+              }
+              for (const thread of threads) {
+                yield* dispatchNormalizedCommand({
+                  type: "thread.delete",
+                  commandId: yield* serverCommandId("worktree-thread-delete"),
+                  threadId: thread.id,
+                });
+              }
+              yield* gitWorkflow.removeWorktree({ cwd: input.cwd, path: input.path, force: true });
+              yield* refreshGitStatus(input.cwd);
+              return { deletedThreadIds: threads.map((thread) => thread.id) };
+            }).pipe(
+              Effect.mapError((cause) =>
+                isOrchestrationDispatchCommandError(cause)
+                  ? cause
+                  : toDispatchCommandError(cause, "Failed to delete worktree and its threads"),
+              ),
+            ),
+            { "rpc.aggregate": "vcs" },
+          ),
         [WS_METHODS.vcsCreateRef]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsCreateRef,
@@ -1831,6 +2017,46 @@ const makeWsRpcLayer = (
           observeRpcEffect(
             WS_METHODS.vcsSwitchRef,
             gitWorkflow.switchRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsRenameBranch]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsRenameBranch,
+            gitWorkflow.renameBranch(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsDeleteBranch]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsDeleteBranch,
+            gitWorkflow.deleteBranch(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsDiscardChanges]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsDiscardChanges,
+            gitWorkflow.discardChanges(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsStashPush]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsStashPush,
+            gitWorkflow.stashPush(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsStashList]: (input) =>
+          observeRpcEffect(WS_METHODS.vcsStashList, gitWorkflow.stashList(input), {
+            "rpc.aggregate": "vcs",
+          }),
+        [WS_METHODS.vcsStashApply]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsStashApply,
+            gitWorkflow.stashApply(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsStashDrop]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsStashDrop,
+            gitWorkflow.stashDrop(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsInit]: (input) =>
@@ -1928,6 +2154,10 @@ const makeWsRpcLayer = (
           }),
         [WS_METHODS.previewReportStatus]: (input) =>
           observeRpcEffect(WS_METHODS.previewReportStatus, previewManager.reportStatus(input), {
+            "rpc.aggregate": "preview",
+          }),
+        [WS_METHODS.previewReset]: (_input) =>
+          observeRpcEffect(WS_METHODS.previewReset, previewManager.reset, {
             "rpc.aggregate": "preview",
           }),
         [WS_METHODS.previewAutomationConnect]: (input) =>
@@ -2101,6 +2331,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
             makeWsRpcLayer(session, previewAutomationBroker).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               Layer.provide(ProviderMaintenanceRunner.layer),
+              Layer.provide(GitHubCli.layer.pipe(Layer.provide(VcsProcess.layer))),
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(
                   Layer.provide(

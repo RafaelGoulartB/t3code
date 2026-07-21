@@ -5,6 +5,10 @@ import * as Layer from "effect/Layer";
 import {
   GitManagerError,
   GitCommandError,
+  type VcsDeleteBranchInput,
+  type VcsDiscardChangesInput,
+  type VcsRenameBranchInput,
+  type VcsRenameBranchResult,
   type VcsSwitchRefInput,
   type VcsSwitchRefResult,
   type VcsCreateRefInput,
@@ -13,10 +17,15 @@ import {
   type VcsCreateWorktreeResult,
   type VcsListRefsInput,
   type VcsListRefsResult,
+  type VcsListWorktreesInput,
+  type VcsListWorktreesResult,
+  type VcsListCommitsInput,
+  type VcsListCommitsResult,
   type GitManagerServiceError,
   type GitPreparePullRequestThreadInput,
   type GitPreparePullRequestThreadResult,
   type GitPullRequestRefInput,
+  type VcsFetchResult,
   type VcsPullResult,
   type VcsRemoveWorktreeInput,
   type GitResolvePullRequestResult,
@@ -26,6 +35,12 @@ import {
   type VcsStatusLocalResult,
   type VcsStatusRemoteResult,
   type VcsStatusResult,
+  type VcsStashApplyInput,
+  type VcsStashListInput,
+  type VcsStashListResult,
+  type VcsStashPushInput,
+  type VcsStashPushResult,
+  type VcsStashRefInput,
 } from "@t3tools/contracts";
 
 import * as GitManager from "./GitManager.ts";
@@ -49,6 +64,7 @@ export class GitWorkflowService extends Context.Service<
     readonly invalidateRemoteStatus: (cwd: string) => Effect.Effect<void, never>;
     readonly invalidateStatus: (cwd: string) => Effect.Effect<void, never>;
     readonly pullCurrentBranch: (cwd: string) => Effect.Effect<VcsPullResult, GitCommandError>;
+    readonly fetchPrimaryRemote: (cwd: string) => Effect.Effect<VcsFetchResult, GitCommandError>;
     readonly runStackedAction: (
       input: GitRunStackedActionInput,
       options?: GitManager.GitRunStackedActionOptions,
@@ -62,6 +78,12 @@ export class GitWorkflowService extends Context.Service<
     readonly listRefs: (
       input: VcsListRefsInput,
     ) => Effect.Effect<VcsListRefsResult, GitCommandError>;
+    readonly listWorktrees: (
+      input: VcsListWorktreesInput,
+    ) => Effect.Effect<VcsListWorktreesResult, GitCommandError>;
+    readonly listCommits: (
+      input: VcsListCommitsInput,
+    ) => Effect.Effect<VcsListCommitsResult, GitCommandError>;
     readonly createWorktree: (
       input: VcsCreateWorktreeInput,
     ) => Effect.Effect<VcsCreateWorktreeResult, GitCommandError>;
@@ -86,11 +108,23 @@ export class GitWorkflowService extends Context.Service<
     readonly switchRef: (
       input: VcsSwitchRefInput,
     ) => Effect.Effect<VcsSwitchRefResult, GitCommandError>;
-    readonly renameBranch: (input: {
-      readonly cwd: string;
-      readonly oldBranch: string;
-      readonly newBranch: string;
-    }) => Effect.Effect<{ readonly branch: string }, GitManagerServiceError>;
+    readonly renameBranch: (
+      input: VcsRenameBranchInput,
+    ) => Effect.Effect<VcsRenameBranchResult, GitManagerError | GitCommandError>;
+    readonly deleteBranch: (
+      input: VcsDeleteBranchInput,
+    ) => Effect.Effect<void, GitManagerError | GitCommandError>;
+    readonly discardChanges: (
+      input: VcsDiscardChangesInput,
+    ) => Effect.Effect<void, GitCommandError>;
+    readonly stashPush: (
+      input: VcsStashPushInput,
+    ) => Effect.Effect<VcsStashPushResult, GitCommandError>;
+    readonly stashList: (
+      input: VcsStashListInput,
+    ) => Effect.Effect<VcsStashListResult, GitCommandError>;
+    readonly stashApply: (input: VcsStashApplyInput) => Effect.Effect<void, GitCommandError>;
+    readonly stashDrop: (input: VcsStashRefInput) => Effect.Effect<void, GitCommandError>;
   }
 >()("t3/git/GitWorkflowService") {}
 
@@ -128,6 +162,14 @@ function nonRepositoryListRefs(): VcsListRefsResult {
     nextCursor: null,
     totalCount: 0,
   };
+}
+
+function nonRepositoryListWorktrees(): VcsListWorktreesResult {
+  return { isRepo: false, worktrees: [] };
+}
+
+function nonRepositoryListCommits(): VcsListCommitsResult {
+  return { isRepo: false, refName: null, commits: [], nextCursor: null };
 }
 
 export const make = Effect.gen(function* () {
@@ -277,6 +319,16 @@ export const make = Effect.gen(function* () {
       ensureGitCommand("GitWorkflowService.pullCurrentBranch", cwd).pipe(
         Effect.andThen(git.pullCurrentBranch(cwd)),
       ),
+    fetchPrimaryRemote: (cwd) =>
+      ensureGitCommand("GitWorkflowService.fetchPrimaryRemote", cwd).pipe(
+        Effect.andThen(
+          Effect.gen(function* () {
+            const remoteName = yield* git.resolvePrimaryRemoteName(cwd);
+            yield* git.fetchRemote({ cwd, remoteName });
+            return { remoteName };
+          }),
+        ),
+      ),
     runStackedAction: (input, options) =>
       ensureGit("GitWorkflowService.runStackedAction", input.cwd).pipe(
         Effect.andThen(gitManager.runStackedAction(input, options)),
@@ -293,6 +345,18 @@ export const make = Effect.gen(function* () {
       detectGitRepositoryForCommand("GitWorkflowService.listRefs", input.cwd).pipe(
         Effect.flatMap((isGitRepository) =>
           isGitRepository ? git.listRefs(input) : Effect.succeed(nonRepositoryListRefs()),
+        ),
+      ),
+    listWorktrees: (input) =>
+      detectGitRepositoryForCommand("GitWorkflowService.listWorktrees", input.cwd).pipe(
+        Effect.flatMap((isGitRepository) =>
+          isGitRepository ? git.listWorktrees(input) : Effect.succeed(nonRepositoryListWorktrees()),
+        ),
+      ),
+    listCommits: (input) =>
+      detectGitRepositoryForCommand("GitWorkflowService.listCommits", input.cwd).pipe(
+        Effect.flatMap((isGitRepository) =>
+          isGitRepository ? git.listCommits(input) : Effect.succeed(nonRepositoryListCommits()),
         ),
       ),
     createWorktree: (input) =>
@@ -322,6 +386,49 @@ export const make = Effect.gen(function* () {
     renameBranch: (input) =>
       ensureGit("GitWorkflowService.renameBranch", input.cwd).pipe(
         Effect.andThen(git.renameBranch(input)),
+      ),
+    deleteBranch: (input) =>
+      ensureGit("GitWorkflowService.deleteBranch", input.cwd).pipe(
+        Effect.andThen(
+          Effect.gen(function* () {
+            if (input.worktreePath) {
+              yield* git
+                .removeWorktree({
+                  cwd: input.cwd,
+                  path: input.worktreePath,
+                  ...(input.force === true ? { force: true } : {}),
+                })
+                .pipe(Effect.ignore({ log: true }));
+            }
+            yield* git.deleteBranch({
+              cwd: input.cwd,
+              branch: input.branch,
+              ...(input.force === true ? { force: true } : {}),
+            });
+          }),
+        ),
+      ),
+    discardChanges: (input) =>
+      ensureGitCommand("GitWorkflowService.discardChanges", input.cwd).pipe(
+        Effect.andThen(git.discardChanges(input)),
+      ),
+    stashPush: (input) =>
+      ensureGitCommand("GitWorkflowService.stashPush", input.cwd).pipe(
+        Effect.andThen(git.stashPush(input)),
+      ),
+    stashList: (input) =>
+      detectGitRepositoryForCommand("GitWorkflowService.stashList", input.cwd).pipe(
+        Effect.flatMap((isGitRepository) =>
+          isGitRepository ? git.stashList(input) : Effect.succeed({ stashes: [] }),
+        ),
+      ),
+    stashApply: (input) =>
+      ensureGitCommand("GitWorkflowService.stashApply", input.cwd).pipe(
+        Effect.andThen(git.stashApply(input)),
+      ),
+    stashDrop: (input) =>
+      ensureGitCommand("GitWorkflowService.stashDrop", input.cwd).pipe(
+        Effect.andThen(git.stashDrop(input)),
       ),
   });
 });

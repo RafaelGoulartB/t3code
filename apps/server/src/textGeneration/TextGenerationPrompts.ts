@@ -7,7 +7,7 @@
  * @module textGenerationPrompts
  */
 import * as Schema from "effect/Schema";
-import type { ChatAttachment } from "@t3tools/contracts";
+import { DEFAULT_PULL_REQUEST_SYSTEM_PROMPT, type ChatAttachment } from "@t3tools/contracts";
 
 import { limitSection } from "./TextGenerationUtils.ts";
 import type { TextGenerationPolicy } from "./TextGenerationPolicy.ts";
@@ -27,6 +27,15 @@ export interface CommitMessagePromptInput {
   stagedPatch: string;
   includeBranch: boolean;
   policy?: TextGenerationPolicy | undefined;
+  recentCommits?: ReadonlyArray<string> | undefined;
+}
+
+function recentCommitsSection(
+  recentCommits: ReadonlyArray<string> | undefined,
+): ReadonlyArray<string> {
+  if (!recentCommits || recentCommits.length === 0) return [];
+  const list = recentCommits.map((subject) => `- ${subject}`).join("\n");
+  return ["", "Recent commits (style reference):", limitSection(list, 4_000)];
 }
 
 export function buildCommitMessagePrompt(input: CommitMessagePromptInput) {
@@ -53,6 +62,7 @@ export function buildCommitMessagePrompt(input: CommitMessagePromptInput) {
     "",
     "Staged patch:",
     limitSection(input.stagedPatch, 40_000),
+    ...recentCommitsSection(input.recentCommits),
   ].join("\n");
 
   if (wantsBranch) {
@@ -86,18 +96,17 @@ export interface PrContentPromptInput {
   diffSummary: string;
   diffPatch: string;
   policy?: TextGenerationPolicy | undefined;
+  recentCommits?: ReadonlyArray<string> | undefined;
+  systemPrompt?: string | undefined;
+  includeConventionInstructions?: boolean | undefined;
 }
 
 export function buildPrContentPrompt(input: PrContentPromptInput) {
   const prompt = [
-    "You write GitHub pull request content.",
-    "Return a JSON object with keys: title, body.",
-    "Rules:",
-    "- title should be concise and specific",
-    "- body must be markdown and include headings '## Summary' and '## Testing'",
-    "- under Summary, provide short bullet points",
-    "- under Testing, include bullet points with concrete checks or 'Not run' where appropriate",
-    ...policyInstruction(input.policy?.changeRequestInstructions),
+    input.systemPrompt ?? DEFAULT_PULL_REQUEST_SYSTEM_PROMPT,
+    ...(input.includeConventionInstructions !== false
+      ? policyInstruction(input.policy?.changeRequestInstructions)
+      : []),
     "",
     `Base branch: ${input.baseBranch}`,
     `Head branch: ${input.headBranch}`,
@@ -110,6 +119,7 @@ export function buildPrContentPrompt(input: PrContentPromptInput) {
     "",
     "Diff patch:",
     limitSection(input.diffPatch, 40_000),
+    ...recentCommitsSection(input.recentCommits),
   ].join("\n");
 
   const outputSchema = Schema.Struct({

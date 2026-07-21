@@ -1,5 +1,6 @@
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentId, ScopedProjectRef, ThreadId } from "@t3tools/contracts";
 import {
   ChevronDownIcon,
   CloudIcon,
@@ -24,6 +25,7 @@ import {
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
 import { BranchToolbarEnvModeSelector } from "./BranchToolbarEnvModeSelector";
+import { BranchToolbarProjectSelector } from "./BranchToolbarProjectSelector";
 import { Button } from "./ui/button";
 import {
   Menu,
@@ -47,11 +49,18 @@ interface BranchToolbarProps {
   onActiveThreadBranchOverrideChange?: (branch: string | null) => void;
   startFromOrigin: boolean;
   onStartFromOriginChange: (startFromOrigin: boolean) => void;
+  worktreeBranchPrefixOverride: string;
+  defaultWorktreeBranchPrefix: string;
+  onWorktreeBranchPrefixOverrideChange: (prefix: string) => void;
   envLocked: boolean;
+  isGitRepo: boolean;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
   availableEnvironments?: readonly EnvironmentOption[];
   onEnvironmentChange?: (environmentId: EnvironmentId) => void;
+  availableProjects: ReadonlyArray<EnvironmentProject>;
+  projectLocked: boolean;
+  onProjectChange: (projectRef: ScopedProjectRef) => void;
 }
 
 interface MobileRunContextSelectorProps {
@@ -64,6 +73,13 @@ interface MobileRunContextSelectorProps {
   effectiveEnvMode: EnvMode;
   activeWorktreePath: string | null;
   onEnvModeChange: (mode: EnvMode) => void;
+  worktreeBranchPrefixOverride: string;
+  defaultWorktreeBranchPrefix: string;
+  onWorktreeBranchPrefixOverrideChange: (prefix: string) => void;
+  activeProject: EnvironmentProject | null;
+  availableProjects: ReadonlyArray<EnvironmentProject>;
+  projectLocked: boolean;
+  onProjectChange: (projectRef: ScopedProjectRef) => void;
 }
 
 const MobileRunContextSelector = memo(function MobileRunContextSelector({
@@ -76,6 +92,13 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
   effectiveEnvMode,
   activeWorktreePath,
   onEnvModeChange,
+  worktreeBranchPrefixOverride,
+  defaultWorktreeBranchPrefix,
+  onWorktreeBranchPrefixOverrideChange,
+  activeProject,
+  availableProjects,
+  projectLocked,
+  onProjectChange,
 }: MobileRunContextSelectorProps) {
   const activeEnvironment = useMemo(
     () => availableEnvironments?.find((env) => env.environmentId === environmentId) ?? null,
@@ -94,6 +117,7 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
       : resolveCurrentWorkspaceLabel(activeWorktreePath);
   const isLocked = envLocked || envModeLocked;
   const EnvironmentIcon = activeEnvironment?.isPrimary ? MonitorIcon : CloudIcon;
+  const showProjectGroup = availableProjects.length > 0;
   const icon = showEnvironmentPicker ? (
     // Button's base styles apply `-mx-0.5` to descendant SVGs, which eats 4px
     // out of whatever gap we set. mx-0! cancels that so gap-0.5 reads as 2px.
@@ -131,6 +155,31 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
         <ChevronDownIcon className="size-3 shrink-0 opacity-50" />
       </MenuTrigger>
       <MenuPopup align="start" side="top" className="w-64">
+        {showProjectGroup ? (
+          <>
+            <MenuGroup>
+              <MenuGroupLabel>Project</MenuGroupLabel>
+              <MenuRadioGroup
+                value={activeProject?.id ?? null}
+                onValueChange={(value) => {
+                  const next = availableProjects.find((project) => project.id === value);
+                  if (!next) return;
+                  onProjectChange({ environmentId: next.environmentId, projectId: next.id });
+                }}
+              >
+                {availableProjects.map((project) => (
+                  <MenuRadioItem key={project.id} disabled={projectLocked} value={project.id}>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <FolderIcon className="size-3" />
+                      <span className="min-w-0 truncate">{project.title}</span>
+                    </span>
+                  </MenuRadioItem>
+                ))}
+              </MenuRadioGroup>
+            </MenuGroup>
+            <MenuSeparator />
+          </>
+        ) : null}
         {showEnvironmentPicker && availableEnvironments && onEnvironmentChange ? (
           <>
             <MenuGroup>
@@ -177,6 +226,21 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
                 </span>
               </span>
             </MenuRadioItem>
+            {effectiveEnvMode === "worktree" ? (
+              <label
+                className="mb-1 block px-2 text-xs text-muted-foreground"
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                Branch prefix
+                <input
+                  className="mt-1 h-7 w-full rounded border border-input bg-background px-2 text-xs text-foreground outline-none focus:border-ring"
+                  value={worktreeBranchPrefixOverride}
+                  placeholder={`Default: ${defaultWorktreeBranchPrefix}`}
+                  onChange={(event) => onWorktreeBranchPrefixOverrideChange(event.target.value)}
+                  onKeyDown={(event) => event.stopPropagation()}
+                />
+              </label>
+            ) : null}
             <MenuRadioItem disabled={envModeLocked} value="worktree">
               <span className="flex min-w-0 items-center gap-1.5">
                 <FolderGit2Icon className="size-3" />
@@ -200,11 +264,18 @@ export const BranchToolbar = memo(function BranchToolbar({
   onActiveThreadBranchOverrideChange,
   startFromOrigin,
   onStartFromOriginChange,
+  worktreeBranchPrefixOverride,
+  defaultWorktreeBranchPrefix,
+  onWorktreeBranchPrefixOverrideChange,
   envLocked,
+  isGitRepo,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
   availableEnvironments,
   onEnvironmentChange,
+  availableProjects,
+  projectLocked,
+  onProjectChange,
 }: BranchToolbarProps) {
   const threadRef = useMemo(
     () => scopeThreadRef(environmentId, threadId),
@@ -251,43 +322,66 @@ export const BranchToolbar = memo(function BranchToolbar({
           effectiveEnvMode={effectiveEnvMode}
           activeWorktreePath={activeWorktreePath}
           onEnvModeChange={onEnvModeChange}
+          worktreeBranchPrefixOverride={worktreeBranchPrefixOverride}
+          defaultWorktreeBranchPrefix={defaultWorktreeBranchPrefix}
+          onWorktreeBranchPrefixOverrideChange={onWorktreeBranchPrefixOverrideChange}
+          activeProject={activeProject}
+          availableProjects={availableProjects}
+          projectLocked={projectLocked}
+          onProjectChange={onProjectChange}
         />
       ) : (
         <div className="flex min-w-0 shrink-0 items-center gap-1">
-          {showEnvironmentPicker && availableEnvironments && onEnvironmentChange && (
+          <BranchToolbarProjectSelector
+            projectLocked={projectLocked}
+            activeProject={activeProject}
+            availableProjects={availableProjects}
+            onProjectChange={onProjectChange}
+          />
+          {isGitRepo && showEnvironmentPicker && availableEnvironments && onEnvironmentChange && (
             <>
+              <Separator orientation="vertical" className="mx-0.5 h-3.5!" />
               <BranchToolbarEnvironmentSelector
                 envLocked={envLocked}
                 environmentId={environmentId}
                 availableEnvironments={availableEnvironments}
                 onEnvironmentChange={onEnvironmentChange}
               />
-              <Separator orientation="vertical" className="mx-0.5 h-3.5!" />
             </>
           )}
-          <BranchToolbarEnvModeSelector
-            envLocked={envModeLocked}
-            effectiveEnvMode={effectiveEnvMode}
-            activeWorktreePath={activeWorktreePath}
-            onEnvModeChange={onEnvModeChange}
-          />
+          {isGitRepo && (
+            <>
+              <Separator orientation="vertical" className="mx-0.5 h-3.5!" />
+              <BranchToolbarEnvModeSelector
+                envLocked={envModeLocked}
+                effectiveEnvMode={effectiveEnvMode}
+                activeWorktreePath={activeWorktreePath}
+                onEnvModeChange={onEnvModeChange}
+                worktreeBranchPrefixOverride={worktreeBranchPrefixOverride}
+                defaultWorktreeBranchPrefix={defaultWorktreeBranchPrefix}
+                onWorktreeBranchPrefixOverrideChange={onWorktreeBranchPrefixOverrideChange}
+              />
+            </>
+          )}
         </div>
       )}
 
-      <BranchToolbarBranchSelector
-        className="min-w-0 flex-1 justify-end md:ml-auto md:flex-none"
-        environmentId={environmentId}
-        threadId={threadId}
-        {...(draftId ? { draftId } : {})}
-        envLocked={envLocked}
-        {...(effectiveEnvModeOverride ? { effectiveEnvModeOverride } : {})}
-        {...(activeThreadBranchOverride !== undefined ? { activeThreadBranchOverride } : {})}
-        {...(onActiveThreadBranchOverrideChange ? { onActiveThreadBranchOverrideChange } : {})}
-        startFromOrigin={startFromOrigin}
-        onStartFromOriginChange={onStartFromOriginChange}
-        {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
-        {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
-      />
+      {isGitRepo && (
+        <BranchToolbarBranchSelector
+          className="min-w-0 flex-1 justify-end md:ml-auto md:flex-none"
+          environmentId={environmentId}
+          threadId={threadId}
+          {...(draftId ? { draftId } : {})}
+          envLocked={envLocked}
+          {...(effectiveEnvModeOverride ? { effectiveEnvModeOverride } : {})}
+          {...(activeThreadBranchOverride !== undefined ? { activeThreadBranchOverride } : {})}
+          {...(onActiveThreadBranchOverrideChange ? { onActiveThreadBranchOverrideChange } : {})}
+          startFromOrigin={startFromOrigin}
+          onStartFromOriginChange={onStartFromOriginChange}
+          {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
+          {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
+        />
+      )}
     </div>
   );
 });

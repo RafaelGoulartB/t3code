@@ -24,8 +24,14 @@ import {
   type ReviewDiffPreviewInput,
   type ReviewDiffPreviewSource,
   type VcsRef,
+  type VcsListCommitsResult,
+  type VcsStashEntry,
+  type VcsStashListResult,
 } from "@t3tools/contracts";
-import { dedupeRemoteBranchesWithLocalMatches } from "@t3tools/shared/git";
+import {
+  dedupeRemoteBranchesWithLocalMatches,
+  parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
+} from "@t3tools/shared/git";
 import { compactTraceAttributes } from "@t3tools/shared/observability";
 import { decodeJsonResult } from "@t3tools/shared/schemaJson";
 import { gitCommandDuration, gitCommandsTotal, withMetrics } from "../observability/Metrics.ts";
@@ -61,6 +67,7 @@ const STATUS_UPSTREAM_REFRESH_ENV = Object.freeze({
 } satisfies NodeJS.ProcessEnv);
 const DEFAULT_BASE_BRANCH_CANDIDATES = ["main", "master"] as const;
 const GIT_LIST_BRANCHES_DEFAULT_LIMIT = 100;
+const GIT_LIST_COMMITS_DEFAULT_LIMIT = 50;
 const NON_REPOSITORY_STATUS_DETAILS = Object.freeze<GitVcsDriver.GitStatusDetails>({
   isRepo: false,
   hasOriginRemote: false,
@@ -219,6 +226,28 @@ function splitNullSeparatedPaths(input: string, truncated: boolean): string[] {
   }
 
   return parts.filter((value) => value.length > 0);
+}
+
+function isEmptyRepositoryGitStderr(stderr: string): boolean {
+  return /does not have any commits yet|your current branch .* does not have any commits|ambiguous argument ['"]HEAD['"].*unknown revision/i.test(
+    stderr,
+  );
+}
+
+function parseCommitLogEntries(
+  stdout: string,
+): Array<Omit<VcsListCommitsResult["commits"][number], "url">> {
+  const fields = stdout.split("\0");
+  const commits: Array<Omit<VcsListCommitsResult["commits"][number], "url">> = [];
+  for (let index = 0; index + 4 < fields.length; index += 5) {
+    const [hash = "", shortHash = "", authorName = "", authoredAt = "", subject = ""] =
+      fields.slice(index, index + 5);
+    if (hash.length === 0 || shortHash.length === 0 || authoredAt.length === 0) {
+      continue;
+    }
+    commits.push({ hash, shortHash, authorName, authoredAt, subject });
+  }
+  return commits;
 }
 
 export function splitNullSeparatedGitStdoutPaths(
@@ -949,7 +978,18 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         env: STATUS_UPSTREAM_REFRESH_ENV,
         timeoutMs: Duration.toMillis(STATUS_UPSTREAM_REFRESH_TIMEOUT),
       },
-    ).pipe(Effect.asVoid);
+    ).pipe(
+      Effect.asVoid,
+      Effect.catchTags({
+        GitCommandError: (error) =>
+          error.detail.toLocaleLowerCase().includes("timed out")
+            ? Effect.logDebug("Git remote status fetch timed out; using cached remote data.", {
+                cwd: fetchCwd,
+                remoteName,
+              })
+            : Effect.fail(error),
+      }),
+    );
   };
 
   const resolveGitCommonDir = Effect.fn("resolveGitCommonDir")(function* (cwd: string) {
@@ -2257,6 +2297,145 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     },
   );
 
+  const listWorktrees: GitVcsDriver.GitVcsDriver["Service"]["listWorktrees"] = Effect.fn(
+    "listWorktrees",
+  )(function* (input) {
+    const result = yield* executeGit(
+      "GitVcsDriver.listWorktrees",
+      input.cwd,
+      ["worktree", "list", "--porcelain"],
+      { timeoutMs: 10_000, allowNonZeroExit: true },
+    );
+    if (result.exitCode !== 0) {
+      if (isNonRepositoryGitStderr(result.stderr.trim())) {
+        return { isRepo: false, worktrees: [] };
+      }
+      return yield* new GitCommandError({
+        ...gitCommandContext({
+          operation: "GitVcsDriver.listWorktrees",
+          cwd: input.cwd,
+          args: ["worktree", "list", "--porcelain"],
+        }),
+        detail: "Git worktree listing failed.",
+        exitCode: result.exitCode,
+        stdoutLength: result.stdout.length,
+        stderrLength: result.stderr.length,
+      });
+    }
+
+    const records: Array<{ path: string; refName: string | null; isDetached: boolean }> = [];
+    let current: {
+      path: string;
+      refName: string | null;
+      isDetached: boolean;
+      prunable: boolean;
+    } | null = null;
+    const finish = () => {
+      if (current && !current.prunable) {
+        records.push({
+          path: current.path,
+          refName: current.refName,
+          isDetached: current.isDetached,
+        });
+      }
+      current = null;
+    };
+    for (const line of result.stdout.split("\n")) {
+      if (line.length === 0) {
+        finish();
+      } else if (line.startsWith("worktree ")) {
+        finish();
+        current = { path: line.slice(9), refName: null, isDetached: false, prunable: false };
+      } else if (current && line.startsWith("branch refs/heads/")) {
+        current.refName = line.slice("branch refs/heads/".length);
+      } else if (current && line === "detached") {
+        current.isDetached = true;
+      } else if (current && line.startsWith("prunable")) {
+        current.prunable = true;
+      }
+    }
+    finish();
+
+    return {
+      isRepo: true,
+      worktrees: records.map((worktree, index) => ({ ...worktree, isMain: index === 0 })),
+    };
+  });
+  const listCommits: GitVcsDriver.GitVcsDriver["Service"]["listCommits"] = Effect.fn("listCommits")(
+    function* (input) {
+      const cursor = input.cursor ?? 0;
+      const limit = input.limit ?? GIT_LIST_COMMITS_DEFAULT_LIMIT;
+      const args = [
+        "log",
+        "HEAD",
+        `--skip=${cursor}`,
+        `--max-count=${limit + 1}`,
+        "--no-decorate",
+        "--format=%H%x00%h%x00%an%x00%aI%x00%s%x00",
+      ];
+      const result = yield* executeGit("GitVcsDriver.listCommits", input.cwd, args, {
+        timeoutMs: 10_000,
+        allowNonZeroExit: true,
+        maxOutputBytes: 1_000_000,
+      }).pipe(
+        Effect.catchTags({
+          GitCommandError: (error) =>
+            isMissingGitCwdError(error)
+              ? Effect.succeed({
+                  exitCode: ChildProcessSpawner.ExitCode(128),
+                  stdout: "",
+                  stderr: "fatal: not a git repository",
+                  stdoutTruncated: false,
+                  stderrTruncated: false,
+                })
+              : Effect.fail(error),
+        }),
+      );
+
+      if (result.exitCode !== 0) {
+        const stderr = result.stderr.trim();
+        if (isNonRepositoryGitStderr(stderr)) {
+          return { isRepo: false, refName: null, commits: [], nextCursor: null };
+        }
+        if (isEmptyRepositoryGitStderr(stderr)) {
+          return { isRepo: true, refName: null, commits: [], nextCursor: null };
+        }
+        return yield* new GitCommandError({
+          ...gitCommandContext({ operation: "GitVcsDriver.listCommits", cwd: input.cwd, args }),
+          detail: "Git commit history lookup failed.",
+          exitCode: result.exitCode,
+          stdoutLength: result.stdout.length,
+          stderrLength: result.stderr.length,
+        });
+      }
+
+      const refResult = yield* executeGit(
+        "GitVcsDriver.listCommits.currentRef",
+        input.cwd,
+        ["symbolic-ref", "--quiet", "--short", "HEAD"],
+        { timeoutMs: 5_000, allowNonZeroExit: true },
+      );
+      const gitHubRepository = yield* Effect.gen(function* () {
+        const remoteName = yield* resolvePrimaryRemoteName(input.cwd);
+        const remoteUrl = yield* readConfigValue(input.cwd, `remote.${remoteName}.url`);
+        return parseGitHubRepositoryNameWithOwnerFromRemoteUrl(remoteUrl);
+      }).pipe(Effect.orElseSucceed(() => null));
+      const parsed = parseCommitLogEntries(result.stdout);
+      const hasNextPage = parsed.length > limit;
+      return {
+        isRepo: true,
+        refName: refResult.exitCode === 0 ? refResult.stdout.trim() || null : null,
+        commits: parsed.slice(0, limit).map((commit) => ({
+          ...commit,
+          url: gitHubRepository
+            ? `https://github.com/${gitHubRepository}/commit/${commit.hash}`
+            : null,
+        })),
+        nextCursor: hasNextPage ? cursor + limit : null,
+      };
+    },
+  );
+
   const createWorktree: GitVcsDriver.GitVcsDriver["Service"]["createWorktree"] = Effect.fn(
     "createWorktree",
   )(function* (input) {
@@ -2421,6 +2600,155 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     return { branch: targetBranch };
   });
 
+  const deleteBranch: GitVcsDriver.GitVcsDriver["Service"]["deleteBranch"] = Effect.fn(
+    "deleteBranch",
+  )(function* (input) {
+    if (input.force === true) {
+      yield* executeGit(
+        "GitVcsDriver.deleteBranch",
+        input.cwd,
+        ["branch", "-D", "--", input.branch],
+        {
+          timeoutMs: 10_000,
+          fallbackErrorDetail: "git branch delete failed",
+        },
+      );
+      return;
+    }
+    yield* executeGit(
+      "GitVcsDriver.deleteBranch",
+      input.cwd,
+      ["branch", "-d", "--", input.branch],
+      {
+        timeoutMs: 10_000,
+        fallbackErrorDetail: "git branch delete failed",
+      },
+    );
+  });
+
+  const discardChanges: GitVcsDriver.GitVcsDriver["Service"]["discardChanges"] = Effect.fn(
+    "discardChanges",
+  )(function* (input) {
+    const trackedPaths: Array<string> = [];
+    const untrackedPaths: Array<string> = [];
+
+    for (const filePath of input.filePaths) {
+      const result = yield* executeGit(
+        "GitVcsDriver.discardChanges.checkTracked",
+        input.cwd,
+        ["ls-files", "--error-unmatch", "--", filePath],
+        { allowNonZeroExit: true, timeoutMs: 10_000 },
+      );
+      if (result.exitCode === 0) {
+        trackedPaths.push(filePath);
+      } else {
+        untrackedPaths.push(filePath);
+      }
+    }
+
+    if (trackedPaths.length > 0) {
+      yield* executeGit(
+        "GitVcsDriver.discardChanges.restore",
+        input.cwd,
+        ["restore", "--staged", "--worktree", "--", ...trackedPaths],
+        {
+          timeoutMs: 10_000,
+          fallbackErrorDetail: "git restore selected changes failed",
+        },
+      );
+    }
+
+    if (untrackedPaths.length > 0) {
+      yield* executeGit(
+        "GitVcsDriver.discardChanges.clean",
+        input.cwd,
+        ["clean", "-f", "--", ...untrackedPaths],
+        {
+          timeoutMs: 10_000,
+          fallbackErrorDetail: "git clean selected changes failed",
+        },
+      );
+    }
+  });
+
+  const parseStashList = (stdout: string): VcsStashListResult["stashes"] => {
+    const fields = stdout.split("\0").filter((field) => field.length > 0);
+    const stashes: Array<VcsStashEntry> = [];
+    for (let index = 0; index + 1 < fields.length; index += 2) {
+      const ref = fields[index];
+      const subject = fields[index + 1];
+      if (!ref || !subject) continue;
+      const branchMatch = /^WIP on ([^:]+):/.exec(subject);
+      stashes.push({
+        ref,
+        branch: branchMatch?.[1] ?? null,
+        subject,
+      });
+    }
+    return stashes;
+  };
+
+  const stashList: GitVcsDriver.GitVcsDriver["Service"]["stashList"] = Effect.fn("stashList")(
+    function* (input) {
+      const stdout = yield* runGitStdout("GitVcsDriver.stashList", input.cwd, [
+        "stash",
+        "list",
+        "--format=%gd%x00%gs%x00",
+      ]);
+      return { stashes: parseStashList(stdout) };
+    },
+  );
+
+  const stashPush: GitVcsDriver.GitVcsDriver["Service"]["stashPush"] = Effect.fn("stashPush")(
+    function* (input) {
+      const args = ["stash", "push", "-u"];
+      if (input.message) {
+        args.push("-m", input.message);
+      }
+      if (input.filePaths && input.filePaths.length > 0) {
+        args.push("--", ...input.filePaths);
+      }
+
+      const result = yield* executeGit("GitVcsDriver.stashPush", input.cwd, args, {
+        timeoutMs: 15_000,
+        fallbackErrorDetail: "git stash push failed",
+      });
+      const output = `${result.stdout}\n${result.stderr}`;
+      if (/No local changes to save/i.test(output)) {
+        return { status: "skipped_no_changes" as const };
+      }
+
+      const after = yield* stashList({ cwd: input.cwd });
+      const stashRef = after.stashes[0]?.ref;
+      return stashRef
+        ? { status: "stashed" as const, stashRef }
+        : { status: "skipped_no_changes" as const };
+    },
+  );
+
+  const stashApply: GitVcsDriver.GitVcsDriver["Service"]["stashApply"] = Effect.fn("stashApply")(
+    function* (input) {
+      yield* executeGit(
+        "GitVcsDriver.stashApply",
+        input.cwd,
+        ["stash", input.drop === true ? "pop" : "apply", input.stashRef],
+        {
+          timeoutMs: 15_000,
+          fallbackErrorDetail: "git stash apply failed",
+        },
+      );
+    },
+  );
+
+  const stashDrop: GitVcsDriver.GitVcsDriver["Service"]["stashDrop"] = Effect.fn("stashDrop")(
+    function* (input) {
+      yield* executeGit("GitVcsDriver.stashDrop", input.cwd, ["stash", "drop", input.stashRef], {
+        timeoutMs: 10_000,
+        fallbackErrorDetail: "git stash drop failed",
+      });
+    },
+  );
+
   const switchRef: GitVcsDriver.GitVcsDriver["Service"]["switchRef"] = Effect.fn("switchRef")(
     function* (input) {
       const [localInputExists, remoteExists] = yield* Effect.all(
@@ -2558,6 +2886,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     getReviewDiffPreview,
     readConfigValue,
     listRefs,
+    listWorktrees,
+    listCommits,
     createWorktree,
     fetchPullRequestBranch,
     ensureRemote,
@@ -2569,6 +2899,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     setBranchUpstream,
     removeWorktree,
     renameBranch,
+    deleteBranch,
+    discardChanges,
+    stashPush,
+    stashList,
+    stashApply,
+    stashDrop,
     createRef,
     switchRef,
     initRepo,

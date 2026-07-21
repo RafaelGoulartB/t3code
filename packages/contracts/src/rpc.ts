@@ -19,13 +19,24 @@ import {
   VcsSwitchRefInput,
   VcsSwitchRefResult,
   GitCommandError,
+  GitManagerError,
   VcsCreateRefInput,
   VcsCreateRefResult,
   VcsCreateWorktreeInput,
   VcsCreateWorktreeResult,
+  VcsDeleteBranchInput,
+  VcsDiscardChangesInput,
+  VcsFetchInput,
+  VcsFetchResult,
   VcsInitInput,
   VcsListRefsInput,
   VcsListRefsResult,
+  VcsListWorktreesInput,
+  VcsListWorktreesResult,
+  VcsDeleteWorktreeWithThreadsInput,
+  VcsDeleteWorktreeWithThreadsResult,
+  VcsListCommitsInput,
+  VcsListCommitsResult,
   GitManagerServiceError,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
@@ -33,11 +44,19 @@ import {
   GitPullRequestRefInput,
   VcsPullResult,
   VcsRemoveWorktreeInput,
+  VcsRenameBranchInput,
+  VcsRenameBranchResult,
   GitResolvePullRequestResult,
   GitRunStackedActionInput,
   VcsStatusInput,
   VcsStatusResult,
   VcsStatusStreamEvent,
+  VcsStashApplyInput,
+  VcsStashListInput,
+  VcsStashListResult,
+  VcsStashPushInput,
+  VcsStashPushResult,
+  VcsStashRefInput,
 } from "./git.ts";
 import {
   ReviewDiffPreviewError,
@@ -102,6 +121,7 @@ import {
   PreviewNavigateInput,
   PreviewOpenInput,
   PreviewRefreshInput,
+  PreviewResetInput,
   PreviewReportStatusInput,
   PreviewResizeInput,
   PreviewSessionSnapshot,
@@ -142,6 +162,19 @@ import {
   SourceControlRepositoryInfo,
   SourceControlRepositoryLookupInput,
 } from "./sourceControl.ts";
+import {
+  GitHubPullRequestAction,
+  GitHubPullRequestActionResult,
+  GitHubPullRequestChecksResult,
+  GitHubPullRequestCheckoutInput,
+  GitHubPullRequestCheckoutResult,
+  GitHubPullRequestDetails,
+  GitHubPullRequestDetailsInput,
+  GitHubPullRequestDiffResult,
+  GitHubPullRequestError,
+  GitHubPullRequestListInput,
+  GitHubPullRequestListResult,
+} from "./githubPullRequests.ts";
 import { VcsError } from "./vcs.ts";
 
 export const WS_METHODS = {
@@ -163,12 +196,23 @@ export const WS_METHODS = {
 
   // VCS methods
   vcsPull: "vcs.pull",
+  vcsFetch: "vcs.fetch",
   vcsRefreshStatus: "vcs.refreshStatus",
   vcsListRefs: "vcs.listRefs",
+  vcsListWorktrees: "vcs.listWorktrees",
+  vcsListCommits: "vcs.listCommits",
   vcsCreateWorktree: "vcs.createWorktree",
   vcsRemoveWorktree: "vcs.removeWorktree",
+  vcsDeleteWorktreeWithThreads: "vcs.deleteWorktreeWithThreads",
   vcsCreateRef: "vcs.createRef",
   vcsSwitchRef: "vcs.switchRef",
+  vcsRenameBranch: "vcs.renameBranch",
+  vcsDeleteBranch: "vcs.deleteBranch",
+  vcsDiscardChanges: "vcs.discardChanges",
+  vcsStashPush: "vcs.stashPush",
+  vcsStashList: "vcs.stashList",
+  vcsStashApply: "vcs.stashApply",
+  vcsStashDrop: "vcs.stashDrop",
   vcsInit: "vcs.init",
 
   // Git workflow methods
@@ -196,6 +240,7 @@ export const WS_METHODS = {
   previewClose: "preview.close",
   previewList: "preview.list",
   previewReportStatus: "preview.reportStatus",
+  previewReset: "preview.reset",
   previewAutomationConnect: "previewAutomation.connect",
   previewAutomationRespond: "previewAutomation.respond",
   previewAutomationFocusHost: "previewAutomation.focusHost",
@@ -223,6 +268,12 @@ export const WS_METHODS = {
   sourceControlLookupRepository: "sourceControl.lookupRepository",
   sourceControlCloneRepository: "sourceControl.cloneRepository",
   sourceControlPublishRepository: "sourceControl.publishRepository",
+  githubPullRequestsList: "github.pullRequests.list",
+  githubPullRequestsGet: "github.pullRequests.get",
+  githubPullRequestsChecks: "github.pullRequests.checks",
+  githubPullRequestsDiff: "github.pullRequests.diff",
+  githubPullRequestsAction: "github.pullRequests.action",
+  githubPullRequestsCheckout: "github.pullRequests.checkout",
 
   // Streaming subscriptions
   subscribeVcsStatus: "subscribeVcsStatus",
@@ -263,7 +314,7 @@ export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProv
   payload: Schema.Struct({
     /**
      * When supplied, only refresh this specific provider instance. When
-     * omitted, refresh all configured instances — the legacy `refresh()`
+     * omitted, refresh all configured instances â€” the legacy `refresh()`
      * behaviour retained for transports that still dispatch untargeted
      * refreshes.
      */
@@ -361,6 +412,42 @@ export const WsSourceControlPublishRepositoryRpc = Rpc.make(
   },
 );
 
+export const WsGitHubPullRequestsListRpc = Rpc.make(WS_METHODS.githubPullRequestsList, {
+  payload: GitHubPullRequestListInput,
+  success: GitHubPullRequestListResult,
+  error: Schema.Union([GitHubPullRequestError, EnvironmentAuthorizationError]),
+});
+
+export const WsGitHubPullRequestsGetRpc = Rpc.make(WS_METHODS.githubPullRequestsGet, {
+  payload: GitHubPullRequestDetailsInput,
+  success: GitHubPullRequestDetails,
+  error: Schema.Union([GitHubPullRequestError, EnvironmentAuthorizationError]),
+});
+
+export const WsGitHubPullRequestsChecksRpc = Rpc.make(WS_METHODS.githubPullRequestsChecks, {
+  payload: GitHubPullRequestDetailsInput,
+  success: GitHubPullRequestChecksResult,
+  error: Schema.Union([GitHubPullRequestError, EnvironmentAuthorizationError]),
+});
+
+export const WsGitHubPullRequestsDiffRpc = Rpc.make(WS_METHODS.githubPullRequestsDiff, {
+  payload: GitHubPullRequestDetailsInput,
+  success: GitHubPullRequestDiffResult,
+  error: Schema.Union([GitHubPullRequestError, EnvironmentAuthorizationError]),
+});
+
+export const WsGitHubPullRequestsActionRpc = Rpc.make(WS_METHODS.githubPullRequestsAction, {
+  payload: GitHubPullRequestAction,
+  success: GitHubPullRequestActionResult,
+  error: Schema.Union([GitHubPullRequestError, EnvironmentAuthorizationError]),
+});
+
+export const WsGitHubPullRequestsCheckoutRpc = Rpc.make(WS_METHODS.githubPullRequestsCheckout, {
+  payload: GitHubPullRequestCheckoutInput,
+  success: GitHubPullRequestCheckoutResult,
+  error: Schema.Union([GitHubPullRequestError, EnvironmentAuthorizationError]),
+});
+
 export const WsProjectsSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntries, {
   payload: ProjectSearchEntriesInput,
   success: ProjectSearchEntriesResult,
@@ -415,6 +502,12 @@ export const WsVcsPullRpc = Rpc.make(WS_METHODS.vcsPull, {
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
 });
 
+export const WsVcsFetchRpc = Rpc.make(WS_METHODS.vcsFetch, {
+  payload: VcsFetchInput,
+  success: VcsFetchResult,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
 export const WsVcsRefreshStatusRpc = Rpc.make(WS_METHODS.vcsRefreshStatus, {
   payload: VcsStatusInput,
   success: VcsStatusResult,
@@ -446,6 +539,18 @@ export const WsVcsListRefsRpc = Rpc.make(WS_METHODS.vcsListRefs, {
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
 });
 
+export const WsVcsListWorktreesRpc = Rpc.make(WS_METHODS.vcsListWorktrees, {
+  payload: VcsListWorktreesInput,
+  success: VcsListWorktreesResult,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsListCommitsRpc = Rpc.make(WS_METHODS.vcsListCommits, {
+  payload: VcsListCommitsInput,
+  success: VcsListCommitsResult,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
 export const WsVcsCreateWorktreeRpc = Rpc.make(WS_METHODS.vcsCreateWorktree, {
   payload: VcsCreateWorktreeInput,
   success: VcsCreateWorktreeResult,
@@ -457,6 +562,16 @@ export const WsVcsRemoveWorktreeRpc = Rpc.make(WS_METHODS.vcsRemoveWorktree, {
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
 });
 
+export const WsVcsDeleteWorktreeWithThreadsRpc = Rpc.make(WS_METHODS.vcsDeleteWorktreeWithThreads, {
+  payload: VcsDeleteWorktreeWithThreadsInput,
+  success: VcsDeleteWorktreeWithThreadsResult,
+  error: Schema.Union([
+    GitCommandError,
+    OrchestrationDispatchCommandError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
 export const WsVcsCreateRefRpc = Rpc.make(WS_METHODS.vcsCreateRef, {
   payload: VcsCreateRefInput,
   success: VcsCreateRefResult,
@@ -466,6 +581,44 @@ export const WsVcsCreateRefRpc = Rpc.make(WS_METHODS.vcsCreateRef, {
 export const WsVcsSwitchRefRpc = Rpc.make(WS_METHODS.vcsSwitchRef, {
   payload: VcsSwitchRefInput,
   success: VcsSwitchRefResult,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsRenameBranchRpc = Rpc.make(WS_METHODS.vcsRenameBranch, {
+  payload: VcsRenameBranchInput,
+  success: VcsRenameBranchResult,
+  error: Schema.Union([GitManagerError, GitCommandError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsDeleteBranchRpc = Rpc.make(WS_METHODS.vcsDeleteBranch, {
+  payload: VcsDeleteBranchInput,
+  error: Schema.Union([GitManagerError, GitCommandError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsDiscardChangesRpc = Rpc.make(WS_METHODS.vcsDiscardChanges, {
+  payload: VcsDiscardChangesInput,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsStashPushRpc = Rpc.make(WS_METHODS.vcsStashPush, {
+  payload: VcsStashPushInput,
+  success: VcsStashPushResult,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsStashListRpc = Rpc.make(WS_METHODS.vcsStashList, {
+  payload: VcsStashListInput,
+  success: VcsStashListResult,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsStashApplyRpc = Rpc.make(WS_METHODS.vcsStashApply, {
+  payload: VcsStashApplyInput,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsStashDropRpc = Rpc.make(WS_METHODS.vcsStashDrop, {
+  payload: VcsStashRefInput,
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
 });
 
@@ -561,6 +714,11 @@ export const WsPreviewListRpc = Rpc.make(WS_METHODS.previewList, {
 export const WsPreviewReportStatusRpc = Rpc.make(WS_METHODS.previewReportStatus, {
   payload: PreviewReportStatusInput,
   error: Schema.Union([PreviewError, EnvironmentAuthorizationError]),
+});
+
+export const WsPreviewResetRpc = Rpc.make(WS_METHODS.previewReset, {
+  payload: PreviewResetInput,
+  error: EnvironmentAuthorizationError,
 });
 
 export const WsPreviewAutomationConnectRpc = Rpc.make(WS_METHODS.previewAutomationConnect, {
@@ -707,6 +865,12 @@ export const WsRpcGroup = RpcGroup.make(
   WsSourceControlLookupRepositoryRpc,
   WsSourceControlCloneRepositoryRpc,
   WsSourceControlPublishRepositoryRpc,
+  WsGitHubPullRequestsListRpc,
+  WsGitHubPullRequestsGetRpc,
+  WsGitHubPullRequestsChecksRpc,
+  WsGitHubPullRequestsDiffRpc,
+  WsGitHubPullRequestsActionRpc,
+  WsGitHubPullRequestsCheckoutRpc,
   WsProjectsListEntriesRpc,
   WsProjectsReadFileRpc,
   WsProjectsSearchEntriesRpc,
@@ -716,15 +880,26 @@ export const WsRpcGroup = RpcGroup.make(
   WsAssetsCreateUrlRpc,
   WsSubscribeVcsStatusRpc,
   WsVcsPullRpc,
+  WsVcsFetchRpc,
   WsVcsRefreshStatusRpc,
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
   WsGitPreparePullRequestThreadRpc,
   WsVcsListRefsRpc,
+  WsVcsListWorktreesRpc,
+  WsVcsListCommitsRpc,
   WsVcsCreateWorktreeRpc,
   WsVcsRemoveWorktreeRpc,
+  WsVcsDeleteWorktreeWithThreadsRpc,
   WsVcsCreateRefRpc,
   WsVcsSwitchRefRpc,
+  WsVcsRenameBranchRpc,
+  WsVcsDeleteBranchRpc,
+  WsVcsDiscardChangesRpc,
+  WsVcsStashPushRpc,
+  WsVcsStashListRpc,
+  WsVcsStashApplyRpc,
+  WsVcsStashDropRpc,
   WsVcsInitRpc,
   WsReviewGetDiffPreviewRpc,
   WsTerminalOpenRpc,
@@ -743,6 +918,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsPreviewCloseRpc,
   WsPreviewListRpc,
   WsPreviewReportStatusRpc,
+  WsPreviewResetRpc,
   WsPreviewAutomationConnectRpc,
   WsPreviewAutomationRespondRpc,
   WsPreviewAutomationFocusHostRpc,

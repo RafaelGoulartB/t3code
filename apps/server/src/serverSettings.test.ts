@@ -111,6 +111,29 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           },
         },
       );
+
+      assert.deepEqual(
+        yield* decodeSettingsPatch({
+          pullRequestSystemPrompt: "Write a release-focused pull request.",
+          includeTextGenerationConventionInPullRequestPrompt: false,
+        }),
+        {
+          pullRequestSystemPrompt: "Write a release-focused pull request.",
+          includeTextGenerationConventionInPullRequestPrompt: false,
+        },
+      );
+    }),
+  );
+
+  it.effect("defaults pull request prompt settings for existing settings files", () =>
+    Effect.gen(function* () {
+      const decoded = yield* decodeServerSettings({});
+
+      assert.strictEqual(
+        decoded.pullRequestSystemPrompt,
+        DEFAULT_SERVER_SETTINGS.pullRequestSystemPrompt,
+      );
+      assert.strictEqual(decoded.includeTextGenerationConventionInPullRequestPrompt, true);
     }),
   );
 

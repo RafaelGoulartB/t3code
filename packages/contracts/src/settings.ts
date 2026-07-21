@@ -6,6 +6,10 @@ import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
 import { DEFAULT_GIT_TEXT_GENERATION_MODEL, ProviderOptionSelections } from "./model.ts";
 import { ModelSelection } from "./orchestration.ts";
 import { ProviderInstanceConfig, ProviderInstanceId } from "./providerInstance.ts";
+import {
+  DEFAULT_PULL_REQUEST_SYSTEM_PROMPT,
+  TextGenerationPolicy,
+} from "./textGenerationPolicy.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -28,6 +32,37 @@ export const SidebarProjectGroupingMode = Schema.Literals([
 ]);
 export type SidebarProjectGroupingMode = typeof SidebarProjectGroupingMode.Type;
 export const DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE: SidebarProjectGroupingMode = "repository";
+export const SIDEBAR_PROJECT_FOLDER_COLOR_PRESETS = [
+  "gray",
+  "red",
+  "orange",
+  "amber",
+  "yellow",
+  "green",
+  "teal",
+  "cyan",
+  "blue",
+  "indigo",
+  "violet",
+  "pink",
+  "rose",
+] as const;
+const SidebarProjectFolderPresetColor = Schema.Literals(SIDEBAR_PROJECT_FOLDER_COLOR_PRESETS);
+const SidebarProjectFolderHexColor = TrimmedNonEmptyString.check(
+  Schema.isPattern(/^#[0-9a-fA-F]{6}$/),
+);
+export const SidebarProjectFolderColor = Schema.Union([
+  SidebarProjectFolderPresetColor,
+  SidebarProjectFolderHexColor,
+]);
+export type SidebarProjectFolderColor = typeof SidebarProjectFolderColor.Type;
+export const DEFAULT_SIDEBAR_PROJECT_FOLDER_COLOR: SidebarProjectFolderColor = "blue";
+export const SidebarProjectFolder = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  color: SidebarProjectFolderColor,
+});
+export type SidebarProjectFolder = typeof SidebarProjectFolder.Type;
 export const MIN_SIDEBAR_THREAD_PREVIEW_COUNT = 1;
 export const MAX_SIDEBAR_THREAD_PREVIEW_COUNT = 15;
 export const SidebarThreadPreviewCount = Schema.Int.check(
@@ -38,6 +73,27 @@ export const SidebarThreadPreviewCount = Schema.Int.check(
 );
 export type SidebarThreadPreviewCount = typeof SidebarThreadPreviewCount.Type;
 export const DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT: SidebarThreadPreviewCount = 6;
+
+export const MIN_TERMINAL_FONT_SIZE = 9;
+export const MAX_TERMINAL_FONT_SIZE = 24;
+export const TerminalFontSize = Schema.Int.check(
+  Schema.isBetween({
+    minimum: MIN_TERMINAL_FONT_SIZE,
+    maximum: MAX_TERMINAL_FONT_SIZE,
+  }),
+);
+export type TerminalFontSize = typeof TerminalFontSize.Type;
+export const DEFAULT_TERMINAL_FONT_SIZE: TerminalFontSize = 12;
+
+/** Determines whether the right panel is isolated per conversation or shared by worktree. */
+export const RightPanelSharingMode = Schema.Literals(["thread", "worktree"]);
+export type RightPanelSharingMode = typeof RightPanelSharingMode.Type;
+export const DEFAULT_RIGHT_PANEL_SHARING_MODE: RightPanelSharingMode = "thread";
+
+/** Determines whether the pull requests page shows a flat list or groups items by repository. */
+export const PullRequestGroupingMode = Schema.Literals(["flat", "repository"]);
+export type PullRequestGroupingMode = typeof PullRequestGroupingMode.Type;
+export const DEFAULT_PULL_REQUEST_GROUPING_MODE: PullRequestGroupingMode = "flat";
 
 export const ClientSettingsSchema = Schema.Struct({
   autoOpenPlanSidebar: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -79,6 +135,19 @@ export const ClientSettingsSchema = Schema.Struct({
     TrimmedNonEmptyString,
     SidebarProjectGroupingMode,
   ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  sidebarProjectFolders: Schema.Array(SidebarProjectFolder).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  sidebarProjectFolderAssignments: Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+  sidebarProjectFolderOrder: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  sidebarPinnedThreadKeysByProject: Schema.Record(
+    TrimmedNonEmptyString,
+    Schema.Array(TrimmedNonEmptyString),
+  ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   sidebarProjectSortOrder: SidebarProjectSortOrder.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_SORT_ORDER)),
   ),
@@ -88,8 +157,17 @@ export const ClientSettingsSchema = Schema.Struct({
   sidebarThreadPreviewCount: SidebarThreadPreviewCount.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT)),
   ),
+  rightPanelSharingMode: RightPanelSharingMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_RIGHT_PANEL_SHARING_MODE)),
+  ),
+  pullRequestGroupingMode: PullRequestGroupingMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_PULL_REQUEST_GROUPING_MODE)),
+  ),
   timestampFormat: TimestampFormat.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
+  ),
+  terminalFontSize: TerminalFontSize.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_TERMINAL_FONT_SIZE)),
   ),
   wordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 });
@@ -370,6 +448,15 @@ export type ObservabilitySettings = typeof ObservabilitySettings.Type;
 
 export const DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL = Duration.seconds(30);
 
+/** A Git ref namespace used for T3 Code-managed worktree branches. */
+export const WorktreeBranchPrefix = TrimmedNonEmptyString.check(
+  Schema.isPattern(
+    /^(?!.*(?:^|\/)\.{1,2}(?:\/|$))(?!.*\.lock(?:\/|$))[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/,
+  ),
+);
+export type WorktreeBranchPrefix = typeof WorktreeBranchPrefix.Type;
+export const DEFAULT_WORKTREE_BRANCH_PREFIX = "t3code";
+
 export const ServerSettings = Schema.Struct({
   enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   enableProviderUpdateChecks: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
@@ -384,6 +471,9 @@ export const ServerSettings = Schema.Struct({
   newWorktreesStartFromOrigin: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(false)),
   ),
+  worktreeBranchPrefix: WorktreeBranchPrefix.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_WORKTREE_BRANCH_PREFIX)),
+  ),
   addProjectBaseDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
@@ -392,6 +482,20 @@ export const ServerSettings = Schema.Struct({
         model: DEFAULT_GIT_TEXT_GENERATION_MODEL,
       }),
     ),
+  ),
+  textGenerationPolicy: TextGenerationPolicy.pipe(
+    Schema.withDecodingDefault(
+      Effect.succeed({
+        kind: "default",
+        inferRepositoryConventions: false,
+      } as const satisfies typeof TextGenerationPolicy.Type),
+    ),
+  ),
+  pullRequestSystemPrompt: Schema.String.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_PULL_REQUEST_SYSTEM_PROMPT)),
+  ),
+  includeTextGenerationConventionInPullRequestPrompt: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
   ),
 
   // Legacy single-instance-per-driver settings. Continues to be the source
@@ -471,6 +575,17 @@ const ModelSelectionPatch = Schema.Struct({
   options: Schema.optionalKey(ProviderOptionSelections),
 });
 
+const TextGenerationPolicyPatch = Schema.Struct({
+  kind: Schema.optionalKey(
+    Schema.Literals(["default", "conventional_commits", "repo_conventions", "custom"]),
+  ),
+  commitInstructions: Schema.optional(Schema.String),
+  changeRequestInstructions: Schema.optional(Schema.String),
+  branchInstructions: Schema.optional(Schema.String),
+  threadTitleInstructions: Schema.optional(Schema.String),
+  inferRepositoryConventions: Schema.optional(Schema.Boolean),
+});
+
 const CodexSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
@@ -516,8 +631,12 @@ export const ServerSettingsPatch = Schema.Struct({
   automaticGitFetchInterval: Schema.optionalKey(Schema.DurationFromMillis),
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
+  worktreeBranchPrefix: Schema.optionalKey(WorktreeBranchPrefix),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
+  textGenerationPolicy: Schema.optionalKey(TextGenerationPolicyPatch),
+  pullRequestSystemPrompt: Schema.optionalKey(Schema.String),
+  includeTextGenerationConventionInPullRequestPrompt: Schema.optionalKey(Schema.Boolean),
   observability: Schema.optionalKey(
     Schema.Struct({
       otlpTracesUrl: Schema.optionalKey(TrimmedString),
@@ -571,10 +690,21 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),
   ),
+  sidebarProjectFolders: Schema.optionalKey(Schema.Array(SidebarProjectFolder)),
+  sidebarProjectFolderAssignments: Schema.optionalKey(
+    Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString),
+  ),
+  sidebarProjectFolderOrder: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
+  sidebarPinnedThreadKeysByProject: Schema.optionalKey(
+    Schema.Record(TrimmedNonEmptyString, Schema.Array(TrimmedNonEmptyString)),
+  ),
   sidebarProjectSortOrder: Schema.optionalKey(SidebarProjectSortOrder),
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
+  rightPanelSharingMode: Schema.optionalKey(RightPanelSharingMode),
+  pullRequestGroupingMode: Schema.optionalKey(PullRequestGroupingMode),
   timestampFormat: Schema.optionalKey(TimestampFormat),
+  terminalFontSize: Schema.optionalKey(TerminalFontSize),
   wordWrap: Schema.optionalKey(Schema.Boolean),
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

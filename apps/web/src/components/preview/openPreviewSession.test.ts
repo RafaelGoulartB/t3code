@@ -41,7 +41,10 @@ describe("openPreviewSession", () => {
       threadRef,
     });
 
-    expect(open).toHaveBeenCalledWith({ threadId: "thread-1" });
+    expect(open).toHaveBeenCalledWith({
+      threadId: "thread-1",
+      scope: { _tag: "thread", threadId: "thread-1" },
+    });
     expect(readThreadPreviewState(threadRef).snapshot).toEqual(idleSnapshot);
     expect(readThreadPreviewState(threadRef).recentlySeenUrls).toEqual([]);
   });
@@ -55,7 +58,11 @@ describe("openPreviewSession", () => {
       url: "t3.chat",
     });
 
-    expect(open).toHaveBeenCalledWith({ threadId: "thread-1", url: "t3.chat" });
+    expect(open).toHaveBeenCalledWith({
+      threadId: "thread-1",
+      scope: { _tag: "thread", threadId: "thread-1" },
+      url: "t3.chat",
+    });
     expect(readThreadPreviewState(threadRef).snapshot).toEqual(snapshot);
     expect(readThreadPreviewState(threadRef).recentlySeenUrls).toEqual(["https://t3.chat/"]);
   });

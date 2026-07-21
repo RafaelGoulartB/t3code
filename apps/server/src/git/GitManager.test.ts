@@ -594,6 +594,46 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
           cwd: input.cwd,
           args: ["pr", "checkout", input.reference, ...(input.force ? ["--force"] : [])],
         }).pipe(Effect.asVoid),
+      searchPullRequests: (input) =>
+        Effect.fail(
+          new GitHubCli.GitHubCliCommandError({
+            command: "gh",
+            cwd: input.cwd,
+            cause: new Error("Not used by GitManager tests"),
+          }),
+        ),
+      getPullRequestDetails: (input) =>
+        Effect.fail(
+          new GitHubCli.GitHubCliCommandError({
+            command: "gh",
+            cwd: input.cwd,
+            cause: new Error("Not used by GitManager tests"),
+          }),
+        ),
+      getPullRequestChecks: (input) =>
+        Effect.fail(
+          new GitHubCli.GitHubCliCommandError({
+            command: "gh",
+            cwd: input.cwd,
+            cause: new Error("Not used by GitManager tests"),
+          }),
+        ),
+      getPullRequestDiff: (input) =>
+        Effect.fail(
+          new GitHubCli.GitHubCliCommandError({
+            command: "gh",
+            cwd: input.cwd,
+            cause: new Error("Not used by GitManager tests"),
+          }),
+        ),
+      runPullRequestAction: (input) =>
+        Effect.fail(
+          new GitHubCli.GitHubCliCommandError({
+            command: "gh",
+            cwd: input.cwd,
+            cause: new Error("Not used by GitManager tests"),
+          }),
+        ),
     },
     ghCalls,
   };

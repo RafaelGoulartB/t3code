@@ -5,6 +5,7 @@ import {
   applyGitStatusStreamEvent,
   buildTemporaryWorktreeBranchName,
   isTemporaryWorktreeBranch,
+  normalizeWorktreeBranchPrefix,
   normalizeGitRemoteUrl,
   parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
   WORKTREE_BRANCH_PREFIX,
@@ -54,6 +55,19 @@ describe("parseGitHubRepositoryNameWithOwnerFromRemoteUrl", () => {
 });
 
 describe("isTemporaryWorktreeBranch", () => {
+  it("uses an explicit worktree prefix", () => {
+    const branch = buildTemporaryWorktreeBranchName("life_notes", () => "D58FF589");
+    expect(branch).toBe("life_notes/d58ff589");
+    expect(isTemporaryWorktreeBranch(branch, "life_notes")).toBe(true);
+    expect(isTemporaryWorktreeBranch(branch, "t3code")).toBe(false);
+  });
+
+  it("preserves uppercase letters in an explicit prefix", () => {
+    const branch = buildTemporaryWorktreeBranchName("TNV-123", () => "D58FF589");
+    expect(branch).toBe("TNV-123/d58ff589");
+    expect(isTemporaryWorktreeBranch(branch, "TNV-123")).toBe(true);
+    expect(isTemporaryWorktreeBranch(branch, "tnv-123")).toBe(false);
+  });
   it("matches the generated temporary worktree refName format", () => {
     expect(
       isTemporaryWorktreeBranch(
@@ -75,6 +89,14 @@ describe("isTemporaryWorktreeBranch", () => {
     expect(isTemporaryWorktreeBranch(`${WORKTREE_BRANCH_PREFIX}/feature/demo`)).toBe(false);
     expect(isTemporaryWorktreeBranch("main")).toBe(false);
     expect(isTemporaryWorktreeBranch(`${WORKTREE_BRANCH_PREFIX}/deadbeef-extra`)).toBe(false);
+  });
+});
+
+describe("normalizeWorktreeBranchPrefix", () => {
+  it("normalizes valid namespaces and rejects invalid Git ref fragments", () => {
+    expect(normalizeWorktreeBranchPrefix(" Acme/Agent ")).toBe("Acme/Agent");
+    expect(normalizeWorktreeBranchPrefix("bad prefix")).toBeNull();
+    expect(normalizeWorktreeBranchPrefix("feature/")).toBeNull();
   });
 });
 

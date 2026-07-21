@@ -16,12 +16,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
+import { Input } from "./ui/input";
 
 interface BranchToolbarEnvModeSelectorProps {
   envLocked: boolean;
   effectiveEnvMode: EnvMode;
   activeWorktreePath: string | null;
   onEnvModeChange: (mode: EnvMode) => void;
+  worktreeBranchPrefixOverride: string;
+  defaultWorktreeBranchPrefix: string;
+  onWorktreeBranchPrefixOverrideChange: (prefix: string) => void;
 }
 
 export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSelector({
@@ -29,6 +33,9 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
   effectiveEnvMode,
   activeWorktreePath,
   onEnvModeChange,
+  worktreeBranchPrefixOverride,
+  defaultWorktreeBranchPrefix,
+  onWorktreeBranchPrefixOverrideChange,
 }: BranchToolbarEnvModeSelectorProps) {
   const envModeItems = useMemo(
     () => [
@@ -86,6 +93,21 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
               {resolveCurrentWorkspaceLabel(activeWorktreePath)}
             </span>
           </SelectItem>
+          {effectiveEnvMode === "worktree" ? (
+            <div className="px-2 py-1.5" onPointerDown={(event) => event.stopPropagation()}>
+              <label className="block text-xs text-muted-foreground">
+                Branch prefix
+                <Input
+                  className="mt-1"
+                  size="sm"
+                  value={worktreeBranchPrefixOverride}
+                  placeholder={`Default: ${defaultWorktreeBranchPrefix}`}
+                  onValueChange={onWorktreeBranchPrefixOverrideChange}
+                  onKeyDown={(event) => event.stopPropagation()}
+                />
+              </label>
+            </div>
+          ) : null}
           <SelectItem value="worktree">
             <span className="inline-flex items-center gap-1.5">
               <FolderGit2Icon className="size-3" />

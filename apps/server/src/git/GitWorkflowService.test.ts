@@ -1,8 +1,9 @@
 import { assert, describe, expect, it, vi } from "@effect/vitest";
+import { assertFailure } from "@effect/vitest/utils";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import { VcsRepositoryDetectionError } from "@t3tools/contracts";
+import { GitCommandError, VcsRepositoryDetectionError } from "@t3tools/contracts";
 
 import * as GitManager from "./GitManager.ts";
 import * as GitWorkflowService from "./GitWorkflowService.ts";
@@ -19,6 +20,25 @@ function makeLayer(input: {
       }),
     ),
     Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+    Layer.provide(Layer.mock(GitManager.GitManager)({})),
+  );
+}
+
+function makeGitCommandLayer(input: {
+  readonly git: Partial<GitVcsDriver.GitVcsDriver["Service"]>;
+}) {
+  return GitWorkflowService.layer.pipe(
+    Layer.provide(
+      Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
+        resolve: () =>
+          Effect.succeed({
+            kind: "git" as const,
+            repository: {} as never,
+            driver: {} as never,
+          }),
+      }),
+    ),
+    Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)(input.git)),
     Layer.provide(Layer.mock(GitManager.GitManager)({})),
   );
 }
@@ -185,6 +205,81 @@ describe("GitWorkflowService", () => {
       Effect.provide(
         makeLayer({
           detect: () => Effect.fail(cause),
+        }),
+      ),
+    );
+  });
+
+  it.effect("fetchPrimaryRemote fetches the primary origin remote", () => {
+    const fetchRemote = vi.fn((_: { cwd: string; remoteName: string }) => Effect.void);
+
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const result = yield* workflow.fetchPrimaryRemote("/repo");
+
+      assert.deepStrictEqual(result, { remoteName: "origin" });
+      assert.deepStrictEqual(fetchRemote.mock.calls[0]?.[0], {
+        cwd: "/repo",
+        remoteName: "origin",
+      });
+    }).pipe(
+      Effect.provide(
+        makeGitCommandLayer({
+          git: {
+            resolvePrimaryRemoteName: () => Effect.succeed("origin"),
+            fetchRemote,
+          },
+        }),
+      ),
+    );
+  });
+
+  it.effect("fetchPrimaryRemote fetches a non-origin primary remote", () => {
+    const fetchRemote = vi.fn((_: { cwd: string; remoteName: string }) => Effect.void);
+
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const result = yield* workflow.fetchPrimaryRemote("/repo");
+
+      assert.deepStrictEqual(result, { remoteName: "upstream" });
+      assert.deepStrictEqual(fetchRemote.mock.calls[0]?.[0], {
+        cwd: "/repo",
+        remoteName: "upstream",
+      });
+    }).pipe(
+      Effect.provide(
+        makeGitCommandLayer({
+          git: {
+            resolvePrimaryRemoteName: () => Effect.succeed("upstream"),
+            fetchRemote,
+          },
+        }),
+      ),
+    );
+  });
+
+  it.effect("fetchPrimaryRemote fails when no primary remote can be resolved", () => {
+    const error = new GitCommandError({
+      operation: "GitVcsDriver.resolvePrimaryRemoteName",
+      command: "git remote",
+      cwd: "/repo",
+      detail: "No Git remotes are configured.",
+    });
+    const fetchRemote = vi.fn((_: { cwd: string; remoteName: string }) => Effect.void);
+
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const result = yield* workflow.fetchPrimaryRemote("/repo").pipe(Effect.result);
+
+      assertFailure(result, error);
+      assert.equal(fetchRemote.mock.calls.length, 0);
+    }).pipe(
+      Effect.provide(
+        makeGitCommandLayer({
+          git: {
+            resolvePrimaryRemoteName: () => Effect.fail(error),
+            fetchRemote,
+          },
         }),
       ),
     );

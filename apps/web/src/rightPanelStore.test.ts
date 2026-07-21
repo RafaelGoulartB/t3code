@@ -14,10 +14,31 @@ const refA = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-A"))
 const refB = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-B"));
 
 beforeEach(() => {
-  useRightPanelStore.setState({ byThreadKey: {} });
+  useRightPanelStore.setState({ byThreadKey: {}, scopeKeyByThreadKey: {} });
 });
 
 describe("rightPanelStore", () => {
+  it("shares right-panel state for threads registered to the same worktree", () => {
+    const store = useRightPanelStore.getState();
+    const scope = {
+      kind: "worktree" as const,
+      environmentId: "env-1" as EnvironmentId,
+      projectId: "project-1" as never,
+      worktreePath: "/repo/worktree",
+    };
+    store.registerScope(refA, scope);
+    store.registerScope(refB, scope);
+    store.open(refA, "files");
+
+    expect(
+      selectThreadRightPanelState(
+        useRightPanelStore.getState().byThreadKey,
+        refB,
+        useRightPanelStore.getState().scopeKeyByThreadKey,
+      ).surfaces,
+    ).toEqual([{ id: "files", kind: "files" }]);
+  });
+
   it("drops the legacy singleton terminal surface during migration", () => {
     expect(
       migratePersistedRightPanelState({

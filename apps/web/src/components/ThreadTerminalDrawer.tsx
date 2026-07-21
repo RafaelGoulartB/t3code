@@ -5,6 +5,8 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
+  Maximize2,
+  Minimize2,
   Plus,
   SquareSplitHorizontal,
   SquareSplitVertical,
@@ -13,10 +15,12 @@ import {
   XIcon,
 } from "lucide-react";
 import {
+  type ProjectId,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
+import { DEFAULT_TERMINAL_FONT_SIZE } from "@t3tools/contracts/settings";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import {
@@ -50,6 +54,7 @@ import {
   isTerminalNewShortcut,
   isTerminalSplitShortcut,
   isTerminalSplitVerticalShortcut,
+  isTerminalToggleMaximizeShortcut,
   isTerminalToggleShortcut,
   terminalDeleteShortcutData,
   terminalNavigationShortcutData,
@@ -64,6 +69,7 @@ import { useAttachedTerminalSession } from "../state/terminalSessions";
 import { serverEnvironment } from "../state/server";
 import { previewEnvironment } from "../state/preview";
 import { terminalEnvironment } from "../state/terminal";
+import { useClientSettings } from "../hooks/useSettings";
 import { openTerminalLinkInPreview } from "./preview/openTerminalLinkInPreview";
 import { useAtomCommand } from "../state/use-atom-command";
 
@@ -271,7 +277,7 @@ export function shouldHandleTerminalSelectionMouseUp(
 
 interface TerminalViewportProps {
   threadRef: ScopedThreadRef;
-  threadId: ThreadId;
+  projectId: ProjectId;
   terminalId: string;
   terminalLabel: string;
   cwd: string;
@@ -294,7 +300,7 @@ interface TerminalLaunchLocation {
 
 export function TerminalViewport({
   threadRef,
-  threadId,
+  projectId,
   terminalId,
   terminalLabel,
   cwd,
@@ -311,6 +317,8 @@ export function TerminalViewport({
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const terminalFontSize = useClientSettings((settings) => settings.terminalFontSize);
+  const terminalFontSizeRef = useRef(terminalFontSize);
   const environmentId = threadRef.environmentId;
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const openInPreferredEditor = useOpenInPreferredEditor(
@@ -345,23 +353,23 @@ export function TerminalViewport({
   const terminalSession = useAttachedTerminalSession({
     environmentId,
     terminal: {
-      threadId,
+      projectId,
+      worktreePath: worktreePath ?? null,
       terminalId,
       cwd,
-      ...(worktreePath !== undefined ? { worktreePath } : {}),
       ...(runtimeEnv ? { env: runtimeEnv } : {}),
     },
   });
   const writeTerminal = useEffectEvent((data: string) =>
     runTerminalWrite({
       environmentId,
-      input: { threadId, terminalId, data },
+      input: { projectId, worktreePath: worktreePath ?? null, terminalId, data },
     }),
   );
   const resizeTerminal = useEffectEvent((cols: number, rows: number) =>
     runTerminalResize({
       environmentId,
-      input: { threadId, terminalId, cols, rows },
+      input: { projectId, worktreePath: worktreePath ?? null, terminalId, cols, rows },
     }),
   );
   const terminalBuffer = terminalSession.buffer;
@@ -380,6 +388,10 @@ export function TerminalViewport({
   }, [keybindings]);
 
   useEffect(() => {
+    terminalFontSizeRef.current = terminalFontSize;
+  }, [terminalFontSize]);
+
+  useEffect(() => {
     const mount = containerRef.current;
     if (!mount) return;
 
@@ -389,7 +401,7 @@ export function TerminalViewport({
     const terminal = new Terminal({
       cursorBlink: true,
       lineHeight: 1,
-      fontSize: 12,
+      fontSize: terminalFontSizeRef.current ?? DEFAULT_TERMINAL_FONT_SIZE,
       scrollback: 5_000,
       fontFamily:
         '"SF Mono", "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", Menlo, monospace',
@@ -530,6 +542,7 @@ export function TerminalViewport({
       const options = { context: { terminalFocus: true, terminalOpen: true } };
       if (
         isTerminalToggleShortcut(event, currentKeybindings, options) ||
+        isTerminalToggleMaximizeShortcut(event, currentKeybindings, options) ||
         isTerminalSplitShortcut(event, currentKeybindings, options) ||
         isTerminalSplitVerticalShortcut(event, currentKeybindings, options) ||
         isTerminalNewShortcut(event, currentKeybindings, options) ||
@@ -734,7 +747,7 @@ export function TerminalViewport({
     // autoFocus is intentionally omitted;
     // it is only read at mount time and must not trigger terminal teardown/recreation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cwd, environmentId, runtimeEnvKey, terminalId, threadId, worktreePath]);
+  }, [cwd, environmentId, projectId, runtimeEnvKey, terminalId, worktreePath]);
 
   useEffect(() => {
     const terminal = terminalRef.current;
@@ -810,6 +823,25 @@ export function TerminalViewport({
   useEffect(() => {
     const terminal = terminalRef.current;
     const fitAddon = fitAddonRef.current;
+    if (!terminal || !fitAddon || terminal.options.fontSize === terminalFontSize) return;
+
+    terminal.options.fontSize = terminalFontSize;
+    const wasAtBottom = terminal.buffer.active.viewportY >= terminal.buffer.active.baseY;
+    const frame = window.requestAnimationFrame(() => {
+      fitTerminalSafely(fitAddon);
+      if (wasAtBottom) {
+        terminal.scrollToBottom();
+      }
+      void resizeTerminal(terminal.cols, terminal.rows);
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [resizeTerminal, terminalFontSize]);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    const fitAddon = fitAddonRef.current;
     if (!terminal || !fitAddon) return;
     const wasAtBottom = terminal.buffer.active.viewportY >= terminal.buffer.active.baseY;
     const frame = window.requestAnimationFrame(() => {
@@ -822,7 +854,7 @@ export function TerminalViewport({
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [drawerHeight, environmentId, resizeEpoch, terminalId, threadId]);
+  }, [drawerHeight, environmentId, projectId, resizeEpoch, terminalId]);
   return (
     <div
       ref={containerRef}
@@ -834,12 +866,14 @@ export function TerminalViewport({
 interface ThreadTerminalDrawerProps {
   mode?: "drawer" | "panel";
   threadRef: ScopedThreadRef;
+  projectId: ProjectId;
   threadId: ThreadId;
   cwd: string;
   worktreePath?: string | null;
   runtimeEnv?: Record<string, string>;
   visible?: boolean;
   height: number;
+  maximized?: boolean;
   terminalIds: string[];
   activeTerminalId: string;
   terminalGroups: ThreadTerminalGroup[];
@@ -852,6 +886,8 @@ interface ThreadTerminalDrawerProps {
   splitVerticalShortcutLabel?: string | undefined;
   newShortcutLabel?: string | undefined;
   closeShortcutLabel?: string | undefined;
+  toggleMaximizeShortcutLabel?: string | undefined;
+  onToggleMaximized?: (() => void) | undefined;
   onActiveTerminalChange: (terminalId: string) => void;
   onCloseTerminal: (terminalId: string) => void;
   onHeightChange: (height: number) => void;
@@ -895,12 +931,14 @@ function TerminalActionButton({ label, className, onClick, children }: TerminalA
 export default function ThreadTerminalDrawer({
   mode = "drawer",
   threadRef,
+  projectId,
   threadId,
   cwd,
   worktreePath,
   runtimeEnv,
   visible = true,
   height,
+  maximized = false,
   terminalIds,
   activeTerminalId,
   terminalGroups,
@@ -913,6 +951,8 @@ export default function ThreadTerminalDrawer({
   splitVerticalShortcutLabel,
   newShortcutLabel,
   closeShortcutLabel,
+  toggleMaximizeShortcutLabel,
+  onToggleMaximized,
   onActiveTerminalChange,
   onCloseTerminal,
   onHeightChange,
@@ -1071,6 +1111,7 @@ export default function ThreadTerminalDrawer({
     resolvedTerminalGroups.length > 1 ||
     resolvedTerminalGroups.some((terminalGroup) => terminalGroup.terminalIds.length > 1);
   const hasReachedSplitLimit = visibleTerminalIds.length >= MAX_TERMINALS_PER_GROUP;
+  const effectiveDrawerHeight = drawerHeight;
   const terminalLabelById = useMemo(() => {
     const next = new Map<string, string>();
     for (const terminalId of normalizedTerminalIds) {
@@ -1106,6 +1147,13 @@ export default function ThreadTerminalDrawer({
   const closeTerminalActionLabel = closeShortcutLabel
     ? `Close Terminal (${closeShortcutLabel})`
     : "Close Terminal";
+  const toggleMaximizeTerminalActionLabel = maximized
+    ? toggleMaximizeShortcutLabel
+      ? `Restore Terminal (${toggleMaximizeShortcutLabel})`
+      : "Restore Terminal"
+    : toggleMaximizeShortcutLabel
+      ? `Maximize Terminal (${toggleMaximizeShortcutLabel})`
+      : "Maximize Terminal";
   const onSplitTerminalAction = useCallback(() => {
     if (hasReachedSplitLimit) return;
     onSplitTerminal();
@@ -1212,7 +1260,7 @@ export default function ThreadTerminalDrawer({
       return;
     }
     setResizeEpoch((value) => value + 1);
-  }, [visible]);
+  }, [maximized, visible]);
 
   useEffect(() => {
     return () => {
@@ -1226,11 +1274,15 @@ export default function ThreadTerminalDrawer({
         data-terminal-owner={isPanel ? "right-panel" : "drawer"}
         className={cn(
           "thread-terminal-drawer relative flex min-w-0 flex-col overflow-hidden bg-background",
-          isPanel ? "h-full flex-1" : "shrink-0 border-t border-border/80",
+          isPanel
+            ? "h-full flex-1"
+            : maximized
+              ? "min-h-0 flex-1 border-t border-border/80"
+              : "shrink-0 border-t border-border/80",
         )}
-        style={isPanel ? undefined : { height: `${drawerHeight}px` }}
+        style={isPanel || maximized ? undefined : { height: `${drawerHeight}px` }}
       >
-        {!isPanel ? (
+        {!isPanel && !maximized ? (
           <div
             className="absolute inset-x-0 top-0 z-20 h-1.5 cursor-row-resize"
             onPointerDown={handleResizePointerDown}
@@ -1260,11 +1312,15 @@ export default function ThreadTerminalDrawer({
       data-terminal-owner={isPanel ? "right-panel" : "drawer"}
       className={cn(
         "thread-terminal-drawer relative flex min-w-0 flex-col overflow-hidden bg-background",
-        isPanel ? "h-full flex-1" : "shrink-0 border-t border-border/80",
+        isPanel
+          ? "h-full flex-1"
+          : maximized
+            ? "min-h-0 flex-1 border-t border-border/80"
+            : "shrink-0 border-t border-border/80",
       )}
-      style={isPanel ? undefined : { height: `${drawerHeight}px` }}
+      style={isPanel || maximized ? undefined : { height: `${drawerHeight}px` }}
     >
-      {!isPanel ? (
+      {!isPanel && !maximized ? (
         <div
           className="absolute inset-x-0 top-0 z-20 h-1.5 cursor-row-resize"
           onPointerDown={handleResizePointerDown}
@@ -1316,6 +1372,22 @@ export default function ThreadTerminalDrawer({
             >
               <Trash2 className="size-3.25" />
             </TerminalActionButton>
+            {!isPanel && onToggleMaximized ? (
+              <>
+                <div className="h-4 w-px bg-border/80" />
+                <TerminalActionButton
+                  className="p-1 text-foreground/90 transition-colors hover:bg-accent"
+                  onClick={onToggleMaximized}
+                  label={toggleMaximizeTerminalActionLabel}
+                >
+                  {maximized ? (
+                    <Minimize2 className="size-3.25" />
+                  ) : (
+                    <Maximize2 className="size-3.25" />
+                  )}
+                </TerminalActionButton>
+              </>
+            ) : null}
           </div>
         </div>
       )}
@@ -1359,7 +1431,7 @@ export default function ThreadTerminalDrawer({
                       <div className="h-full p-1">
                         <TerminalViewport
                           threadRef={threadRef}
-                          threadId={threadId}
+                          projectId={projectId}
                           terminalId={terminalId}
                           terminalLabel={terminalLabelById.get(terminalId) ?? "Terminal"}
                           cwd={terminalLaunchLocation.cwd}
@@ -1374,7 +1446,7 @@ export default function ThreadTerminalDrawer({
                           focusRequestId={focusRequestId}
                           autoFocus={terminalId === resolvedActiveTerminalId}
                           resizeEpoch={resizeEpoch}
-                          drawerHeight={drawerHeight}
+                          drawerHeight={effectiveDrawerHeight}
                           keybindings={keybindings}
                         />
                       </div>
@@ -1387,7 +1459,7 @@ export default function ThreadTerminalDrawer({
                 <TerminalViewport
                   key={resolvedActiveTerminalId}
                   threadRef={threadRef}
-                  threadId={threadId}
+                  projectId={projectId}
                   terminalId={resolvedActiveTerminalId}
                   terminalLabel={terminalLabelById.get(resolvedActiveTerminalId) ?? "Terminal"}
                   cwd={activeTerminalLaunchLocation.cwd}
@@ -1402,7 +1474,7 @@ export default function ThreadTerminalDrawer({
                   focusRequestId={focusRequestId}
                   autoFocus
                   resizeEpoch={resizeEpoch}
-                  drawerHeight={drawerHeight}
+                  drawerHeight={effectiveDrawerHeight}
                   keybindings={keybindings}
                 />
               </div>
@@ -1449,6 +1521,19 @@ export default function ThreadTerminalDrawer({
                   >
                     <Trash2 className="size-3.25" />
                   </TerminalActionButton>
+                  {!isPanel && onToggleMaximized ? (
+                    <TerminalActionButton
+                      className="inline-flex h-full items-center border-l border-border/70 px-1 text-foreground/90 transition-colors hover:bg-accent/70"
+                      onClick={onToggleMaximized}
+                      label={toggleMaximizeTerminalActionLabel}
+                    >
+                      {maximized ? (
+                        <Minimize2 className="size-3.25" />
+                      ) : (
+                        <Maximize2 className="size-3.25" />
+                      )}
+                    </TerminalActionButton>
+                  ) : null}
                 </div>
               </div>
 

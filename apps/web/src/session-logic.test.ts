@@ -346,7 +346,7 @@ describe("deriveActivePlanState", () => {
     });
   });
 
-  it("falls back to the most recent plan from a previous turn", () => {
+  it("does not carry a plan into a new turn", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "plan-from-turn-1",
@@ -361,13 +361,9 @@ describe("deriveActivePlanState", () => {
       }),
     ];
 
-    // Current turn is turn-2, which has no plan activity — should fall back to turn-1's plan
+    // Current turn is turn-2, which has no plan activity.
     const result = deriveActivePlanState(activities, TurnId.make("turn-2"));
-    expect(result).toEqual({
-      createdAt: "2026-02-23T00:00:01.000Z",
-      turnId: "turn-1",
-      steps: [{ step: "Write tests", status: "completed" }],
-    });
+    expect(result).toBeNull();
   });
 });
 

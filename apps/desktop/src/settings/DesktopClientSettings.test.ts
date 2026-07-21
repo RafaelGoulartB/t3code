@@ -24,10 +24,16 @@ const clientSettings: ClientSettings = {
   sidebarProjectGroupingOverrides: {
     "environment-1:/tmp/project-a": "separate",
   },
+  sidebarProjectFolders: [],
+  sidebarProjectFolderAssignments: {},
+  sidebarProjectFolderOrder: [],
+  sidebarPinnedThreadKeysByProject: {},
   sidebarProjectSortOrder: "manual",
   sidebarThreadSortOrder: "created_at",
   sidebarThreadPreviewCount: 6,
+  rightPanelSharingMode: "thread",
   timestampFormat: "24-hour",
+  terminalFontSize: 14,
   wordWrap: true,
 };
 

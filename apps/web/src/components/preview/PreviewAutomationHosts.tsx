@@ -27,6 +27,11 @@ import {
   reconcilePreviewServerSessions,
   updatePreviewServerSnapshot,
 } from "~/previewStateStore";
+import {
+  previewScopeForRightPanel,
+  registerPreviewScopeForThread,
+  resolveRightPanelScope,
+} from "~/rightPanelScope";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { resolveBrowserNavigationTarget } from "~/browser/browserTargetResolver";
 import {
@@ -37,8 +42,10 @@ import {
 import { resolveBrowserRecordingStopTarget } from "~/browser/browserRecordingScope";
 import { useBrowserSurfaceStore } from "~/browser/browserSurfaceStore";
 import { isElectron } from "~/env";
+import { useThreadShells } from "~/state/entities";
 import { useEnvironments } from "~/state/environments";
 import { previewEnvironment } from "~/state/preview";
+import { useClientSettings } from "~/hooks/useSettings";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 import { useAtomCommand } from "~/state/use-atom-command";
 
@@ -264,6 +271,28 @@ export function PreviewAutomationHosts() {
 function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId }) {
   const { environmentId } = props;
   const registry = useContext(RegistryContext);
+  const threadShells = useThreadShells();
+  const rightPanelSharingMode = useClientSettings((settings) => settings.rightPanelSharingMode);
+  const scopeByThreadId = useMemo(
+    () =>
+      new Map(
+        threadShells
+          .filter((thread) => thread.environmentId === environmentId)
+          .map((thread) => [
+            thread.id,
+            resolveRightPanelScope(
+              {
+                environmentId,
+                id: thread.id,
+                projectId: thread.projectId,
+                worktreePath: thread.worktreePath,
+              },
+              rightPanelSharingMode,
+            ),
+          ]),
+      ),
+    [environmentId, rightPanelSharingMode, threadShells],
+  );
   const [automationClientId] = useState(createPreviewAutomationClientId);
   const initialAutomationHost = useMemo<PreviewAutomationHostState>(
     () => ({
@@ -303,6 +332,14 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
         environmentId,
         threadId: request.threadId,
       };
+      const rightPanelScope = scopeByThreadId.get(request.threadId);
+      const previewScope = rightPanelScope
+        ? previewScopeForRightPanel(rightPanelScope)
+        : { _tag: "thread" as const, threadId: request.threadId };
+      if (rightPanelScope) {
+        useRightPanelStore.getState().registerScope(threadRef, rightPanelScope);
+        registerPreviewScopeForThread(threadRef, rightPanelScope);
+      }
       let tabId = request.tabId ?? null;
       try {
         let state = readThreadPreviewState(threadRef);
@@ -310,7 +347,7 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
         if (needsSessionSync) {
           const listTarget = {
             environmentId,
-            input: { threadId: request.threadId },
+            input: { threadId: request.threadId, scope: previewScope },
           } as const;
           registry.refresh(previewEnvironment.list(listTarget));
           const result = await listPreviews(listTarget);
@@ -364,6 +401,7 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
                 environmentId,
                 input: {
                   threadId: request.threadId,
+                  scope: previewScope,
                   ...(resolvedInputUrl ? { url: resolvedInputUrl } : {}),
                 },
               });
@@ -427,6 +465,7 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
               environmentId,
               input: {
                 threadId: request.threadId,
+                scope: previewScope,
                 tabId: ready.tabId,
                 viewport: setting,
               },
@@ -537,7 +576,7 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
         });
       }
     },
-    [environmentId, listPreviews, open, registry, resize],
+    [environmentId, listPreviews, open, registry, resize, scopeByThreadId],
   );
   const [requestHandlerAtom] = useState(() => Atom.make({ handle: handleRequest }));
   const setRequestHandler = useAtomSet(requestHandlerAtom);

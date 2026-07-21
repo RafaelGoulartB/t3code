@@ -1,6 +1,5 @@
 "use client";
 
-import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import { FILL_PREVIEW_VIEWPORT } from "@t3tools/contracts";
 import { useEffect, useMemo } from "react";
 
@@ -14,20 +13,17 @@ import { HostedBrowserWebview } from "./HostedBrowserWebview";
 
 export function ElectronBrowserHost() {
   const { resolvedTheme } = useTheme();
-  const previewByThreadKey = useActivePreviewSessions();
+  const activePreviewSessions = useActivePreviewSessions();
   const sessions = useMemo(
     () =>
-      Object.entries(previewByThreadKey).flatMap(([threadKey, previewState]) => {
-        const threadRef = parseScopedThreadKey(threadKey);
-        return threadRef
-          ? Object.values(previewState.sessions).map((snapshot) => ({
-              threadRef,
-              snapshot,
-              zoomFactor: previewState.desktopByTabId[snapshot.tabId]?.zoomFactor ?? 1,
-            }))
-          : [];
-      }),
-    [previewByThreadKey],
+      activePreviewSessions.flatMap(({ threadRef, previewState }) =>
+        Object.values(previewState.sessions).map((snapshot) => ({
+          threadRef,
+          snapshot,
+          zoomFactor: previewState.desktopByTabId[snapshot.tabId]?.zoomFactor ?? 1,
+        })),
+      ),
+    [activePreviewSessions],
   );
 
   useEffect(() => {

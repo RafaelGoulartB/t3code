@@ -30,6 +30,7 @@ import {
   workEntryIndicatesToolNeutralStatus,
   workEntryIndicatesToolSuccess,
   workLogEntryIsToolLike,
+  type WorkLogEntry,
 } from "../../session-logic";
 import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
@@ -110,6 +111,7 @@ import {
   textContainsInlineTerminalContextLabels,
 } from "./userMessageTerminalContexts";
 import { SkillInlineText } from "./SkillInlineText";
+import { AnimatedHeight } from "../AnimatedHeight";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
 import {
   buildReviewCommentRenderablePatch,
@@ -161,6 +163,7 @@ interface MessagesTimelineProps {
   isWorking: boolean;
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
+  latestWorkingActivities: ReadonlyArray<WorkLogEntry>;
   listRef: React.RefObject<LegendListRef | null>;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
   latestTurn: TimelineLatestTurn | null;
@@ -195,6 +198,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   isWorking,
   activeTurnInProgress,
   activeTurnStartedAt,
+  latestWorkingActivities,
   listRef,
   timelineEntries,
   latestTurn,
@@ -308,6 +312,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         expandedWorkGroupIds,
         isWorking,
         activeTurnStartedAt,
+        latestWorkingActivities,
         turnDiffSummaryByAssistantMessageId,
         revertTurnCountByUserMessageId,
       }),
@@ -319,6 +324,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       expandedWorkGroupIds,
       isWorking,
       activeTurnStartedAt,
+      latestWorkingActivities,
       turnDiffSummaryByAssistantMessageId,
       revertTurnCountByUserMessageId,
     ],
@@ -1106,6 +1112,97 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
           )}
         </span>
       </div>
+      {row.latestActivities.length > 0 && (
+        <div className="mt-1 flex flex-col gap-0.5">
+          {row.latestActivities.map((activity) => (
+            <WorkingActivityLine key={activity.id} activity={activity} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WorkingActivityLine({ activity }: { activity: WorkLogEntry }) {
+  const ctx = use(TimelineRowCtx);
+  const [expanded, setExpanded] = useState(false);
+
+  const iconConfig = workToneIcon(activity.tone);
+  const entryIconName = workEntryIconName(activity);
+  const heading = toolWorkEntryHeading(activity);
+  const rawPreview = workEntryPreview(activity, ctx.workspaceRoot);
+  const preview =
+    rawPreview &&
+    normalizeCompactToolLabel(rawPreview).toLowerCase() ===
+      normalizeCompactToolLabel(heading).toLowerCase()
+      ? null
+      : rawPreview;
+  const expandedBody = buildToolCallExpandedBody(activity, ctx.workspaceRoot);
+  const canExpand = expandedBody !== null;
+
+  const toneClass =
+    activity.tone === "error"
+      ? "text-destructive/70"
+      : activity.tone === "thinking"
+        ? "text-muted-foreground/55"
+        : "text-muted-foreground/50";
+
+  return (
+    <div
+      className={cn(
+        "flex flex-col rounded px-1 py-0.5 transition-colors",
+        canExpand && "cursor-pointer hover:bg-accent/15 active:bg-accent/25",
+      )}
+      onClick={canExpand ? () => setExpanded((v) => !v) : undefined}
+      onKeyDown={
+        canExpand
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setExpanded((v) => !v);
+              }
+            }
+          : undefined
+      }
+      role={canExpand ? "button" : undefined}
+      tabIndex={canExpand ? 0 : undefined}
+      aria-label={canExpand ? heading : undefined}
+    >
+      <div className={cn("flex items-center gap-1.5 text-[10px] leading-tight", toneClass)}>
+        <span
+          className={cn("flex size-3.5 shrink-0 items-center justify-center", iconConfig.className)}
+        >
+          <WorkEntryIconSvg name={entryIconName} className="size-3 shrink-0 opacity-70" />
+        </span>
+        <div className="flex min-w-0 flex-1 items-center gap-1">
+          <span className="min-w-0 shrink truncate font-medium">{heading}</span>
+          {preview && <span className="min-w-0 flex-1 truncate opacity-60">{preview}</span>}
+        </div>
+        {canExpand && (
+          <ChevronDownIcon
+            className={cn(
+              "size-2.5 shrink-0 opacity-50 transition-transform duration-150",
+              expanded && "rotate-180",
+            )}
+            aria-hidden
+          />
+        )}
+      </div>
+      {canExpand && (
+        <AnimatedHeight>
+          {expanded && expandedBody ? (
+            <div
+              className="ms-5 mt-0.5 border-s border-border/40 ps-2 pb-0.5"
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <pre className="max-h-32 cursor-text overflow-auto whitespace-pre-wrap break-words font-mono text-[9px] leading-relaxed text-muted-foreground/70 select-text">
+                {expandedBody}
+              </pre>
+            </div>
+          ) : null}
+        </AnimatedHeight>
+      )}
     </div>
   );
 }

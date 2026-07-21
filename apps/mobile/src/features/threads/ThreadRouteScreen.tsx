@@ -297,7 +297,8 @@ function ThreadRouteContent(
   );
   const knownTerminalSessions = useKnownTerminalSessions({
     environmentId: selectedThread?.environmentId ?? null,
-    threadId: selectedThread?.id ?? null,
+    projectId: selectedThread?.projectId ?? null,
+    worktreePath: selectedThread?.worktreePath ?? null,
   });
   const terminalMenuSessions = useMemo(
     () =>

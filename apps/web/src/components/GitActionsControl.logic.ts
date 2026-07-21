@@ -10,16 +10,16 @@ import {
   type ChangeRequestTerminology,
 } from "../sourceControlPresentation";
 
-export type GitActionIconName = "commit" | "push" | "pr";
+export type GitActionIconName = "commit" | "pull" | "fetch" | "push" | "pr";
 
 export type GitDialogAction = "commit" | "push" | "create_pr";
 
 export interface GitActionMenuItem {
-  id: "commit" | "push" | "pr";
+  id: "commit" | "pull" | "fetch" | "push" | "pr";
   label: string;
   disabled: boolean;
   icon: GitActionIconName;
-  kind: "open_dialog" | "open_pr";
+  kind: "open_dialog" | "open_pr" | "run_pull" | "run_fetch";
   dialogAction?: GitDialogAction;
 }
 
@@ -35,6 +35,15 @@ export interface DefaultBranchActionDialogCopy {
   title: string;
   description: string;
   continueLabel: string;
+}
+
+export interface GitFileSelectionState {
+  readonly selectedPaths: ReadonlyArray<string>;
+  readonly selectedFilePathsForCommit: ReadonlyArray<string> | undefined;
+  readonly selectedOrAllPaths: ReadonlyArray<string>;
+  readonly allSelected: boolean;
+  readonly noneSelected: boolean;
+  readonly explicitSelectionEmpty: boolean;
 }
 
 export type DefaultBranchConfirmableAction =
@@ -102,10 +111,14 @@ export function buildMenuItems(
   const hasBranch = gitStatus.refName !== null;
   const hasChanges = gitStatus.hasWorkingTreeChanges;
   const hasOpenPr = gitStatus.pr?.state === "open";
+  const isAhead = gitStatus.aheadCount > 0;
   const isBehind = gitStatus.behindCount > 0;
+  const isDiverged = isAhead && isBehind;
   const hasDefaultBranchDelta = (gitStatus.aheadOfDefaultCount ?? gitStatus.aheadCount) > 0;
   const canPushWithoutUpstream = hasPrimaryRemote && !gitStatus.hasUpstream;
   const canCommit = !isBusy && hasChanges;
+  const canPull = !isBusy && hasBranch && gitStatus.hasUpstream && isBehind && !isDiverged;
+  const canFetch = !isBusy && hasPrimaryRemote;
   const canPush =
     !isBusy &&
     hasBranch &&
@@ -130,13 +143,29 @@ export function buildMenuItems(
     kind: "open_dialog",
     dialogAction: "commit",
   };
+  const pullItem: GitActionMenuItem = {
+    id: "pull",
+    label: "Pull",
+    disabled: !canPull,
+    icon: "pull",
+    kind: "run_pull",
+  };
+  const fetchItem: GitActionMenuItem = {
+    id: "fetch",
+    label: "Fetch",
+    disabled: !canFetch,
+    icon: "fetch",
+    kind: "run_fetch",
+  };
 
   if (!hasPrimaryRemote) {
-    return [commitItem];
+    return [commitItem, pullItem, fetchItem];
   }
 
   return [
     commitItem,
+    pullItem,
+    fetchItem,
     {
       id: "push",
       label: "Push",
@@ -322,6 +351,51 @@ export function requiresDefaultBranchConfirmation(
   );
 }
 
+export function shouldOpenCommitSelectionForQuickAction(input: {
+  quickAction: GitQuickAction;
+  gitStatus: VcsStatusResult | null;
+}): boolean {
+  if (input.quickAction.kind !== "run_action") return false;
+  if (!input.gitStatus?.hasWorkingTreeChanges) return false;
+  return (
+    input.quickAction.action === "commit" ||
+    input.quickAction.action === "commit_push" ||
+    input.quickAction.action === "commit_push_pr"
+  );
+}
+
+export function resolveGitFileSelection(input: {
+  allPaths: ReadonlyArray<string>;
+  excludedPaths: ReadonlySet<string>;
+  selectionTouched: boolean;
+}): GitFileSelectionState {
+  const selectedPaths = input.allPaths.filter((path) => !input.excludedPaths.has(path));
+  const selectedFilePathsForCommit = input.selectionTouched ? selectedPaths : undefined;
+  return {
+    selectedPaths,
+    selectedFilePathsForCommit,
+    selectedOrAllPaths: selectedFilePathsForCommit ?? input.allPaths,
+    allSelected: !input.selectionTouched || selectedPaths.length === input.allPaths.length,
+    noneSelected: selectedPaths.length === 0,
+    explicitSelectionEmpty: input.selectionTouched && selectedPaths.length === 0,
+  };
+}
+
+export function pruneExcludedGitFilePaths(input: {
+  excludedPaths: ReadonlySet<string>;
+  allPaths: ReadonlyArray<string>;
+}): ReadonlySet<string> {
+  if (input.excludedPaths.size === 0) return input.excludedPaths;
+  const allPathsSet = new Set(input.allPaths);
+  const next = new Set<string>();
+  for (const path of input.excludedPaths) {
+    if (allPathsSet.has(path)) {
+      next.add(path);
+    }
+  }
+  return next.size === input.excludedPaths.size ? input.excludedPaths : next;
+}
+
 export function resolveDefaultBranchActionDialogCopy(input: {
   action: DefaultBranchConfirmableAction;
   branchName: string;
@@ -385,6 +459,7 @@ export function resolveThreadBranchMetadataPatch(
 
 export function resolveLiveThreadBranchUpdate(input: {
   threadBranch: string | null;
+  threadWorktreeBranchPrefix?: string | null;
   gitStatus: VcsStatusResult | null;
 }): { branch: string | null } | null {
   if (!input.gitStatus) {
@@ -402,8 +477,11 @@ export function resolveLiveThreadBranchUpdate(input: {
   if (
     input.threadBranch !== null &&
     input.gitStatus.refName !== null &&
-    !isTemporaryWorktreeBranch(input.threadBranch) &&
-    isTemporaryWorktreeBranch(input.gitStatus.refName)
+    !isTemporaryWorktreeBranch(input.threadBranch, input.threadWorktreeBranchPrefix ?? undefined) &&
+    isTemporaryWorktreeBranch(
+      input.gitStatus.refName,
+      input.threadWorktreeBranchPrefix ?? undefined,
+    )
   ) {
     return null;
   }

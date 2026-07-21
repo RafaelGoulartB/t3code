@@ -13,7 +13,11 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { Atom } from "effect/unstable/reactivity";
 
-import { createEnvironmentRpcCommand, createEnvironmentSubscriptionAtomFamily } from "./runtime.ts";
+import {
+  createEnvironmentRpcCommand,
+  createEnvironmentRpcQueryAtomFamily,
+  createEnvironmentSubscriptionAtomFamily,
+} from "./runtime.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { EnvironmentSupervisor } from "../connection/supervisor.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
@@ -160,9 +164,20 @@ export function createVcsEnvironmentAtoms<R, E>(
     readonly environmentId: EnvironmentId;
     readonly input: VcsListRefsInput;
   }) => listRefsByEnvironment(target.environmentId)(JSON.stringify(target.input));
+  const listWorktrees = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:vcs:list-worktrees",
+    tag: WS_METHODS.vcsListWorktrees,
+    staleTimeMs: 5_000,
+  });
 
   return {
     listRefs,
+    listWorktrees,
+    listCommits: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:vcs:list-commits",
+      tag: WS_METHODS.vcsListCommits,
+      staleTimeMs: 0,
+    }),
     status: createEnvironmentSubscriptionAtomFamily(runtime, {
       label: "environment-data:vcs:status",
       subscribe: (input: EnvironmentRpcInput<typeof WS_METHODS.subscribeVcsStatus>) =>
@@ -179,6 +194,12 @@ export function createVcsEnvironmentAtoms<R, E>(
     pull: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:pull",
       tag: WS_METHODS.vcsPull,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
+    fetch: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:fetch",
+      tag: WS_METHODS.vcsFetch,
       scheduler: vcsCommandScheduler,
       concurrency: vcsCommandConcurrency,
     }),
@@ -200,6 +221,12 @@ export function createVcsEnvironmentAtoms<R, E>(
       scheduler: vcsCommandScheduler,
       concurrency: vcsCommandConcurrency,
     }),
+    deleteWorktreeWithThreads: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:delete-worktree-with-threads",
+      tag: WS_METHODS.vcsDeleteWorktreeWithThreads,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
     createRef: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:create-ref",
       tag: WS_METHODS.vcsCreateRef,
@@ -209,6 +236,47 @@ export function createVcsEnvironmentAtoms<R, E>(
     switchRef: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:switch-ref",
       tag: WS_METHODS.vcsSwitchRef,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
+    renameBranch: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:rename-branch",
+      tag: WS_METHODS.vcsRenameBranch,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
+    deleteBranch: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:delete-branch",
+      tag: WS_METHODS.vcsDeleteBranch,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
+    discardChanges: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:discard-changes",
+      tag: WS_METHODS.vcsDiscardChanges,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
+    stashPush: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:stash-push",
+      tag: WS_METHODS.vcsStashPush,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
+    stashList: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:vcs:stash-list",
+      tag: WS_METHODS.vcsStashList,
+      staleTimeMs: 5_000,
+    }),
+    stashApply: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:stash-apply",
+      tag: WS_METHODS.vcsStashApply,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
+    stashDrop: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:stash-drop",
+      tag: WS_METHODS.vcsStashDrop,
       scheduler: vcsCommandScheduler,
       concurrency: vcsCommandConcurrency,
     }),

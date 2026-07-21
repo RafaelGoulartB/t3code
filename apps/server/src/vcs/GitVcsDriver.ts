@@ -12,6 +12,8 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import {
   GitCommandError,
   VcsProcessExitError,
+  type VcsDeleteBranchInput,
+  type VcsDiscardChangesInput,
   type VcsSwitchRefInput,
   type VcsSwitchRefResult,
   type VcsCreateRefInput,
@@ -23,10 +25,20 @@ import {
   type VcsInitInput,
   type VcsListRefsInput,
   type VcsListRefsResult,
+  type VcsListWorktreesInput,
+  type VcsListWorktreesResult,
+  type VcsListCommitsInput,
+  type VcsListCommitsResult,
   type VcsPullResult,
   type VcsRemoveWorktreeInput,
   type VcsStatusInput,
   type VcsStatusResult,
+  type VcsStashApplyInput,
+  type VcsStashListInput,
+  type VcsStashListResult,
+  type VcsStashPushInput,
+  type VcsStashPushResult,
+  type VcsStashRefInput,
 } from "@t3tools/contracts";
 import { makeGitVcsDriverCore } from "./GitVcsDriverCore.ts";
 import * as VcsDriver from "./VcsDriver.ts";
@@ -228,6 +240,12 @@ export class GitVcsDriver extends Context.Service<
     readonly listRefs: (
       input: VcsListRefsInput,
     ) => Effect.Effect<VcsListRefsResult, GitCommandError>;
+    readonly listWorktrees: (
+      input: VcsListWorktreesInput,
+    ) => Effect.Effect<VcsListWorktreesResult, GitCommandError>;
+    readonly listCommits: (
+      input: VcsListCommitsInput,
+    ) => Effect.Effect<VcsListCommitsResult, GitCommandError>;
     readonly pullCurrentBranch: (cwd: string) => Effect.Effect<VcsPullResult, GitCommandError>;
     readonly createWorktree: (
       input: VcsCreateWorktreeInput,
@@ -256,6 +274,18 @@ export class GitVcsDriver extends Context.Service<
     readonly renameBranch: (
       input: GitRenameBranchInput,
     ) => Effect.Effect<GitRenameBranchResult, GitCommandError>;
+    readonly deleteBranch: (input: VcsDeleteBranchInput) => Effect.Effect<void, GitCommandError>;
+    readonly discardChanges: (
+      input: VcsDiscardChangesInput,
+    ) => Effect.Effect<void, GitCommandError>;
+    readonly stashPush: (
+      input: VcsStashPushInput,
+    ) => Effect.Effect<VcsStashPushResult, GitCommandError>;
+    readonly stashList: (
+      input: VcsStashListInput,
+    ) => Effect.Effect<VcsStashListResult, GitCommandError>;
+    readonly stashApply: (input: VcsStashApplyInput) => Effect.Effect<void, GitCommandError>;
+    readonly stashDrop: (input: VcsStashRefInput) => Effect.Effect<void, GitCommandError>;
     readonly createRef: (
       input: VcsCreateRefInput,
     ) => Effect.Effect<VcsCreateRefResult, GitCommandError>;

@@ -4,7 +4,9 @@ import * as Schema from "effect/Schema";
 import { ProviderInstanceId } from "./providerInstance.ts";
 import {
   ClientSettingsSchema,
+  DEFAULT_TERMINAL_FONT_SIZE,
   DEFAULT_SERVER_SETTINGS,
+  DEFAULT_SIDEBAR_PROJECT_FOLDER_COLOR,
   ServerSettings,
   ServerSettingsPatch,
 } from "./settings.ts";
@@ -28,6 +30,92 @@ describe("ClientSettings word wrap", () => {
     expect(decoded.wordWrap).toBe(true);
     expect(decoded).not.toHaveProperty("chatWordWrap");
     expect(decoded).not.toHaveProperty("diffWordWrap");
+  });
+});
+
+describe("ClientSettings terminal font size", () => {
+  it("defaults to the standard terminal font size", () => {
+    expect(decodeClientSettings({}).terminalFontSize).toBe(DEFAULT_TERMINAL_FONT_SIZE);
+  });
+
+  it("accepts valid terminal font sizes", () => {
+    expect(decodeClientSettings({ terminalFontSize: 16 }).terminalFontSize).toBe(16);
+  });
+
+  it("rejects terminal font sizes outside the supported range", () => {
+    expect(() => decodeClientSettings({ terminalFontSize: 8 })).toThrow();
+    expect(() => decodeClientSettings({ terminalFontSize: 25 })).toThrow();
+  });
+});
+
+describe("ClientSettings sidebar project folders", () => {
+  it("defaults folder settings for legacy client settings", () => {
+    const decoded = decodeClientSettings({});
+
+    expect(decoded.sidebarProjectFolders).toEqual([]);
+    expect(decoded.sidebarProjectFolderAssignments).toEqual({});
+    expect(decoded.sidebarProjectFolderOrder).toEqual([]);
+  });
+
+  it("round-trips sidebar project folder settings", () => {
+    const decoded = decodeClientSettings({
+      sidebarProjectFolders: [
+        { id: "folder-work", name: "Work", color: DEFAULT_SIDEBAR_PROJECT_FOLDER_COLOR },
+        { id: "folder-custom", name: "Custom", color: "#3b82f6" },
+      ],
+      sidebarProjectFolderAssignments: {
+        "environment:/repo": "folder-work",
+      },
+      sidebarProjectFolderOrder: ["folder-custom", "folder-work"],
+    });
+
+    expect(decoded.sidebarProjectFolders).toEqual([
+      { id: "folder-work", name: "Work", color: "blue" },
+      { id: "folder-custom", name: "Custom", color: "#3b82f6" },
+    ]);
+    expect(decoded.sidebarProjectFolderAssignments).toEqual({
+      "environment:/repo": "folder-work",
+    });
+    expect(decoded.sidebarProjectFolderOrder).toEqual(["folder-custom", "folder-work"]);
+  });
+
+  it("rejects invalid custom folder colors", () => {
+    expect(() =>
+      decodeClientSettings({
+        sidebarProjectFolders: [{ id: "folder-work", name: "Work", color: "not-a-color" }],
+      }),
+    ).toThrow();
+  });
+});
+
+describe("ClientSettings sidebar pinned threads", () => {
+  it("defaults pinned threads for legacy client settings", () => {
+    expect(decodeClientSettings({}).sidebarPinnedThreadKeysByProject).toEqual({});
+  });
+
+  it("round-trips pinned thread keys per project", () => {
+    const decoded = decodeClientSettings({
+      sidebarPinnedThreadKeysByProject: {
+        "environment-1\u0000project-1": ["environment-1\u0000thread-1"],
+      },
+    });
+
+    expect(decoded.sidebarPinnedThreadKeysByProject).toEqual({
+      "environment-1\u0000project-1": ["environment-1\u0000thread-1"],
+    });
+  });
+
+  it("rejects blank project or thread keys", () => {
+    expect(() =>
+      decodeClientSettings({
+        sidebarPinnedThreadKeysByProject: { "": ["environment-1\u0000thread-1"] },
+      }),
+    ).toThrow();
+    expect(() =>
+      decodeClientSettings({
+        sidebarPinnedThreadKeysByProject: { "environment-1\u0000project-1": [""] },
+      }),
+    ).toThrow();
   });
 });
 
@@ -96,6 +184,17 @@ describe("ServerSettings worktree defaults", () => {
     expect(
       decodeServerSettingsPatch({ newWorktreesStartFromOrigin: true }).newWorktreesStartFromOrigin,
     ).toBe(true);
+  });
+
+  it("defaults and validates the worktree branch prefix", () => {
+    expect(decodeServerSettings({}).worktreeBranchPrefix).toBe("t3code");
+    expect(
+      decodeServerSettingsPatch({ worktreeBranchPrefix: "life_notes" }).worktreeBranchPrefix,
+    ).toBe("life_notes");
+    expect(
+      decodeServerSettingsPatch({ worktreeBranchPrefix: "TNV-123/Feature" }).worktreeBranchPrefix,
+    ).toBe("TNV-123/Feature");
+    expect(() => decodeServerSettingsPatch({ worktreeBranchPrefix: "invalid prefix" })).toThrow();
   });
 });
 

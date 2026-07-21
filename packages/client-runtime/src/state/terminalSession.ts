@@ -1,10 +1,10 @@
 import type {
   EnvironmentId,
+  ProjectId,
   TerminalAttachStreamEvent,
   TerminalMetadataStreamEvent,
   TerminalSessionSnapshot,
   TerminalSummary,
-  ThreadId,
 } from "@t3tools/contracts";
 
 export interface TerminalSessionState {
@@ -27,7 +27,8 @@ export interface TerminalBufferState {
 
 export interface KnownTerminalSessionTarget {
   readonly environmentId: EnvironmentId;
-  readonly threadId: ThreadId;
+  readonly projectId: ProjectId;
+  readonly worktreePath: string | null;
   readonly terminalId: string;
 }
 
@@ -182,12 +183,15 @@ export function applyTerminalMetadataStreamEvent(
   if (event.type === "remove") {
     return current.filter(
       (terminal) =>
-        terminal.threadId !== event.threadId || terminal.terminalId !== event.terminalId,
+        terminal.projectId !== event.projectId ||
+        terminal.worktreePath !== event.worktreePath ||
+        terminal.terminalId !== event.terminalId,
     );
   }
   const next = current.filter(
     (terminal) =>
-      terminal.threadId !== event.terminal.threadId ||
+      terminal.projectId !== event.terminal.projectId ||
+      terminal.worktreePath !== event.terminal.worktreePath ||
       terminal.terminalId !== event.terminal.terminalId,
   );
   return [...next, event.terminal];

@@ -5,6 +5,11 @@ export {
   usePullRequestResolutionState as usePullRequestResolution,
   useSourceControlActionRunning,
   useSourceControlPublishRepositoryAction,
+  useVcsDiscardChangesAction,
   useVcsInitAction,
+  useVcsFetchAction,
   useVcsPullAction,
+  useVcsStashApplyAction,
+  useVcsStashDropAction,
+  useVcsStashPushAction,
 } from "../state/sourceControlActions";

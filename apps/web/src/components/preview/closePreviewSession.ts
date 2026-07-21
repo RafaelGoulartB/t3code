@@ -7,6 +7,7 @@ import type {
 } from "@t3tools/contracts";
 
 import { beginPreviewSessionClose, cancelPreviewSessionClose } from "~/previewStateStore";
+import { previewScopeForThread } from "~/rightPanelScope";
 
 interface ClosePreviewSessionInput<E> {
   readonly closePreview: (input: {
@@ -28,7 +29,11 @@ export async function closePreviewSession<E>(
   beginPreviewSessionClose(input.threadRef, input.tabId);
   const result = await input.closePreview({
     environmentId: input.threadRef.environmentId,
-    input: { threadId: input.threadRef.threadId, tabId: input.tabId },
+    input: {
+      threadId: input.threadRef.threadId,
+      scope: previewScopeForThread(input.threadRef),
+      tabId: input.tabId,
+    },
   });
   if (result._tag === "Failure") {
     cancelPreviewSessionClose(input.threadRef, input.snapshot, input.tabId);

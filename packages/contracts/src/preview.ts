@@ -9,13 +9,26 @@
  * @module Preview
  */
 import { Schema } from "effect";
-import { ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 const Url = TrimmedNonEmptyString.check(Schema.isMaxLength(2048));
 const Title = Schema.String.check(Schema.isMaxLength(512));
 
 export const PreviewTabId = TrimmedNonEmptyString.check(Schema.isMaxLength(128));
 export type PreviewTabId = typeof PreviewTabId.Type;
+
+/**
+ * The ownership boundary for browser tabs. Thread remains the backwards-compatible
+ * default; worktree scopes allow several conversations to reuse one browser.
+ */
+export const PreviewScope = Schema.Union([
+  Schema.TaggedStruct("thread", { threadId: ThreadId }),
+  Schema.TaggedStruct("worktree", {
+    projectId: ProjectId,
+    worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  }),
+]);
+export type PreviewScope = typeof PreviewScope.Type;
 
 export const PREVIEW_VIEWPORT_MIN_DIMENSION = 240;
 export const PREVIEW_VIEWPORT_MAX_DIMENSION = 3840;
@@ -131,6 +144,8 @@ export const PreviewNavStatus = Schema.Union([
 export type PreviewNavStatus = typeof PreviewNavStatus.Type;
 
 export const PreviewSessionSnapshot = Schema.Struct({
+  /** Optional while old servers are still connected; clients derive thread scope when absent. */
+  scope: Schema.optional(PreviewScope),
   threadId: TrimmedNonEmptyString,
   tabId: PreviewTabId,
   navStatus: PreviewNavStatus,
@@ -143,6 +158,7 @@ export const PreviewSessionSnapshot = Schema.Struct({
 export type PreviewSessionSnapshot = typeof PreviewSessionSnapshot.Type;
 
 export const PreviewOpenInput = Schema.Struct({
+  scope: Schema.optional(PreviewScope),
   threadId: ThreadId,
   /** Omit to create an empty (Idle) tab the user can type into. */
   url: Schema.optional(Url),
@@ -150,6 +166,7 @@ export const PreviewOpenInput = Schema.Struct({
 export type PreviewOpenInput = typeof PreviewOpenInput.Type;
 
 export const PreviewNavigateInput = Schema.Struct({
+  scope: Schema.optional(PreviewScope),
   threadId: ThreadId,
   tabId: PreviewTabId,
   url: Url,
@@ -158,6 +175,7 @@ export const PreviewNavigateInput = Schema.Struct({
 export type PreviewNavigateInput = typeof PreviewNavigateInput.Type;
 
 export const PreviewReportStatusInput = Schema.Struct({
+  scope: Schema.optional(PreviewScope),
   threadId: ThreadId,
   tabId: PreviewTabId,
   navStatus: PreviewNavStatus,
@@ -167,12 +185,14 @@ export const PreviewReportStatusInput = Schema.Struct({
 export type PreviewReportStatusInput = typeof PreviewReportStatusInput.Type;
 
 export const PreviewRefreshInput = Schema.Struct({
+  scope: Schema.optional(PreviewScope),
   threadId: ThreadId,
   tabId: PreviewTabId,
 });
 export type PreviewRefreshInput = typeof PreviewRefreshInput.Type;
 
 export const PreviewResizeInput = Schema.Struct({
+  scope: Schema.optional(PreviewScope),
   threadId: ThreadId,
   tabId: PreviewTabId,
   viewport: PreviewViewportSetting,
@@ -180,12 +200,14 @@ export const PreviewResizeInput = Schema.Struct({
 export type PreviewResizeInput = typeof PreviewResizeInput.Type;
 
 export const PreviewCloseInput = Schema.Struct({
+  scope: Schema.optional(PreviewScope),
   threadId: ThreadId,
   tabId: Schema.optional(PreviewTabId),
 });
 export type PreviewCloseInput = typeof PreviewCloseInput.Type;
 
 export const PreviewListInput = Schema.Struct({
+  scope: Schema.optional(PreviewScope),
   threadId: ThreadId,
 });
 export type PreviewListInput = typeof PreviewListInput.Type;
@@ -195,7 +217,12 @@ export const PreviewListResult = Schema.Struct({
 });
 export type PreviewListResult = typeof PreviewListResult.Type;
 
+/** Clears every in-app browser session for the current environment. */
+export const PreviewResetInput = Schema.Struct({});
+export type PreviewResetInput = typeof PreviewResetInput.Type;
+
 const PreviewEventBaseSchema = Schema.Struct({
+  scope: Schema.optional(PreviewScope),
   threadId: TrimmedNonEmptyString,
   tabId: PreviewTabId,
   createdAt: Schema.String,
@@ -254,7 +281,8 @@ export const DiscoveredLocalServer = Schema.Struct({
   pid: Schema.NullOr(Schema.Int.check(Schema.isGreaterThan(0))),
   terminal: Schema.NullOr(
     Schema.Struct({
-      threadId: ThreadId,
+      projectId: ProjectId,
+      worktreePath: Schema.NullOr(TrimmedNonEmptyString),
       terminalId: TrimmedNonEmptyString,
     }),
   ),
@@ -270,6 +298,7 @@ export type DiscoveredLocalServerList = typeof DiscoveredLocalServerList.Type;
 export class PreviewSessionLookupError extends Schema.TaggedErrorClass<PreviewSessionLookupError>()(
   "PreviewSessionLookupError",
   {
+    scope: Schema.optional(PreviewScope),
     threadId: Schema.String,
     tabId: Schema.String,
   },

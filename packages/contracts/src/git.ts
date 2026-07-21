@@ -1,10 +1,18 @@
 import * as Schema from "effect/Schema";
-import { NonNegativeInt, PositiveInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import {
+  IsoDateTime,
+  NonNegativeInt,
+  PositiveInt,
+  ProjectId,
+  ThreadId,
+  TrimmedNonEmptyString,
+} from "./baseSchemas.ts";
 import { SourceControlProviderError, SourceControlProviderInfo } from "./sourceControl.ts";
 import { VcsDriverKind } from "./vcs.ts";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const GIT_LIST_BRANCHES_MAX_LIMIT = 200;
+const GIT_LIST_COMMITS_MAX_LIMIT = 100;
 
 // Domain Types
 
@@ -83,7 +91,14 @@ export const VcsRef = Schema.Struct({
 });
 export type VcsRef = typeof VcsRef.Type;
 
-const VcsWorktree = Schema.Struct({
+export const VcsWorktree = Schema.Struct({
+  path: TrimmedNonEmptyStringSchema,
+  refName: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
+  isMain: Schema.Boolean,
+  isDetached: Schema.Boolean,
+});
+export type VcsWorktree = typeof VcsWorktree.Type;
+const VcsCreatedWorktree = Schema.Struct({
   path: TrimmedNonEmptyStringSchema,
   refName: TrimmedNonEmptyStringSchema,
 });
@@ -109,6 +124,11 @@ export const VcsPullInput = Schema.Struct({
 });
 export type VcsPullInput = typeof VcsPullInput.Type;
 
+export const VcsFetchInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+});
+export type VcsFetchInput = typeof VcsFetchInput.Type;
+
 export const GitRunStackedActionInput = Schema.Struct({
   actionId: TrimmedNonEmptyStringSchema,
   cwd: TrimmedNonEmptyStringSchema,
@@ -132,6 +152,17 @@ export const VcsListRefsInput = Schema.Struct({
   ),
 });
 export type VcsListRefsInput = typeof VcsListRefsInput.Type;
+
+export const VcsListWorktreesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+});
+export type VcsListWorktreesInput = typeof VcsListWorktreesInput.Type;
+export const VcsListCommitsInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  cursor: Schema.optional(NonNegativeInt),
+  limit: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(GIT_LIST_COMMITS_MAX_LIMIT))),
+});
+export type VcsListCommitsInput = typeof VcsListCommitsInput.Type;
 
 export const VcsCreateWorktreeInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
@@ -163,6 +194,13 @@ export const VcsRemoveWorktreeInput = Schema.Struct({
 });
 export type VcsRemoveWorktreeInput = typeof VcsRemoveWorktreeInput.Type;
 
+export const VcsDeleteWorktreeWithThreadsInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  projectId: ProjectId,
+  path: TrimmedNonEmptyStringSchema,
+});
+export type VcsDeleteWorktreeWithThreadsInput = typeof VcsDeleteWorktreeWithThreadsInput.Type;
+
 export const VcsCreateRefInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   refName: TrimmedNonEmptyStringSchema,
@@ -174,6 +212,59 @@ export const VcsCreateRefResult = Schema.Struct({
   refName: TrimmedNonEmptyStringSchema,
 });
 export type VcsCreateRefResult = typeof VcsCreateRefResult.Type;
+
+export const VcsRenameBranchInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  oldBranch: TrimmedNonEmptyStringSchema,
+  newBranch: TrimmedNonEmptyStringSchema,
+});
+export type VcsRenameBranchInput = typeof VcsRenameBranchInput.Type;
+
+export const VcsRenameBranchResult = Schema.Struct({
+  branch: TrimmedNonEmptyStringSchema,
+});
+export type VcsRenameBranchResult = typeof VcsRenameBranchResult.Type;
+
+export const VcsDeleteBranchInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  branch: TrimmedNonEmptyStringSchema,
+  worktreePath: Schema.optional(TrimmedNonEmptyStringSchema),
+  force: Schema.optional(Schema.Boolean),
+});
+export type VcsDeleteBranchInput = typeof VcsDeleteBranchInput.Type;
+
+export const VcsDiscardChangesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  filePaths: Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
+});
+export type VcsDiscardChangesInput = typeof VcsDiscardChangesInput.Type;
+
+export const VcsStashPushInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  message: Schema.optional(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(512))),
+  filePaths: Schema.optional(
+    Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
+  ),
+});
+export type VcsStashPushInput = typeof VcsStashPushInput.Type;
+
+export const VcsStashListInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+});
+export type VcsStashListInput = typeof VcsStashListInput.Type;
+
+export const VcsStashRefInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  stashRef: TrimmedNonEmptyStringSchema,
+});
+export type VcsStashRefInput = typeof VcsStashRefInput.Type;
+
+export const VcsStashApplyInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  stashRef: TrimmedNonEmptyStringSchema,
+  drop: Schema.optional(Schema.Boolean),
+});
+export type VcsStashApplyInput = typeof VcsStashApplyInput.Type;
 
 export const VcsSwitchRefInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
@@ -261,8 +352,36 @@ export const VcsListRefsResult = Schema.Struct({
 });
 export type VcsListRefsResult = typeof VcsListRefsResult.Type;
 
+export const VcsListWorktreesResult = Schema.Struct({
+  isRepo: Schema.Boolean,
+  worktrees: Schema.Array(VcsWorktree),
+});
+export type VcsListWorktreesResult = typeof VcsListWorktreesResult.Type;
+
+export const VcsDeleteWorktreeWithThreadsResult = Schema.Struct({
+  deletedThreadIds: Schema.Array(ThreadId),
+});
+export type VcsDeleteWorktreeWithThreadsResult = typeof VcsDeleteWorktreeWithThreadsResult.Type;
+export const VcsCommitLogEntry = Schema.Struct({
+  hash: TrimmedNonEmptyStringSchema,
+  shortHash: TrimmedNonEmptyStringSchema,
+  subject: Schema.String,
+  authorName: Schema.String,
+  authoredAt: IsoDateTime,
+  url: Schema.NullOr(Schema.String),
+});
+export type VcsCommitLogEntry = typeof VcsCommitLogEntry.Type;
+
+export const VcsListCommitsResult = Schema.Struct({
+  isRepo: Schema.Boolean,
+  refName: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  commits: Schema.Array(VcsCommitLogEntry),
+  nextCursor: NonNegativeInt.pipe(Schema.NullOr),
+});
+export type VcsListCommitsResult = typeof VcsListCommitsResult.Type;
+
 export const VcsCreateWorktreeResult = Schema.Struct({
-  worktree: VcsWorktree,
+  worktree: VcsCreatedWorktree,
 });
 export type VcsCreateWorktreeResult = typeof VcsCreateWorktreeResult.Type;
 
@@ -318,6 +437,29 @@ export const VcsPullResult = Schema.Struct({
   upstreamRef: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
 });
 export type VcsPullResult = typeof VcsPullResult.Type;
+
+export const VcsFetchResult = Schema.Struct({
+  remoteName: TrimmedNonEmptyStringSchema,
+});
+export type VcsFetchResult = typeof VcsFetchResult.Type;
+
+const VcsStashEntry = Schema.Struct({
+  ref: TrimmedNonEmptyStringSchema,
+  branch: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  subject: TrimmedNonEmptyStringSchema,
+});
+export type VcsStashEntry = typeof VcsStashEntry.Type;
+
+export const VcsStashListResult = Schema.Struct({
+  stashes: Schema.Array(VcsStashEntry),
+});
+export type VcsStashListResult = typeof VcsStashListResult.Type;
+
+export const VcsStashPushResult = Schema.Struct({
+  status: Schema.Literals(["stashed", "skipped_no_changes"]),
+  stashRef: Schema.optional(TrimmedNonEmptyStringSchema),
+});
+export type VcsStashPushResult = typeof VcsStashPushResult.Type;
 
 // RPC / domain errors
 export class GitCommandError extends Schema.TaggedErrorClass<GitCommandError>()("GitCommandError", {

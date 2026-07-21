@@ -19,6 +19,7 @@ import {
   isTerminalNewShortcut,
   isTerminalSplitShortcut,
   isTerminalSplitVerticalShortcut,
+  isTerminalToggleMaximizeShortcut,
   isTerminalToggleShortcut,
   resolveShortcutCommand,
   shouldShowModelPickerJumpHints,
@@ -109,6 +110,18 @@ const DEFAULT_BINDINGS = compile([
     whenAst: whenIdentifier("terminalFocus"),
   },
   {
+    shortcut: {
+      key: "m",
+      metaKey: false,
+      ctrlKey: true,
+      shiftKey: true,
+      altKey: false,
+      modKey: false,
+    },
+    command: "terminal.toggleMaximize",
+    whenAst: whenIdentifier("terminalFocus"),
+  },
+  {
     shortcut: modShortcut("d"),
     command: "diff.toggle",
     whenAst: whenNot(whenIdentifier("terminalFocus")),
@@ -116,6 +129,18 @@ const DEFAULT_BINDINGS = compile([
   {
     shortcut: modShortcut("k"),
     command: "commandPalette.toggle",
+    whenAst: whenNot(whenIdentifier("terminalFocus")),
+  },
+  {
+    shortcut: {
+      key: "p",
+      metaKey: false,
+      ctrlKey: true,
+      shiftKey: false,
+      altKey: false,
+      modKey: false,
+    },
+    command: "filePalette.toggle",
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
   {
@@ -173,8 +198,8 @@ describe("isTerminalToggleShortcut", () => {
   });
 });
 
-describe("split/new/close terminal shortcuts", () => {
-  it("requires terminalFocus for default split/new/close bindings", () => {
+describe("split/new/close/maximize terminal shortcuts", () => {
+  it("requires terminalFocus for default split/new/close/maximize bindings", () => {
     assert.isFalse(
       isTerminalSplitShortcut(event({ key: "d", metaKey: true }), DEFAULT_BINDINGS, {
         platform: "MacIntel",
@@ -203,9 +228,19 @@ describe("split/new/close terminal shortcuts", () => {
         context: { terminalFocus: false },
       }),
     );
+    assert.isFalse(
+      isTerminalToggleMaximizeShortcut(
+        event({ key: "m", ctrlKey: true, shiftKey: true }),
+        DEFAULT_BINDINGS,
+        {
+          platform: "Linux",
+          context: { terminalFocus: false },
+        },
+      ),
+    );
   });
 
-  it("matches split/new when terminalFocus is true", () => {
+  it("matches split/new/close/maximize when terminalFocus is true", () => {
     assert.isTrue(
       isTerminalSplitShortcut(event({ key: "d", metaKey: true }), DEFAULT_BINDINGS, {
         platform: "MacIntel",
@@ -233,6 +268,16 @@ describe("split/new/close terminal shortcuts", () => {
         platform: "Linux",
         context: { terminalFocus: true },
       }),
+    );
+    assert.isTrue(
+      isTerminalToggleMaximizeShortcut(
+        event({ key: "m", ctrlKey: true, shiftKey: true }),
+        DEFAULT_BINDINGS,
+        {
+          platform: "Linux",
+          context: { terminalFocus: true },
+        },
+      ),
     );
   });
 
@@ -511,6 +556,23 @@ describe("chat/editor shortcuts", () => {
         context: { terminalFocus: true },
       }),
       "commandPalette.toggle",
+    );
+  });
+
+  it("matches Ctrl+P for the file palette outside terminal focus on every platform", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "p", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: false },
+      }),
+      "filePalette.toggle",
+    );
+    assert.notStrictEqual(
+      resolveShortcutCommand(event({ key: "p", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { terminalFocus: true },
+      }),
+      "filePalette.toggle",
     );
   });
 

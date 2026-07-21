@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import { type KnownTerminalSession } from "@t3tools/client-runtime/state/terminal";
-import { DEFAULT_TERMINAL_ID, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { DEFAULT_TERMINAL_ID, EnvironmentId, ProjectId } from "@t3tools/contracts";
 
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 
@@ -37,13 +37,14 @@ function makeKnownSession(input: {
   return {
     target: {
       environmentId: EnvironmentId.make("env-1"),
-      threadId: ThreadId.make("thread-1"),
+      projectId: ProjectId.make("project-1"),
+      worktreePath: null,
       terminalId: input.terminalId,
     },
     state: {
       summary: input.cwd
         ? {
-            threadId: "thread-1",
+            projectId: ProjectId.make("project-1"),
             terminalId: input.terminalId,
             cwd: input.cwd,
             worktreePath: input.cwd,

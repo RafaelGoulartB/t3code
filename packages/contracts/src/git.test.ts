@@ -3,6 +3,7 @@ import * as Schema from "effect/Schema";
 
 import {
   VcsCreateWorktreeInput,
+  VcsListWorktreesResult,
   GitPreparePullRequestThreadInput,
   GitRunStackedActionResult,
   GitRunStackedActionInput,
@@ -10,6 +11,7 @@ import {
 } from "./git.ts";
 
 const decodeCreateWorktreeInput = Schema.decodeUnknownSync(VcsCreateWorktreeInput);
+const decodeListWorktreesResult = Schema.decodeUnknownSync(VcsListWorktreesResult);
 const decodePreparePullRequestThreadInput = Schema.decodeUnknownSync(
   GitPreparePullRequestThreadInput,
 );
@@ -39,6 +41,20 @@ describe("VcsCreateWorktreeInput", () => {
     });
 
     expect(parsed.baseRefName).toBe("origin/main");
+  });
+});
+
+describe("VcsListWorktreesResult", () => {
+  it("supports attached and detached worktrees", () => {
+    expect(
+      decodeListWorktreesResult({
+        isRepo: true,
+        worktrees: [
+          { path: "/repo", refName: "main", isMain: true, isDetached: false },
+          { path: "/worktrees/review", refName: null, isMain: false, isDetached: true },
+        ],
+      }),
+    ).toMatchObject({ isRepo: true, worktrees: [{ isMain: true }, { isDetached: true }] });
   });
 });
 

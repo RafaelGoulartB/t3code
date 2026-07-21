@@ -1,0 +1,55 @@
+import { describe, expect, it } from "vite-plus/test";
+
+import {
+  clearPullRequestFilters,
+  parsePullRequestSearch,
+  pullRequestSearchToInput,
+  resolvePullRequestSearch,
+} from "./pullRequestRoutes";
+
+describe("pullRequestRoutes", () => {
+  it("defaults to PRs authored by the current user", () => {
+    expect(resolvePullRequestSearch(parsePullRequestSearch({})).preset).toBe("mine");
+  });
+
+  it("normalizes advanced filters and preserves them as gh input", () => {
+    const search = resolvePullRequestSearch(
+      parsePullRequestSearch({
+        preset: "review_requested",
+        organization: "octo",
+        repository: "octo/repo",
+        query: "search results",
+        checks: "failure",
+        review: "required",
+        sort: "best-match",
+        limit: 999,
+      }),
+    );
+
+    expect(search.limit).toBe(100);
+    expect(pullRequestSearchToInput(search)).toMatchObject({
+      preset: "review_requested",
+      organization: "octo",
+      repository: "octo/repo",
+      query: "search results",
+      checks: "failure",
+      review: "required",
+      sort: "best-match",
+    });
+  });
+
+  it("resets filters without changing the selected environment", () => {
+    const search = parsePullRequestSearch({
+      environment: "environment-1",
+      preset: "mine",
+      organization: "octo",
+      query: "bug",
+    });
+
+    expect(clearPullRequestFilters(search)).toMatchObject({
+      environment: "environment-1",
+      preset: "mine",
+      state: "open",
+    });
+  });
+});

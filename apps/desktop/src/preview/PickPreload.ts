@@ -55,7 +55,7 @@ const applyAnnotationTheme = (
 ): void => {
   if (!theme) return;
   host.style.colorScheme = theme.colorScheme;
-  const variables = {
+  const variables: Record<string, string> = {
     "--t3-radius": theme.radius,
     "--t3-background": theme.background,
     "--t3-foreground": theme.foreground,
@@ -73,6 +73,18 @@ const applyAnnotationTheme = (
     "--t3-font-sans": theme.fontSans,
     "--t3-font-mono": theme.fontMono,
   };
+  if (theme.themeAccent) {
+    variables["--t3-theme-accent"] = theme.themeAccent;
+  }
+  if (theme.themeBackground) {
+    variables["--t3-theme-background"] = theme.themeBackground;
+  }
+  if (theme.themeForeground) {
+    variables["--t3-theme-foreground"] = theme.themeForeground;
+  }
+  if (theme.themeSidebar) {
+    variables["--t3-theme-sidebar"] = theme.themeSidebar;
+  }
   for (const [name, value] of Object.entries(variables)) {
     host.style.setProperty(name, value);
   }

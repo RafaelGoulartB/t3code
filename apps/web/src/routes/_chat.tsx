@@ -12,7 +12,7 @@ import {
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { resolveShortcutCommand } from "../keybindings";
-import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
+import { selectTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { isPreviewSupportedInRuntime } from "../previewStateStore";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
@@ -26,8 +26,12 @@ function ChatRouteGlobalShortcuts() {
     useHandleNewThread();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const terminalOpen = useTerminalUiStateStore((state) =>
-    routeThreadRef
-      ? selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef).terminalOpen
+    activeThread
+      ? selectTerminalUiState(state.terminalUiStateByProjectKey, {
+          environmentId: activeThread.environmentId,
+          projectId: activeThread.projectId,
+          worktreePath: activeThread.worktreePath ?? null,
+        }).terminalOpen
       : false,
   );
   // The `previewOpen` shortcut-context flag here uses the store-only value;
@@ -35,7 +39,8 @@ function ChatRouteGlobalShortcuts() {
   // which we invoke via the action bus to avoid duplicating the rule.
   const previewOpen = useRightPanelStore((state) =>
     routeThreadRef
-      ? selectActiveRightPanel(state.byThreadKey, routeThreadRef) === "preview"
+      ? selectActiveRightPanel(state.byThreadKey, routeThreadRef, state.scopeKeyByThreadKey) ===
+        "preview"
       : false,
   );
   useEffect(() => {

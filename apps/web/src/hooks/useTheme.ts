@@ -3,21 +3,47 @@ import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 
+import {
+  BUILTIN_PALETTES,
+  DEFAULT_PALETTE_ID,
+  getBuiltinPalette,
+  isPaletteEqual,
+  listBuiltinPalettes,
+  normalizeThemeColors,
+  normalizeThemeHex,
+  resolvePaletteColors,
+  type ThemeColors,
+  type ThemePalette,
+} from "../theme/palettes";
+
 const ThemePreference = Schema.Literals(["light", "dark", "system"]);
 type Theme = typeof ThemePreference.Type;
 type ThemeSnapshot = {
   theme: Theme;
   systemDark: boolean;
+  paletteId: string;
+  palette: ThemePalette;
+  paletteColors: ThemeColors;
+  resolvedTheme: "light" | "dark";
 };
 
 type DesktopThemeBridge = Pick<DesktopBridge, "setTheme">;
 
 const STORAGE_KEY = "t3code:theme";
+const PALETTE_STORAGE_KEY = "t3code:theme-palette";
+const CUSTOM_PALETTES_STORAGE_KEY = "t3code:theme-palettes-custom";
 const MEDIA_QUERY = "(prefers-color-scheme: dark)";
-const DEFAULT_THEME_SNAPSHOT: ThemeSnapshot = {
-  theme: "system",
-  systemDark: false,
-};
+const DEFAULT_THEME_SNAPSHOT: ThemeSnapshot = (() => {
+  const palette = BUILTIN_PALETTES[DEFAULT_PALETTE_ID]!;
+  return {
+    theme: "system",
+    systemDark: false,
+    paletteId: DEFAULT_PALETTE_ID,
+    palette,
+    paletteColors: resolvePaletteColors(palette, "light"),
+    resolvedTheme: "light",
+  };
+})();
 const THEME_COLOR_META_NAME = "theme-color";
 const DYNAMIC_THEME_COLOR_SELECTOR = `meta[name="${THEME_COLOR_META_NAME}"][data-dynamic-theme-color="true"]`;
 
@@ -27,6 +53,7 @@ export class ThemeStorageError extends Schema.TaggedErrorClass<ThemeStorageError
     operation: Schema.Literals(["read", "write"]),
     storageKey: Schema.String,
     theme: Schema.optional(ThemePreference),
+    paletteId: Schema.optional(Schema.String),
     cause: Schema.Defect(),
   },
 ) {
@@ -54,8 +81,11 @@ export const isDesktopThemeSyncError = Schema.is(DesktopThemeSyncError);
 let listeners: Array<() => void> = [];
 let lastSnapshot: ThemeSnapshot | null = null;
 let lastDesktopTheme: Theme | null = null;
-let lastAppliedTheme: ThemeSnapshot | null = null;
+let lastAppliedTheme: ThemeSnapshot["theme"] | null = null;
+let lastAppliedSystemDark = false;
+let lastAppliedPaletteColors: ThemeColors | null = null;
 let themeStorageReadFailure: ThemeStorageError | null = null;
+let customPalettesCache: Record<string, ThemePalette> | null = null;
 
 function emitChange() {
   for (const listener of listeners) listener();
@@ -67,6 +97,83 @@ function getSystemDark() {
     typeof window.matchMedia === "function" &&
     window.matchMedia(MEDIA_QUERY).matches
   );
+}
+
+function readCustomPalettes(): Record<string, ThemePalette> {
+  if (customPalettesCache) return customPalettesCache;
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(CUSTOM_PALETTES_STORAGE_KEY);
+    if (!raw) {
+      customPalettesCache = {};
+      return customPalettesCache;
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") {
+      customPalettesCache = {};
+      return customPalettesCache;
+    }
+    const next: Record<string, ThemePalette> = {};
+    for (const [id, candidate] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!candidate || typeof candidate !== "object") continue;
+      const palette = candidate as Partial<ThemePalette>;
+      if (
+        typeof palette.id !== "string" ||
+        typeof palette.name !== "string" ||
+        typeof palette.glyph !== "string" ||
+        (palette.fontStyle !== "sans" &&
+          palette.fontStyle !== "serif" &&
+          palette.fontStyle !== "mono") ||
+        !palette.dark
+      ) {
+        continue;
+      }
+      const dark = normalizeThemeColors(palette.dark);
+      if (!dark) continue;
+      const light = palette.light ? normalizeThemeColors(palette.light) : undefined;
+      next[id] = {
+        id: palette.id,
+        name: palette.name,
+        glyph: palette.glyph,
+        fontStyle: palette.fontStyle,
+        dark,
+        ...(light ? { light } : {}),
+      };
+    }
+    customPalettesCache = next;
+    return next;
+  } catch {
+    customPalettesCache = {};
+    return customPalettesCache;
+  }
+}
+
+function writeCustomPalettes(palettes: Record<string, ThemePalette>): void {
+  customPalettesCache = palettes;
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(CUSTOM_PALETTES_STORAGE_KEY, JSON.stringify(palettes));
+  } catch (cause) {
+    throw new ThemeStorageError({
+      operation: "write",
+      storageKey: CUSTOM_PALETTES_STORAGE_KEY,
+      cause,
+    });
+  }
+}
+
+export function listAllPalettes(): ThemePalette[] {
+  const customs = Object.values(readCustomPalettes());
+  return [...listBuiltinPalettes(), ...customs];
+}
+
+export function resolvePalette(id: string): ThemePalette {
+  const customs = readCustomPalettes();
+  const custom = customs[id];
+  if (custom) return custom;
+  const builtin = getBuiltinPalette(id);
+  if (builtin) return builtin;
+  return BUILTIN_PALETTES[DEFAULT_PALETTE_ID]!;
 }
 
 export function readThemePreference(): Theme {
@@ -100,6 +207,55 @@ export function writeThemePreference(theme: Theme): void {
   }
 }
 
+export function readPalettePreference(): string {
+  if (typeof window === "undefined") return DEFAULT_THEME_SNAPSHOT.paletteId;
+  let raw: string | null;
+  try {
+    raw = window.localStorage.getItem(PALETTE_STORAGE_KEY);
+  } catch (cause) {
+    throw new ThemeStorageError({
+      operation: "read",
+      storageKey: PALETTE_STORAGE_KEY,
+      cause,
+    });
+  }
+  if (raw && typeof raw === "string") {
+    if (getBuiltinPalette(raw) || readCustomPalettes()[raw]) {
+      return raw;
+    }
+  }
+  return DEFAULT_THEME_SNAPSHOT.paletteId;
+}
+
+export function writePalettePreference(paletteId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(PALETTE_STORAGE_KEY, paletteId);
+    themeStorageReadFailure = null;
+  } catch (cause) {
+    throw new ThemeStorageError({
+      operation: "write",
+      storageKey: PALETTE_STORAGE_KEY,
+      paletteId,
+      cause,
+    });
+  }
+}
+
+export function saveCustomPalette(palette: ThemePalette): void {
+  const custom = { ...readCustomPalettes(), [palette.id]: palette };
+  writeCustomPalettes(custom);
+}
+
+export function deleteCustomPalette(paletteId: string): void {
+  const custom = { ...readCustomPalettes() };
+  delete custom[paletteId];
+  writeCustomPalettes(custom);
+  if (readPalettePreference() === paletteId) {
+    writePalettePreference(DEFAULT_PALETTE_ID);
+  }
+}
+
 function getStored(): Theme {
   if (themeStorageReadFailure !== null) {
     return DEFAULT_THEME_SNAPSHOT.theme;
@@ -121,6 +277,27 @@ function getStored(): Theme {
       ...safeErrorLogAttributes(error),
     });
     return DEFAULT_THEME_SNAPSHOT.theme;
+  }
+}
+
+function getStoredPaletteId(): string {
+  try {
+    return readPalettePreference();
+  } catch (cause) {
+    const error = isThemeStorageError(cause)
+      ? cause
+      : new ThemeStorageError({
+          operation: "read",
+          storageKey: PALETTE_STORAGE_KEY,
+          cause,
+        });
+    themeStorageReadFailure = error;
+    console.error(error.message, {
+      operation: error.operation,
+      storageKey: error.storageKey,
+      ...safeErrorLogAttributes(error),
+    });
+    return DEFAULT_THEME_SNAPSHOT.paletteId;
   }
 }
 
@@ -159,6 +336,36 @@ function resolveBrowserChromeSurface(): HTMLElement {
   );
 }
 
+function applyPaletteToDocument(
+  palette: ThemePalette,
+  resolvedTheme: "light" | "dark",
+): ThemeColors {
+  const root: HTMLElement | null =
+    typeof document !== "undefined" ? document.documentElement : null;
+  const style = root?.style;
+  const hasLight = Boolean(palette.light);
+  if (resolvedTheme === "light" && !hasLight) {
+    style?.removeProperty("--background");
+    style?.removeProperty("--foreground");
+    style?.removeProperty("--app-chrome-background");
+    style?.removeProperty("--theme-accent");
+    style?.removeProperty("--sidebar");
+    return {
+      accent: "",
+      background: "",
+      foreground: "",
+      sidebar: "",
+    };
+  }
+  const colors = resolvePaletteColors(palette, resolvedTheme);
+  style?.setProperty("--background", colors.background);
+  style?.setProperty("--foreground", colors.foreground);
+  style?.setProperty("--app-chrome-background", colors.background);
+  style?.setProperty("--theme-accent", colors.accent);
+  style?.setProperty("--sidebar", colors.sidebar);
+  return colors;
+}
+
 export function syncBrowserChromeTheme() {
   if (typeof document === "undefined" || typeof getComputedStyle === "undefined") return;
   const surfaceColor = normalizeThemeColor(
@@ -176,7 +383,17 @@ export function syncBrowserChromeTheme() {
 function applyTheme(theme: Theme, suppressTransitions = false) {
   if (typeof document === "undefined" || typeof window === "undefined") return;
   const systemDark = theme === "system" ? getSystemDark() : false;
-  if (lastAppliedTheme?.theme === theme && lastAppliedTheme.systemDark === systemDark) {
+  const palette = resolvePalette(getStoredPaletteId());
+  const resolvedTheme: "light" | "dark" =
+    theme === "dark" || (theme === "system" && systemDark) ? "dark" : "light";
+  const paletteColors = applyPaletteToDocument(palette, resolvedTheme);
+
+  if (
+    lastAppliedTheme === theme &&
+    lastAppliedSystemDark === systemDark &&
+    lastAppliedPaletteColors &&
+    isPaletteEqual(lastAppliedPaletteColors, paletteColors)
+  ) {
     syncDesktopTheme(theme);
     return;
   }
@@ -184,9 +401,11 @@ function applyTheme(theme: Theme, suppressTransitions = false) {
   if (suppressTransitions) {
     document.documentElement.classList.add("no-transitions");
   }
-  const isDark = theme === "dark" || (theme === "system" && systemDark);
+  const isDark = resolvedTheme === "dark";
   document.documentElement.classList.toggle("dark", isDark);
-  lastAppliedTheme = { theme, systemDark };
+  lastAppliedTheme = theme;
+  lastAppliedSystemDark = systemDark;
+  lastAppliedPaletteColors = paletteColors;
   syncBrowserChromeTheme();
   syncDesktopTheme(theme);
   if (suppressTransitions) {
@@ -241,12 +460,23 @@ function getSnapshot(): ThemeSnapshot {
   if (typeof window === "undefined") return DEFAULT_THEME_SNAPSHOT;
   const theme = getStored();
   const systemDark = theme === "system" ? getSystemDark() : false;
+  const paletteId = getStoredPaletteId();
+  const palette = resolvePalette(paletteId);
+  const resolvedTheme: "light" | "dark" =
+    theme === "dark" || (theme === "system" && systemDark) ? "dark" : "light";
+  const paletteColors = resolvePaletteColors(palette, resolvedTheme);
 
-  if (lastSnapshot && lastSnapshot.theme === theme && lastSnapshot.systemDark === systemDark) {
+  if (
+    lastSnapshot &&
+    lastSnapshot.theme === theme &&
+    lastSnapshot.systemDark === systemDark &&
+    lastSnapshot.paletteId === paletteId &&
+    isPaletteEqual(lastSnapshot.paletteColors, paletteColors)
+  ) {
     return lastSnapshot;
   }
 
-  lastSnapshot = { theme, systemDark };
+  lastSnapshot = { theme, systemDark, paletteId, palette, paletteColors, resolvedTheme };
   return lastSnapshot;
 }
 
@@ -268,8 +498,15 @@ function subscribe(listener: () => void): () => void {
 
   // Listen for storage changes from other tabs
   const handleStorage = (e: StorageEvent) => {
-    if (e.key === STORAGE_KEY) {
+    if (
+      e.key === STORAGE_KEY ||
+      e.key === PALETTE_STORAGE_KEY ||
+      e.key === CUSTOM_PALETTES_STORAGE_KEY
+    ) {
       themeStorageReadFailure = null;
+      if (e.key === CUSTOM_PALETTES_STORAGE_KEY) {
+        customPalettesCache = null;
+      }
       applyTheme(getStored(), true);
       emitChange();
     }
@@ -286,9 +523,9 @@ function subscribe(listener: () => void): () => void {
 export function useTheme() {
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   const theme = snapshot.theme;
-
-  const resolvedTheme: "light" | "dark" =
-    theme === "system" ? (snapshot.systemDark ? "dark" : "light") : theme;
+  const paletteId = snapshot.paletteId;
+  const palette = snapshot.palette;
+  const paletteColors = snapshot.paletteColors;
 
   const setTheme = useCallback((next: Theme) => {
     if (typeof window === "undefined") return;
@@ -315,10 +552,115 @@ export function useTheme() {
     emitChange();
   }, []);
 
+  const setPalette = useCallback((nextId: string | null) => {
+    if (typeof window === "undefined") return;
+    if (typeof nextId !== "string" || nextId.length === 0) return;
+    const resolved = resolvePalette(nextId);
+    try {
+      writePalettePreference(resolved.id);
+    } catch (cause) {
+      const error = isThemeStorageError(cause)
+        ? cause
+        : new ThemeStorageError({
+            operation: "write",
+            storageKey: PALETTE_STORAGE_KEY,
+            paletteId: resolved.id,
+            cause,
+          });
+      console.error(error.message, {
+        operation: error.operation,
+        storageKey: error.storageKey,
+        paletteId: resolved.id,
+        ...safeErrorLogAttributes(error),
+      });
+      return;
+    }
+    applyTheme(getStored(), true);
+    emitChange();
+  }, []);
+
+  const setPaletteColor = useCallback(
+    (field: "accent" | "background" | "foreground" | "sidebar", value: string) => {
+      if (typeof window === "undefined") return;
+      const normalized = normalizeThemeHex(value);
+      if (!normalized) return;
+      const base = readCustomPalettes()[paletteId] ?? palette;
+      const nextDark = { ...base.dark, [field]: normalized };
+      const nextLight = base.light ? { ...base.light, [field]: normalized } : undefined;
+      const next: ThemePalette = {
+        ...base,
+        dark: nextDark,
+        ...(nextLight ? { light: nextLight } : {}),
+      };
+      try {
+        saveCustomPalette(next);
+        writePalettePreference(next.id);
+      } catch (cause) {
+        const error = isThemeStorageError(cause)
+          ? cause
+          : new ThemeStorageError({
+              operation: "write",
+              storageKey: CUSTOM_PALETTES_STORAGE_KEY,
+              paletteId: next.id,
+              cause,
+            });
+        console.error(error.message, {
+          operation: error.operation,
+          storageKey: error.storageKey,
+          paletteId: next.id,
+          ...safeErrorLogAttributes(error),
+        });
+        return;
+      }
+      applyTheme(getStored(), true);
+      emitChange();
+    },
+    [paletteId, palette],
+  );
+
+  const resetPalette = useCallback(() => {
+    if (typeof window === "undefined") return;
+    try {
+      if (readCustomPalettes()[paletteId]) {
+        deleteCustomPalette(paletteId);
+      }
+      writePalettePreference(DEFAULT_PALETTE_ID);
+    } catch (cause) {
+      const error = isThemeStorageError(cause)
+        ? cause
+        : new ThemeStorageError({
+            operation: "write",
+            storageKey: PALETTE_STORAGE_KEY,
+            paletteId: DEFAULT_PALETTE_ID,
+            cause,
+          });
+      console.error(error.message, {
+        operation: error.operation,
+        storageKey: error.storageKey,
+        paletteId: DEFAULT_PALETTE_ID,
+        ...safeErrorLogAttributes(error),
+      });
+      return;
+    }
+    applyTheme(getStored(), true);
+    emitChange();
+  }, [paletteId]);
+
   // Keep DOM in sync on mount/change
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
 
-  return { theme, setTheme, resolvedTheme } as const;
+  return {
+    theme,
+    setTheme,
+    resolvedTheme: snapshot.resolvedTheme,
+    palette,
+    paletteId,
+    paletteColors,
+    setPalette,
+    setPaletteColor,
+    resetPalette,
+    availablePalettes: listAllPalettes(),
+  } as const;
 }

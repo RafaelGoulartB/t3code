@@ -12,7 +12,7 @@ import {
   type RuntimeMode,
   type TurnId,
 } from "@t3tools/contracts";
-import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@t3tools/shared/git";
+import { DEFAULT_WORKTREE_BRANCH_PREFIX, isTemporaryWorktreeBranch } from "@t3tools/shared/git";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
@@ -163,15 +163,15 @@ function stalePendingRequestDetail(
   return `Stale pending ${requestKind} request: ${requestId}. Provider callback state does not survive app restarts or recovered sessions. Restart the turn to continue.`;
 }
 
-function buildGeneratedWorktreeBranchName(raw: string): string {
+function buildGeneratedWorktreeBranchName(prefix: string, raw: string): string {
   const normalized = raw
     .trim()
     .toLowerCase()
     .replace(/^refs\/heads\//, "")
     .replace(/['"`]/g, "");
 
-  const withoutPrefix = normalized.startsWith(`${WORKTREE_BRANCH_PREFIX}/`)
-    ? normalized.slice(`${WORKTREE_BRANCH_PREFIX}/`.length)
+  const withoutPrefix = normalized.startsWith(`${prefix}/`)
+    ? normalized.slice(`${prefix}/`.length)
     : normalized;
 
   const branchFragment = withoutPrefix
@@ -183,7 +183,7 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
     .replace(/[./_-]+$/g, "");
 
   const safeFragment = branchFragment.length > 0 ? branchFragment : "update";
-  return `${WORKTREE_BRANCH_PREFIX}/${safeFragment}`;
+  return `${prefix}/${safeFragment}`;
 }
 
 const make = Effect.gen(function* () {
@@ -650,13 +650,15 @@ const make = Effect.gen(function* () {
     readonly threadId: ThreadId;
     readonly branch: string | null;
     readonly worktreePath: string | null;
+    readonly worktreeBranchPrefix: string | null;
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
   }) {
     if (!input.branch || !input.worktreePath) {
       return;
     }
-    if (!isTemporaryWorktreeBranch(input.branch)) {
+    const worktreeBranchPrefix = input.worktreeBranchPrefix ?? DEFAULT_WORKTREE_BRANCH_PREFIX;
+    if (!isTemporaryWorktreeBranch(input.branch, worktreeBranchPrefix)) {
       return;
     }
 
@@ -664,7 +666,7 @@ const make = Effect.gen(function* () {
     const cwd = input.worktreePath;
     const attachments = input.attachments ?? [];
     yield* Effect.gen(function* () {
-      const { textGenerationModelSelection: modelSelection } =
+      const { textGenerationModelSelection: modelSelection, textGenerationPolicy: policy } =
         yield* serverSettingsService.getSettings;
 
       const generated = yield* textGeneration.generateBranchName({
@@ -672,10 +674,11 @@ const make = Effect.gen(function* () {
         message: input.messageText,
         ...(attachments.length > 0 ? { attachments } : {}),
         modelSelection,
+        policy,
       });
       if (!generated) return;
 
-      const targetBranch = buildGeneratedWorktreeBranchName(generated.branch);
+      const targetBranch = buildGeneratedWorktreeBranchName(worktreeBranchPrefix, generated.branch);
       if (targetBranch === oldBranch) return;
 
       const renamed = yield* gitWorkflow.renameBranch({ cwd, oldBranch, newBranch: targetBranch });
@@ -709,7 +712,7 @@ const make = Effect.gen(function* () {
     }) {
       const attachments = input.attachments ?? [];
       yield* Effect.gen(function* () {
-        const { textGenerationModelSelection: modelSelection } =
+        const { textGenerationModelSelection: modelSelection, textGenerationPolicy: policy } =
           yield* serverSettingsService.getSettings;
 
         const generated = yield* textGeneration.generateThreadTitle({
@@ -717,6 +720,7 @@ const make = Effect.gen(function* () {
           message: input.messageText,
           ...(attachments.length > 0 ? { attachments } : {}),
           modelSelection,
+          policy,
         });
         if (!generated) return;
 
@@ -789,6 +793,7 @@ const make = Effect.gen(function* () {
         threadId: event.payload.threadId,
         branch: thread.branch,
         worktreePath: thread.worktreePath,
+        worktreeBranchPrefix: thread.worktreeBranchPrefix ?? null,
         ...generationInput,
       }).pipe(Effect.forkScoped);
 

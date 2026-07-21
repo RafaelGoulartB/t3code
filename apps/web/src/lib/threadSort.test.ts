@@ -7,7 +7,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import type { Thread } from "../types";
-import { getLatestThreadForProject, sortThreads } from "./threadSort";
+import { getLatestThreadForProject, sortThreads, sortThreadsPinnedFirst } from "./threadSort";
 
 const LOCAL_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
 const PROJECT_ID = ProjectId.make("project-1");
@@ -239,5 +239,38 @@ describe("sortThreads", () => {
     );
 
     expect(latestThread?.id).toBe(ThreadId.make("thread-3"));
+  });
+});
+
+describe("sortThreadsPinnedFirst", () => {
+  it("places pinned threads first while preserving each group's configured order", () => {
+    const threads = [
+      makeThread({ id: ThreadId.make("thread-1"), createdAt: "2026-03-09T10:00:00.000Z" }),
+      makeThread({ id: ThreadId.make("thread-2"), createdAt: "2026-03-09T10:03:00.000Z" }),
+      makeThread({ id: ThreadId.make("thread-3"), createdAt: "2026-03-09T10:02:00.000Z" }),
+      makeThread({ id: ThreadId.make("thread-4"), createdAt: "2026-03-09T10:01:00.000Z" }),
+    ];
+
+    const sorted = sortThreadsPinnedFirst(threads, "created_at", (thread) =>
+      [ThreadId.make("thread-1"), ThreadId.make("thread-3")].includes(thread.id),
+    );
+
+    expect(sorted.map((thread) => thread.id)).toEqual([
+      ThreadId.make("thread-3"),
+      ThreadId.make("thread-1"),
+      ThreadId.make("thread-2"),
+      ThreadId.make("thread-4"),
+    ]);
+  });
+
+  it("keeps the normal ordering when no threads are pinned", () => {
+    const threads = [
+      makeThread({ id: ThreadId.make("thread-1"), createdAt: "2026-03-09T10:00:00.000Z" }),
+      makeThread({ id: ThreadId.make("thread-2"), createdAt: "2026-03-09T10:03:00.000Z" }),
+    ];
+
+    expect(sortThreadsPinnedFirst(threads, "created_at", () => false)).toEqual(
+      sortThreads(threads, "created_at"),
+    );
   });
 });

@@ -47,6 +47,12 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedClose.command, "terminal.close");
 
+    const parsedTerminalMaximize = yield* decode(KeybindingRule, {
+      key: "ctrl+shift+m",
+      command: "terminal.toggleMaximize",
+    });
+    assert.strictEqual(parsedTerminalMaximize.command, "terminal.toggleMaximize");
+
     const parsedDiffToggle = yield* decode(KeybindingRule, {
       key: "mod+d",
       command: "diff.toggle",
@@ -58,6 +64,12 @@ it.effect("parses keybinding rules", () =>
       command: "commandPalette.toggle",
     });
     assert.strictEqual(parsedCommandPalette.command, "commandPalette.toggle");
+
+    const parsedFilePalette = yield* decode(KeybindingRule, {
+      key: "ctrl+p",
+      command: "filePalette.toggle",
+    });
+    assert.strictEqual(parsedFilePalette.command, "filePalette.toggle");
 
     const parsedLocal = yield* decode(KeybindingRule, {
       key: "mod+shift+n",
@@ -113,8 +125,9 @@ it.effect("parses keybindings array payload", () =>
       { key: "mod+j", command: "terminal.toggle" },
       { key: "mod+d", command: "terminal.split", when: "terminalFocus" },
       { key: "mod+shift+d", command: "terminal.splitVertical", when: "terminalFocus" },
+      { key: "ctrl+shift+m", command: "terminal.toggleMaximize", when: "terminalFocus" },
     ]);
-    assert.lengthOf(parsed, 3);
+    assert.lengthOf(parsed, 4);
   }),
 );
 

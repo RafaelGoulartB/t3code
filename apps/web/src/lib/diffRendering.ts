@@ -125,11 +125,32 @@ export function getRenderablePatch(
 }
 
 export function resolveFileDiffPath(fileDiff: FileDiffMetadata): string {
-  const raw = fileDiff.name ?? fileDiff.prevName ?? "";
+  const raw = normalizeDiffPath(fileDiff.name ?? fileDiff.prevName ?? "");
+  return raw;
+}
+
+function normalizeDiffPath(path: string): string {
+  const raw = path;
   if (raw.startsWith("a/") || raw.startsWith("b/")) {
     return raw.slice(2);
   }
   return raw;
+}
+
+export function resolveFileDiffDiscardPaths(fileDiff: FileDiffMetadata): string[] {
+  const paths = new Set<string>();
+  for (const rawPath of [fileDiff.name, fileDiff.prevName]) {
+    if (!rawPath) continue;
+    const path = normalizeDiffPath(rawPath);
+    if (path.length > 0 && path !== "/dev/null") {
+      paths.add(path);
+    }
+  }
+  const fallback = resolveFileDiffPath(fileDiff);
+  if (paths.size === 0 && fallback.length > 0) {
+    paths.add(fallback);
+  }
+  return [...paths];
 }
 
 export function buildFileDiffRenderKey(fileDiff: FileDiffMetadata): string {

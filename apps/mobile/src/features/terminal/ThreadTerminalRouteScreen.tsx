@@ -199,7 +199,8 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       : null;
   const knownSessions = useKnownTerminalSessions({
     environmentId: selectedThread?.environmentId ?? null,
-    threadId: selectedThread?.id ?? null,
+    projectId: selectedThread?.projectId ?? null,
+    worktreePath: selectedThread?.worktreePath ?? null,
   });
   const runningSession = useMemo(
     () => pickRunningTerminalSessionForBootstrap(knownSessions),
@@ -309,7 +310,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       isEnvironmentReady &&
       !shouldRedirectToRunningTerminal
         ? {
-            threadId: selectedThread.id,
+            projectId: selectedThread.projectId,
             terminalId,
             cwd: launchLocation.cwd,
             worktreePath: launchLocation.worktreePath,
@@ -336,8 +337,13 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
     environmentId: selectedThread?.environmentId ?? null,
     terminal: terminalAttachInput,
   });
+  const activeTerminalWorktreePath =
+    terminalAttachInput?.worktreePath ??
+    launchLocation?.worktreePath ??
+    selectedThread?.worktreePath ??
+    null;
   const terminalKey = selectedThread
-    ? `${selectedThread.environmentId}:${selectedThread.id}:${terminalId}`
+    ? `${selectedThread.environmentId}:${selectedThread.projectId}:${activeTerminalWorktreePath ?? ""}:${terminalId}`
     : terminalId;
   const bufferReplayKey = useMemo(
     () => getTerminalBufferReplayKey({ terminalKey, fontSize }),
@@ -386,7 +392,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
     void openTerminal({
       environmentId: selectedThread.environmentId,
       input: {
-        threadId: selectedThread.id,
+        projectId: selectedThread.projectId,
         terminalId,
         cwd: terminalAttachInput.cwd,
         worktreePath: terminalAttachInput.worktreePath,
@@ -618,13 +624,15 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
     void writeTerminal({
       environmentId: selectedThread.environmentId,
       input: {
-        threadId: selectedThread.id,
+        projectId: selectedThread.projectId,
+        worktreePath: activeTerminalWorktreePath,
         terminalId,
         data: initialInput,
       },
     });
   }, [
     launchTargetKey,
+    activeTerminalWorktreePath,
     pendingLaunch?.initialInput,
     selectedThread,
     terminal.version,
@@ -701,13 +709,14 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       void writeTerminal({
         environmentId: selectedThread.environmentId,
         input: {
-          threadId: selectedThread.id,
+          projectId: selectedThread.projectId,
+          worktreePath: activeTerminalWorktreePath,
           terminalId,
           data,
         },
       });
     },
-    [isRunning, selectedThread, terminalId, writeTerminal],
+    [activeTerminalWorktreePath, isRunning, selectedThread, terminalId, writeTerminal],
   );
 
   const handleInput = useCallback(
@@ -762,7 +771,8 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       void resizeTerminal({
         environmentId: selectedThread.environmentId,
         input: {
-          threadId: selectedThread.id,
+          projectId: selectedThread.projectId,
+          worktreePath: activeTerminalWorktreePath,
           terminalId,
           cols: size.cols,
           rows: size.rows,
@@ -777,6 +787,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       readyBufferReplayKey,
       routeEnvironmentId,
       routeThreadId,
+      activeTerminalWorktreePath,
       resizeTerminal,
       scheduleBufferReplayReady,
       selectedThread,
@@ -865,7 +876,8 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       void closeTerminal({
         environmentId: selectedThread.environmentId,
         input: {
-          threadId: selectedThread.id,
+          projectId: selectedThread.projectId,
+          worktreePath: activeTerminalWorktreePath,
           terminalId,
         },
       });
@@ -998,7 +1010,8 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
     void clearTerminal({
       environmentId: selectedThread.environmentId,
       input: {
-        threadId: selectedThread.id,
+        projectId: selectedThread.projectId,
+        worktreePath: activeTerminalWorktreePath,
         terminalId,
       },
     });

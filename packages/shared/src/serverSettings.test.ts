@@ -2,6 +2,8 @@ import {
   DEFAULT_SERVER_SETTINGS,
   ProviderDriverKind,
   ProviderInstanceId,
+  conventionalCommitsTextGenerationPolicy,
+  repositoryConventionsTextGenerationPolicy,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import { createModelSelection } from "./model.ts";
@@ -193,5 +195,52 @@ describe("serverSettings helpers", () => {
       enabled: true,
       config: { homePath: "~/.codex" },
     });
+  });
+
+  it("switches the text generation policy kind and clears stale instructions", () => {
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      textGenerationPolicy: conventionalCommitsTextGenerationPolicy,
+    };
+
+    const next = applyServerSettingsPatch(current, {
+      textGenerationPolicy: { kind: "default" },
+    }).textGenerationPolicy;
+
+    expect(next.kind).toBe("default");
+    expect(next.commitInstructions).toBeUndefined();
+    expect(next.changeRequestInstructions).toBeUndefined();
+  });
+
+  it("replaces the policy wholesale when a full preset is provided", () => {
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      textGenerationPolicy: conventionalCommitsTextGenerationPolicy,
+    };
+
+    const next = applyServerSettingsPatch(current, {
+      textGenerationPolicy: repositoryConventionsTextGenerationPolicy,
+    }).textGenerationPolicy;
+
+    expect(next).toEqual(repositoryConventionsTextGenerationPolicy);
+  });
+
+  it("preserves inherited instructions when only the kind matches the current kind", () => {
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      textGenerationPolicy: conventionalCommitsTextGenerationPolicy,
+    };
+
+    const next = applyServerSettingsPatch(current, {
+      textGenerationPolicy: { kind: "conventional_commits" },
+    }).textGenerationPolicy;
+
+    expect(next.kind).toBe("conventional_commits");
+    expect(next.commitInstructions).toBe(
+      conventionalCommitsTextGenerationPolicy.commitInstructions,
+    );
+    expect(next.changeRequestInstructions).toBe(
+      conventionalCommitsTextGenerationPolicy.changeRequestInstructions,
+    );
   });
 });

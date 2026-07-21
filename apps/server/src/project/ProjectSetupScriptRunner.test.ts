@@ -94,7 +94,7 @@ describe("ProjectSetupScriptRunner", () => {
     () => {
       const open = vi.fn(() =>
         Effect.succeed({
-          threadId: "thread-1",
+          projectId: ProjectId.make("project-1"),
           terminalId: "setup-setup",
           cwd: "/repo/worktrees/a",
           worktreePath: "/repo/worktrees/a",
@@ -134,17 +134,18 @@ describe("ProjectSetupScriptRunner", () => {
           cwd: "/repo/worktrees/a",
         });
         expect(open).toHaveBeenCalledWith({
-          threadId: "thread-1",
+          projectId: "project-1",
+          worktreePath: "/repo/worktrees/a",
           terminalId: "setup-setup",
           cwd: "/repo/worktrees/a",
-          worktreePath: "/repo/worktrees/a",
           env: {
             T3CODE_PROJECT_ROOT: "/repo/project",
             T3CODE_WORKTREE_PATH: "/repo/worktrees/a",
           },
         });
         expect(write).toHaveBeenCalledWith({
-          threadId: "thread-1",
+          projectId: "project-1",
+          worktreePath: "/repo/worktrees/a",
           terminalId: "setup-setup",
           data: "bun install\r",
         });

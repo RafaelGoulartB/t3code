@@ -12,6 +12,7 @@ import { useBrowserPointerStore } from "~/browser/browserPointerStore";
 import { applyPreviewDesktopState, type DesktopPreviewOverlay } from "~/previewStateStore";
 import { previewEnvironment } from "~/state/preview";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { previewScopeForThread } from "~/rightPanelScope";
 
 import { previewBridge } from "./previewBridge";
 
@@ -54,7 +55,7 @@ export function usePreviewBridge(input: { threadRef: ScopedThreadRef; tabId: str
       lastReportedKind.current = reported.lastReportedKind;
       void reportStatus({
         environmentId: threadRef.environmentId,
-        input: reported.input,
+        input: { ...reported.input, scope: previewScopeForThread(threadRef) },
       });
     });
     return unsubscribe;
