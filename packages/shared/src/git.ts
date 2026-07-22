@@ -20,6 +20,13 @@ export function normalizeWorktreeBranchPrefix(value: string): string | null {
   const normalized = value.trim();
   return WORKTREE_BRANCH_PREFIX_PATTERN.test(normalized) ? normalized : null;
 }
+// Canonical form is `t3code/<8 hex>`. Older mobile builds generated `t3code/<uuid>`
+// via Crypto.randomUUID() (always RFC 4122 v4), so the matcher also accepts exactly
+// that shape — version nibble `4`, variant nibble `[89ab]` — to keep those threads
+// eligible for branch regeneration without loosening beyond what was ever generated.
+const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(
+  `^(?:[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$`,
+);
 
 /**
  * Sanitize an arbitrary string into a valid, lowercase git refName fragment.
@@ -110,7 +117,10 @@ export function buildTemporaryWorktreeBranchName(
   if (!randomHex) {
     throw new Error("A random hex generator is required to create a temporary worktree branch.");
   }
-  const token = randomHex(4).toLowerCase();
+  const token = randomHex(4)
+    .toLowerCase()
+    .replace(/[^0-9a-f]/g, "")
+    .slice(0, 8);
   return `${prefix.trim()}/${token}`;
 }
 
@@ -118,8 +128,15 @@ export function isTemporaryWorktreeBranch(
   refName: string,
   prefix = DEFAULT_WORKTREE_BRANCH_PREFIX,
 ): boolean {
-  const escapedPrefix = prefix.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`^${escapedPrefix}\\/[0-9a-f]{8}$`).test(refName.trim());
+  const normalizedRefName = refName.trim();
+  const normalizedPrefix = prefix.trim();
+  const prefixWithSeparator = `${normalizedPrefix}/`;
+  if (!normalizedRefName.startsWith(prefixWithSeparator)) {
+    return false;
+  }
+  return TEMP_WORKTREE_BRANCH_PATTERN.test(
+    normalizedRefName.slice(prefixWithSeparator.length).toLowerCase(),
+  );
 }
 
 /**

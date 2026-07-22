@@ -21,6 +21,7 @@ import {
   resolveEnvModeLabel,
   resolveEffectiveEnvMode,
   resolveLockedWorkspaceLabel,
+  shouldShowEnvironmentIndicator,
 } from "./BranchToolbar.logic";
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
@@ -69,6 +70,7 @@ interface MobileRunContextSelectorProps {
   environmentId: EnvironmentId;
   availableEnvironments: readonly EnvironmentOption[] | undefined;
   showEnvironmentPicker: boolean;
+  showEnvironmentIndicator: boolean;
   onEnvironmentChange: ((environmentId: EnvironmentId) => void) | undefined;
   effectiveEnvMode: EnvMode;
   activeWorktreePath: string | null;
@@ -88,6 +90,7 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
   environmentId,
   availableEnvironments,
   showEnvironmentPicker,
+  showEnvironmentIndicator,
   onEnvironmentChange,
   effectiveEnvMode,
   activeWorktreePath,
@@ -118,7 +121,7 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
   const isLocked = envLocked || envModeLocked;
   const EnvironmentIcon = activeEnvironment?.isPrimary ? MonitorIcon : CloudIcon;
   const showProjectGroup = availableProjects.length > 0;
-  const icon = showEnvironmentPicker ? (
+  const icon = showEnvironmentIndicator ? (
     // Button's base styles apply `-mx-0.5` to descendant SVGs, which eats 4px
     // out of whatever gap we set. mx-0! cancels that so gap-0.5 reads as 2px.
     <span className="inline-flex shrink-0 items-center gap-0.5">
@@ -132,7 +135,7 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
     <>
       {icon}
       <span className="min-w-0 truncate">
-        {showEnvironmentPicker ? (activeEnvironment?.label ?? "Run on") : workspaceLabel}
+        {showEnvironmentIndicator ? (activeEnvironment?.label ?? "Run on") : workspaceLabel}
       </span>
     </>
   );
@@ -305,6 +308,12 @@ export const BranchToolbar = memo(function BranchToolbar({
   const showEnvironmentPicker = Boolean(
     availableEnvironments && availableEnvironments.length > 1 && onEnvironmentChange,
   );
+  const activeEnvironmentOption =
+    availableEnvironments?.find((env) => env.environmentId === environmentId) ?? null;
+  const showEnvironmentIndicator = shouldShowEnvironmentIndicator({
+    activeEnvironment: activeEnvironmentOption,
+    canPickEnvironment: showEnvironmentPicker,
+  });
   const isMobile = useIsMobile();
 
   if (!hasActiveThread || !activeProject) return null;
@@ -318,6 +327,7 @@ export const BranchToolbar = memo(function BranchToolbar({
           environmentId={environmentId}
           availableEnvironments={availableEnvironments}
           showEnvironmentPicker={showEnvironmentPicker}
+          showEnvironmentIndicator={showEnvironmentIndicator}
           onEnvironmentChange={onEnvironmentChange}
           effectiveEnvMode={effectiveEnvMode}
           activeWorktreePath={activeWorktreePath}
@@ -338,14 +348,14 @@ export const BranchToolbar = memo(function BranchToolbar({
             availableProjects={availableProjects}
             onProjectChange={onProjectChange}
           />
-          {isGitRepo && showEnvironmentPicker && availableEnvironments && onEnvironmentChange && (
+          {showEnvironmentIndicator && availableEnvironments && (
             <>
               <Separator orientation="vertical" className="mx-0.5 h-3.5!" />
               <BranchToolbarEnvironmentSelector
                 envLocked={envLocked}
                 environmentId={environmentId}
                 availableEnvironments={availableEnvironments}
-                onEnvironmentChange={onEnvironmentChange}
+                {...(showEnvironmentPicker && onEnvironmentChange ? { onEnvironmentChange } : {})}
               />
             </>
           )}
