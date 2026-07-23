@@ -31,6 +31,7 @@ import {
 import {
   dedupeRemoteBranchesWithLocalMatches,
   parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
+  normalizeGitRemoteUrl,
 } from "@t3tools/shared/git";
 import { compactTraceAttributes } from "@t3tools/shared/observability";
 import { decodeJsonResult } from "@t3tools/shared/schemaJson";
@@ -262,14 +263,6 @@ function sanitizeRemoteName(value: string): string {
     .replace(/[^A-Za-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return sanitized.length > 0 ? sanitized : "fork";
-}
-
-function normalizeRemoteUrl(value: string): string {
-  return value
-    .trim()
-    .replace(/\/+$/g, "")
-    .replace(/\.git$/i, "")
-    .toLowerCase();
 }
 
 function parseRemoteFetchUrls(stdout: string): Map<string, string> {
@@ -1132,7 +1125,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     "ensureRemote",
   )(function* (input) {
     const preferredName = sanitizeRemoteName(input.preferredName);
-    const normalizedTargetUrl = normalizeRemoteUrl(input.url);
+    const normalizedTargetUrl = normalizeGitRemoteUrl(input.url);
     const remoteFetchUrls = yield* runGitStdout(
       "GitVcsDriver.ensureRemote.listRemoteUrls",
       input.cwd,
@@ -1140,7 +1133,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     ).pipe(Effect.map((stdout) => parseRemoteFetchUrls(stdout)));
 
     for (const [remoteName, remoteUrl] of remoteFetchUrls.entries()) {
-      if (normalizeRemoteUrl(remoteUrl) === normalizedTargetUrl) {
+      if (normalizeGitRemoteUrl(remoteUrl) === normalizedTargetUrl) {
         return remoteName;
       }
     }
