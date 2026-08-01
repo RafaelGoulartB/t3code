@@ -19,7 +19,9 @@ const clientSettings: ClientSettings = {
   dismissedProviderUpdateNotificationKeys: [],
   diffIgnoreWhitespace: true,
   favorites: [],
+  glassOpacity: 80,
   providerModelPreferences: {},
+  sidebarAutoSettleAfterDays: 3,
   sidebarProjectGroupingMode: "repository_path",
   sidebarProjectGroupingOverrides: {
     "environment-1:/tmp/project-a": "separate",
@@ -32,6 +34,8 @@ const clientSettings: ClientSettings = {
   sidebarThreadSortOrder: "created_at",
   sidebarThreadPreviewCount: 6,
   rightPanelSharingMode: "thread",
+  pullRequestGroupingMode: "flat",
+  sidebarV2Enabled: false,
   timestampFormat: "24-hour",
   terminalFontSize: 14,
   wordWrap: true,

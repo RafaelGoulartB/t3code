@@ -511,6 +511,12 @@ function pullRequestReviewStatus(
   }
 }
 
+function pullRequestHasConflicts(raw: Record<string, unknown>): boolean {
+  const mergeable = stringValue(raw.mergeable)?.trim().toUpperCase();
+  const mergeStateStatus = stringValue(raw.mergeStateStatus)?.trim().toUpperCase();
+  return mergeable === "CONFLICTING" || mergeStateStatus === "DIRTY";
+}
+
 function normalizeListResult(raw: unknown, limit: number): GitHubPullRequestListResult {
   const items = Array.isArray(raw)
     ? raw
@@ -534,6 +540,7 @@ function normalizeListResult(raw: unknown, limit: number): GitHubPullRequestList
             labels: labelValues(record.labels),
             ciStatus: pullRequestCiStatus(record.statusCheckRollup),
             reviewStatus: pullRequestReviewStatus(record.reviewDecision),
+            hasConflicts: pullRequestHasConflicts(record),
           };
         })
         .filter((item): item is NonNullable<typeof item> => item !== null)
@@ -556,6 +563,8 @@ const GRAPHQL_PULL_REQUEST_SEARCH_QUERY = `query($searchQuery: String!, $limit: 
         updatedAt
         labels(first: 20) { nodes { name color } }
         reviewDecision
+        mergeable
+        mergeStateStatus
         statusCheckRollup { state }
       }
     }
@@ -796,6 +805,7 @@ function normalizeDetails(raw: unknown, repository: string): GitHubPullRequestDe
     reviewDecision: nullableStringValue(record.reviewDecision),
     mergeable: nullableStringValue(record.mergeable),
     mergeStateStatus: nullableStringValue(record.mergeStateStatus),
+    hasConflicts: pullRequestHasConflicts(record),
     labels: labelValues(record.labels),
     assignees: actorValues(record.assignees),
     reviewRequests: actorValues(record.reviewRequests),

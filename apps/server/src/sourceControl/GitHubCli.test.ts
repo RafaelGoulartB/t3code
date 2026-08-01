@@ -197,6 +197,7 @@ describe("GitHubCli.layer", () => {
                       labels: [],
                       reviewDecision: "CHANGES_REQUESTED",
                       statusCheckRollup: { state: "FAILURE" },
+                      mergeable: "CONFLICTING",
                     },
                     {
                       number: 9,
@@ -209,6 +210,7 @@ describe("GitHubCli.layer", () => {
                       labels: [],
                       reviewDecision: "REVIEW_REQUIRED",
                       statusCheckRollup: { state: "PENDING" },
+                      mergeStateStatus: "DIRTY",
                     },
                   ],
                 },
@@ -225,10 +227,14 @@ describe("GitHubCli.layer", () => {
       });
 
       assert.deepStrictEqual(
-        result.items.map((item) => ({ ciStatus: item.ciStatus, reviewStatus: item.reviewStatus })),
+        result.items.map((item) => ({
+          ciStatus: item.ciStatus,
+          reviewStatus: item.reviewStatus,
+          hasConflicts: item.hasConflicts,
+        })),
         [
-          { ciStatus: "failure", reviewStatus: "changes_requested" },
-          { ciStatus: "pending", reviewStatus: "pending" },
+          { ciStatus: "failure", reviewStatus: "changes_requested", hasConflicts: true },
+          { ciStatus: "pending", reviewStatus: "pending", hasConflicts: true },
         ],
       );
     }).pipe(Effect.provide(layer)),
@@ -317,6 +323,7 @@ describe("GitHubCli.layer", () => {
 
       assert.equal(result.title, "Detailed PR");
       assert.equal(result.reviewDecision, "REVIEW_REQUIRED");
+      assert.equal(result.hasConflicts, false);
       assert.equal(result.checks[0]?.bucket, "pass");
       assert.equal(result.reviewThreads[0]?.path, "src/main.ts");
       assert.equal(result.reviewThreads[0]?.comments[0]?.body, "Please extract this helper.");
@@ -576,6 +583,61 @@ describe("GitHubCli.layer", () => {
           baseRefName: "main",
           headRefName: "feature/pr-list",
           state: "open",
+        },
+      ]);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("keeps pull requests from gh versions without headRepository.nameWithOwner", () =>
+    // gh < 2.47 (e.g. Ubuntu-packaged 2.46) exports headRepository as
+    // {id, name} only. These entries must decode instead of being dropped,
+    // with nameWithOwner rebuilt from the owner login.
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(
+        Effect.succeed(
+          processOutput(
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify([
+              {
+                number: 2829,
+                title: "Codex turn mapping",
+                url: "https://github.com/pingdotgg/codething-mvp/pull/2829",
+                baseRefName: "main",
+                headRefName: "t3code/codex-turn-mapping",
+                state: "OPEN",
+                mergedAt: null,
+                isCrossRepository: false,
+                headRepository: {
+                  id: "R_kgDORLtfbQ",
+                  name: "codething-mvp",
+                },
+                headRepositoryOwner: {
+                  id: "MDEyOk9yZ2FuaXphdGlvbjg5MTkxNzI3",
+                  login: "pingdotgg",
+                },
+              },
+            ]),
+          ),
+        ),
+      );
+
+      const gh = yield* GitHubCli.GitHubCli;
+      const result = yield* gh.listOpenPullRequests({
+        cwd: "/repo",
+        headSelector: "t3code/codex-turn-mapping",
+      });
+
+      assert.deepStrictEqual(result, [
+        {
+          number: 2829,
+          title: "Codex turn mapping",
+          url: "https://github.com/pingdotgg/codething-mvp/pull/2829",
+          baseRefName: "main",
+          headRefName: "t3code/codex-turn-mapping",
+          state: "open",
+          isCrossRepository: false,
+          headRepositoryNameWithOwner: "pingdotgg/codething-mvp",
+          headRepositoryOwnerLogin: "pingdotgg",
         },
       ]);
     }).pipe(Effect.provide(layer)),
