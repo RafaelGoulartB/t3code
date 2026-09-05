@@ -452,9 +452,11 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
         Effect.flatMap(() =>
           Effect.try({
             try: () =>
-              parser.decode(data) as ReadonlyArray<
-                RpcMessage.FromClientEncoded | RpcMessage.FromServerEncoded
-              >,
+              (
+                parser.decode(data) as ReadonlyArray<
+                  RpcMessage.FromClientEncoded | RpcMessage.FromServerEncoded
+                >
+              ).map(normalizeProtocolErrorResponse),
             catch: (cause) =>
               new AcpError.AcpProtocolParseError({
                 operation: "decode-wire-message",
@@ -610,6 +612,33 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
     notify: sendNotification,
   } satisfies AcpPatchedProtocol;
 });
+
+function normalizeProtocolErrorResponse(
+  message: RpcMessage.FromClientEncoded | RpcMessage.FromServerEncoded,
+): RpcMessage.FromClientEncoded | RpcMessage.FromServerEncoded {
+  if (message._tag !== "Exit" || message.exit._tag !== "Failure") {
+    return message;
+  }
+
+  let normalized = false;
+  const cause = message.exit.cause.map((reason) => {
+    if (reason._tag !== "Die" || !isProtocolError(reason.defect)) {
+      return reason;
+    }
+    normalized = true;
+    return { _tag: "Fail" as const, error: reason.defect };
+  });
+
+  return normalized
+    ? {
+        ...message,
+        exit: {
+          _tag: "Failure",
+          cause,
+        },
+      }
+    : message;
+}
 
 function isProtocolError(
   value: unknown,
