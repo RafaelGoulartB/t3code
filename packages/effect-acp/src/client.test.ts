@@ -777,4 +777,48 @@ it.layer(NodeServices.layer)("effect-acp client", (it) => {
         yield* Scope.close(scope, Exit.void);
       }),
   );
+
+  it.effect("preserves standard JSON-RPC error codes and data for core ACP requests", () =>
+    Effect.gen(function* () {
+      const { stdio, input, output } = yield* makeInMemoryStdio();
+      const acp = yield* AcpClient.make(stdio);
+
+      const promptFiber = yield* acp.agent
+        .prompt({
+          sessionId: "kiro-session-1",
+          prompt: [{ type: "text", text: "continue" }],
+        })
+        .pipe(Effect.forkScoped);
+
+      const outbound = yield* Queue.take(output);
+      const decodedPrompt = yield* decodePromptRequestLine(outbound);
+      const ErrorResponse = Schema.Struct({
+        jsonrpc: Schema.Literal("2.0"),
+        id: Schema.Union([Schema.Number, Schema.String]),
+        error: AcpSchema.Error,
+      });
+      yield* Queue.offer(
+        input,
+        yield* encodeJsonl(ErrorResponse, {
+          jsonrpc: "2.0",
+          id: decodedPrompt.id,
+          error: {
+            code: -32603,
+            message: "Internal error",
+            data: { reason: "context limit exceeded" },
+          },
+        }),
+      );
+
+      const error = yield* Fiber.join(promptFiber).pipe(Effect.flip);
+      assert.instanceOf(error, AcpError.AcpRequestError);
+      assert.deepInclude(error, {
+        code: -32603,
+        errorMessage: "Internal error",
+        data: { reason: "context limit exceeded" },
+        method: "session/prompt",
+        operation: "receive-response",
+      });
+    }),
+  );
 });
